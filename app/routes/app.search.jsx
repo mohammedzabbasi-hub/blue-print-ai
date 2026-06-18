@@ -2,6 +2,7 @@
 import { Link, useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import {
+  buildCreators,
   buildRecommendations,
   listSavedBriefs,
   listSavedCreatives,
@@ -19,6 +20,7 @@ export const loader = async ({ request }) => {
     listSavedCreatives(session.shop, 25),
   ]);
   const recommendations = buildRecommendations(merchantData.products, merchantData.orders);
+  const creators = buildCreators(merchantData.products, creatives);
 
   if (!query) {
     return {
@@ -29,6 +31,7 @@ export const loader = async ({ request }) => {
         creatives: [],
         briefs: [],
         recommendations: [],
+        creators: [],
       },
     };
   }
@@ -68,6 +71,15 @@ export const loader = async ({ request }) => {
           recommendation.nextAction,
           recommendation.productTitle,
           recommendation.expectedImpact,
+        ]),
+      ),
+      creators: creators.filter((creator) =>
+        matcher([
+          creator.name,
+          creator.handle,
+          creator.specialty,
+          creator.productTitle,
+          creator.projectedImpact,
         ]),
       ),
     },
@@ -146,6 +158,17 @@ export default function SearchResults() {
                   title={recommendation.title}
                   subtitle={recommendation.nextAction}
                   href={buildResultActionUrl(recommendation)}
+                />
+              )}
+            </ResultGroup>
+
+            <ResultGroup title="Creators" items={results.creators}>
+              {(creator) => (
+                <SearchResult
+                  key={creator.id}
+                  title={creator.name}
+                  subtitle={`${creator.handle} · ${creator.productTitle} · ${creator.fitScore}/100 fit`}
+                  href={`/app/creators/${encodeURIComponent(creator.id)}`}
                 />
               )}
             </ResultGroup>

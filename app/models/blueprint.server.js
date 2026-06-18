@@ -1,4 +1,4 @@
-import db from "../db.server";
+import db from "../db.server.js";
 
 const PRODUCT_QUERY = `#graphql
   query BluePrintAIProducts {
@@ -57,7 +57,10 @@ export const DEMO_PRODUCTS = [
     status: "ACTIVE",
     description:
       "Lightweight skincare serum for dry, stressed skin with a clean daily routine positioning.",
-    featuredImage: null,
+    featuredImage: {
+      url: "/blueprint-assets/thumb-acne.jpg",
+      altText: "Hydrating skincare product creative thumbnail",
+    },
     price: "38.00",
     currencyCode: "USD",
     totalInventory: 128,
@@ -70,7 +73,10 @@ export const DEMO_PRODUCTS = [
     status: "ACTIVE",
     description:
       "Portable muscle recovery tool for busy customers who want quick relief after training or long workdays.",
-    featuredImage: null,
+    featuredImage: {
+      url: "/blueprint-assets/thumb-posture.jpg",
+      altText: "Recovery product creative thumbnail",
+    },
     price: "74.00",
     currencyCode: "USD",
     totalInventory: 42,
@@ -83,7 +89,10 @@ export const DEMO_PRODUCTS = [
     status: "ACTIVE",
     description:
       "Insulated travel cup positioned around commute convenience, leakproof storage, and giftability.",
-    featuredImage: null,
+    featuredImage: {
+      url: "/blueprint-assets/thumb-blender.jpg",
+      altText: "Everyday product creative thumbnail",
+    },
     price: "29.00",
     currencyCode: "USD",
     totalInventory: 210,
@@ -702,6 +711,158 @@ export function buildRecommendations(products, orders = []) {
   }));
 }
 
+export function buildCreators(products = [], creatives = []) {
+  const specialties = [
+    "UGC product demos",
+    "Founder-style explainers",
+    "Problem-solution hooks",
+    "Before-and-after proof",
+    "Offer and CTA testing",
+  ];
+
+  const creatorNames = [
+    "Maya Chen",
+    "Jordan Ellis",
+    "Avery Brooks",
+    "Sam Rivera",
+    "Nora Patel",
+    "Kai Morgan",
+  ];
+
+  const seedProducts = products.length ? products : DEMO_PRODUCTS;
+
+  return seedProducts.slice(0, 6).map((product, index) => {
+    const savedForProduct = creatives.filter(
+      (creative) => creative.productId === product.id,
+    );
+    const score = Math.min(98, 78 + ((index * 7) % 17) + savedForProduct.length * 2);
+
+    return {
+      id: `creator-${slugify(product.id || product.title || index)}`,
+      name: creatorNames[index % creatorNames.length],
+      handle: `@${creatorNames[index % creatorNames.length].toLowerCase().replace(/\s+/g, "")}`,
+      status: index < 2 ? "Active" : index === 2 ? "Reviewing" : "Available",
+      specialty: specialties[index % specialties.length],
+      productId: product.id,
+      productTitle: product.title,
+      fitScore: score,
+      avgHookScore: Math.min(99, score + 3),
+      responseRate: `${72 + ((index * 5) % 19)}%`,
+      creativeCount: Math.max(1, savedForProduct.length + 2 + (index % 3)),
+      projectedImpact:
+        index % 2 === 0
+          ? "Strong match for fast demo creative and first-frame product proof."
+          : "Best used for objection handling, story-led hooks, and offer clarity.",
+      notes: [
+        `Pair with ${product.title} for a product-led creative test.`,
+        "Use one hook, one proof shot, and one direct CTA per concept.",
+        "Keep claims grounded in Shopify product details and visible usage.",
+      ],
+      creatives: savedForProduct.map((creative) => ({
+        id: creative.id,
+        title: creative.title,
+        angle: creative.angle || "Saved analysis",
+        href: `/app/creative-library?creativeId=${encodeURIComponent(creative.id)}`,
+      })),
+    };
+  });
+}
+
+export function findCreator(creators = [], creatorId = "") {
+  return creators.find((creator) => creator.id === creatorId) || creators[0] || null;
+}
+
+export function buildDataImportJobs(merchantData, requests = []) {
+  const productCount = merchantData.products?.length || 0;
+  const orderCount = merchantData.orders?.length || 0;
+  const latestProduct = merchantData.products?.[0];
+
+  return [
+    {
+      id: "shopify-products",
+      source: "Shopify catalog",
+      status: productCount ? "Synced" : "Demo fallback",
+      records: productCount,
+      updatedAt: latestProduct?.updatedAt || new Date().toISOString(),
+      detail: productCount
+        ? "Product titles, descriptions, prices, images, inventory, and status are available to the creative engine."
+        : "No live products were returned, so demo products are being used for review-safe app behavior.",
+      href: "/app/ad-briefs",
+    },
+    {
+      id: "shopify-orders",
+      source: "Shopify orders",
+      status: merchantData.orderScopeEnabled ? "Connected" : "Scope unavailable",
+      records: orderCount,
+      updatedAt: merchantData.orders?.[0]?.createdAt || "",
+      detail: merchantData.orderScopeEnabled
+        ? "Recent order totals are normalized into revenue and recommendation signals."
+        : "Order import requires the read_orders scope and Shopify approval.",
+      href: "/app/revenue-blueprint",
+    },
+    {
+      id: "workspace-requests",
+      source: "Workspace activity",
+      status: requests.length ? "Tracked" : "Ready",
+      records: requests.length,
+      updatedAt: requests[0]?.createdAt || "",
+      detail: "Exports, disconnect requests, and workspace operations are stored per authenticated Shopify shop.",
+      href: "/app/activity-log",
+    },
+  ];
+}
+
+export function buildActivityEvents({
+  briefs = [],
+  creatives = [],
+  analyses = [],
+  blueprints = [],
+  requests = [],
+}) {
+  return [
+    ...briefs.map((brief) => ({
+      id: `brief-${brief.id}`,
+      type: "Brief",
+      title: `Generated brief for ${brief.productTitle}`,
+      detail: brief.angle,
+      href: `/app/ad-briefs?productId=${encodeURIComponent(brief.productId)}&briefId=${encodeURIComponent(brief.id)}`,
+      createdAt: brief.createdAt,
+    })),
+    ...creatives.map((creative) => ({
+      id: `creative-${creative.id}`,
+      type: "Creative",
+      title: creative.title,
+      detail: `${creative.productTitle} · ${creative.angle || "Saved analysis"}`,
+      href: `/app/creative-library?creativeId=${encodeURIComponent(creative.id)}`,
+      createdAt: creative.createdAt,
+    })),
+    ...analyses.map((analysis) => ({
+      id: `analysis-${analysis.id}`,
+      type: "Analysis",
+      title: `Analyzed ${analysis.fileName || analysis.productTitle}`,
+      detail: analysis.savedToLibrary ? "Saved to creative library" : "Analysis only",
+      href: "/app/video-analysis",
+      createdAt: analysis.createdAt,
+    })),
+    ...blueprints.map((blueprint) => ({
+      id: `blueprint-${blueprint.id}`,
+      type: "Blueprint",
+      title: "Revenue blueprint generated",
+      detail: blueprint.payload?.summary || "Action plan created",
+      href: `/app/revenue-blueprint?blueprintId=${encodeURIComponent(blueprint.id)}`,
+      createdAt: blueprint.createdAt,
+    })),
+    ...requests.map((request) => ({
+      id: `request-${request.id}`,
+      type: "Workspace",
+      title: request.type.replace(/_/g, " "),
+      detail: request.status,
+      href: "/app/settings",
+      createdAt: request.createdAt,
+    })),
+  ].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
 export function buildBrief(product, context = {}) {
   const selected = product || DEMO_PRODUCTS[0];
   const sourceLabel = context.creativeTitle
@@ -756,6 +917,14 @@ export function buildBrief(product, context = {}) {
     creatorDirection:
       `${sourceLabel} Use natural, specific language. Avoid unsupported performance guarantees and keep claims tied to visible product benefits.`,
   };
+}
+
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64) || "creator";
 }
 
 export function buildActionUrl(item = {}) {

@@ -77,11 +77,14 @@ export const loader = async ({ request }) => {
 };
 
 const navItems = [
-  { to: "/app", label: "Home", icon: "□" },
-  { to: "/app/creative-library", label: "Creatives", icon: "▱" },
-  { to: "/app/recommendations", label: "Recommendations", icon: "✓" },
+  { to: "/app", label: "Command Center", icon: "□" },
+  { to: "/app/creative-library", label: "Creative Library", icon: "▱" },
+  { to: "/app/video-analysis", label: "AI Review Studio", icon: "▷" },
   { to: "/app/ad-briefs", label: "Ad Briefs", icon: "✎" },
+  { to: "/app/recommendations", label: "Recommendations", icon: "✓" },
   { to: "/app/revenue-blueprint", label: "Revenue Blueprint", icon: "↗" },
+  { to: "/app/creators", label: "Creators", icon: "◎" },
+  { to: "/app/data-import", label: "Data Import", icon: "▤" },
   { to: "/app/settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -100,7 +103,7 @@ export default function App() {
             <span className="bp-brand-mark">✦</span>
             <span>
               <strong>BluePrintAI</strong>
-              <small>Creative intelligence</small>
+              <small>Creative OS</small>
             </span>
           </Link>
 
