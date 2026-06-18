@@ -5,9 +5,13 @@ import { Link } from "react-router";
 export function Icon({ name = "sparkles", className = "" }) {
   const glyphs = {
     activity: "↗",
+    bag: "▢",
     brief: "▤",
+    bulb: "♢",
     calendar: "▣",
     check: "✓",
+    cursor: "⌁",
+    database: "◫",
     dollar: "$",
     filter: "▽",
     grid: "□",
@@ -26,7 +30,9 @@ export function Icon({ name = "sparkles", className = "" }) {
     support: "◎",
     trash: "⌧",
     upload: "↥",
+    users: "♙",
     video: "▷",
+    view: "◉",
     warning: "!",
     zap: "ϟ",
   };

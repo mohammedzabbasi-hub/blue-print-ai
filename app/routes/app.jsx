@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import { useState } from "react";
 import { Link, Outlet, useLoaderData, useLocation, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -77,15 +78,15 @@ export const loader = async ({ request }) => {
 };
 
 const navItems = [
-  { to: "/app", label: "Command Center", icon: "□" },
-  { to: "/app/creative-library", label: "Creative Library", icon: "▱" },
-  { to: "/app/video-analysis", label: "AI Review Studio", icon: "▷" },
-  { to: "/app/ad-briefs", label: "Ad Briefs", icon: "✎" },
-  { to: "/app/recommendations", label: "Recommendations", icon: "✓" },
-  { to: "/app/revenue-blueprint", label: "Revenue Blueprint", icon: "↗" },
-  { to: "/app/creators", label: "Creators", icon: "◎" },
-  { to: "/app/data-import", label: "Data Import", icon: "▤" },
-  { to: "/app/settings", label: "Settings", icon: "⚙" },
+  { to: "/app", label: "Command Center", icon: "grid" },
+  { to: "/app/creative-library", label: "Creative Library", icon: "layers" },
+  { to: "/app/video-analysis", label: "AI Review Studio", icon: "video" },
+  { to: "/app/ad-briefs", label: "Ad Briefs", icon: "brief" },
+  { to: "/app/recommendations", label: "Recommendations", icon: "list" },
+  { to: "/app/revenue-blueprint", label: "Revenue Blueprint", icon: "activity" },
+  { to: "/app/creators", label: "Creators", icon: "users" },
+  { to: "/app/data-import", label: "Data Import", icon: "database" },
+  { to: "/app/settings", label: "Settings", icon: "settings" },
 ];
 
 export default function App() {
@@ -119,7 +120,7 @@ export default function App() {
                   to={item.to}
                   className={active ? "bp-side-link bp-side-link-active" : "bp-side-link"}
                 >
-                  <span aria-hidden="true">{item.icon}</span>
+                  <ShellIcon name={item.icon} />
                   {item.label}
                 </Link>
               );
@@ -127,12 +128,16 @@ export default function App() {
           </nav>
 
           <div className="bp-sidebar-note">
-            <span>{billingStatus.bypassed ? "Development workspace" : "Merchant workspace"}</span>
+            <span>Workspace</span>
             <p>
               {billingStatus.bypassed
-                ? "Billing checks are bypassed in this environment."
-                : "Billing is checked through Shopify."}
+                ? "Development billing is bypassed; Shopify auth and sessions remain active."
+                : "Billing, auth, and shop data stay scoped through Shopify."}
             </p>
+          </div>
+          <div className="bp-sidebar-footer-links">
+            <Link to="/app/activity-log">Activity</Link>
+            <Link to="/app/settings">Settings</Link>
           </div>
         </aside>
 
@@ -148,10 +153,10 @@ export default function App() {
               ☰
             </button>
             <div className="bp-topbar-store">
-              <span className="bp-topbar-store-icon" aria-hidden="true">▢</span>
+              <ShellIcon className="bp-topbar-store-icon" name="bag" />
               <div>
-                <span>Active store</span>
-                <strong>{shop}</strong>
+                <span>Active shop</span>
+                <strong>{formatShopName(shop)}</strong>
               </div>
             </div>
             <form
@@ -173,6 +178,10 @@ export default function App() {
                 value={searchQuery}
               />
             </form>
+            <span className="bp-status-pill">
+              <ShellIcon name={billingStatus.bypassed ? "sparkles" : "check"} />
+              {billingStatus.bypassed ? "Demo" : "Live"}
+            </span>
             <button
               className="bp-topbar-bell"
               type="button"
@@ -180,7 +189,7 @@ export default function App() {
               aria-expanded={notificationsOpen}
               onClick={() => setNotificationsOpen((value) => !value)}
             >
-              ♢
+              <ShellIcon name="bell" />
               {notifications.length > 0 && (
                 <span className="bp-notification-count">{notifications.length}</span>
               )}
@@ -305,6 +314,40 @@ function buildNotifications({
     .filter((item) => item.createdAt)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 8);
+}
+
+function formatShopName(shop = "") {
+  const base = shop.replace(".myshopify.com", "").replace(/[-_]+/g, " ");
+  return base
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || shop;
+}
+
+function ShellIcon({ name, className = "" }) {
+  const glyphs = {
+    activity: "〽",
+    bag: "▢",
+    bell: "♢",
+    brief: "▤",
+    check: "✓",
+    database: "◫",
+    grid: "▦",
+    layers: "▱",
+    list: "☷",
+    search: "⌕",
+    settings: "⚙",
+    sparkles: "✣",
+    users: "♙",
+    video: "▻",
+  };
+
+  return (
+    <span className={`bp-shell-icon ${className}`} aria-hidden="true">
+      {glyphs[name] || glyphs.sparkles}
+    </span>
+  );
 }
 
 function formatNotificationTime(value) {
