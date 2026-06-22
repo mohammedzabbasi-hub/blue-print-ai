@@ -11,9 +11,38 @@ import {
 import { EmptyState, Icon, Notice, PageHeader, ProductThumbnail } from "../components/blueprint-ui";
 
 export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const query = String(url.searchParams.get("q") || "").trim();
+  const isLocalDemoHost = ["localhost", "127.0.0.1", "::1"].includes(
+    url.hostname,
+  );
+  const shouldUseDemoBypass =
+    isLocalDemoHost ||
+    process.env.NODE_ENV !== "production" ||
+    process.env.DEV_BYPASS_SHOPIFY_AUTH === "true" ||
+    url.searchParams.get("demo") === "1";
+
+  if (shouldUseDemoBypass) {
+    return {
+      query,
+      merchantData: {
+        errors: query
+          ? [
+              "Search is running in local demo mode. Start Shopify auth to search live merchant data.",
+            ]
+          : [],
+      },
+      results: {
+        products: [],
+        creatives: [],
+        briefs: [],
+        recommendations: [],
+        creators: [],
+      },
+    };
+  }
+
+  const { admin, session } = await authenticate.admin(request);
   const merchantData = await loadMerchantData(admin, session);
   const [briefs, creatives] = await Promise.all([
     listSavedBriefs(session.shop, 25),

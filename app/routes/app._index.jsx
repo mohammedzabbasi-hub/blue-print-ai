@@ -1,372 +1,421 @@
-/* eslint-disable react/prop-types */
-import { Link, useLoaderData, useRouteError } from "react-router";
-import { boundary } from "@shopify/shopify-app-react-router/server";
-import { authenticate } from "../shopify.server";
-import {
-  buildDashboard,
-  buildCreativeConcepts,
-  loadMerchantData,
-} from "../models/blueprint.server";
-import { Icon, Notice } from "../components/blueprint-ui";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 
-export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
-  const merchantData = await loadMerchantData(admin, session);
+import TopBar from "../components/dashboard/TopBar";
+import StatCards from "../components/dashboard/StatCards";
+import PerformanceChart from "../components/dashboard/PerformanceChart";
+import TopCreatives from "../components/dashboard/TopCreatives";
+import PatternInsights from "../components/dashboard/PatternInsights";
+import NextActions from "../components/dashboard/NextActions";
 
-  return {
-    merchantData,
-    dashboard: buildDashboard(merchantData),
-    concepts: buildCreativeConcepts(merchantData.products).slice(0, 8),
-  };
+import { getEngineAnalysis } from "../services/engineApi";
+import { getSelectedShopId } from "../lib/accountContext";
+
+export const meta = () => {
+  return [{ title: "Dashboard | BluePrintAI" }];
 };
 
-const dateRanges = ["Last 7 days", "Last 30 days", "Last 90 days"];
-const hookPatterns = [
-  { label: "product demo", value: 31 },
-  { label: "benefit proof", value: 26 },
-  { label: "before-after", value: 18 },
-];
-const creatorStyles = [
-  { label: "customer testimonial", value: 54 },
-  { label: "founder-led demo", value: 46 },
-];
+function safeJsonParse(value, fallback = {}) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-export default function Dashboard() {
-  const { merchantData, dashboard, concepts } = useLoaderData();
-  const shopName = merchantData.shop.name || merchantData.shop.myshopifyDomain;
-  const usingDemoProducts = merchantData.products.some((product) => product.source === "demo");
-  const creatives = buildCreatives(merchantData.products, concepts, dashboard);
-  const totalViews = creatives.reduce((sum, item) => sum + item.views, 0);
-  const totalOrders = Math.max(
-    dashboard.orderCount,
-    creatives.reduce((sum, item) => sum + item.orders, 0),
-  );
-  const totalClicks = creatives.reduce((sum, item) => sum + item.clicks, 0);
-  const ctr = totalViews ? (totalClicks / totalViews) * 100 : 2.15;
-  const roas = dashboard.revenue > 0 && totalOrders > 0 ? 5.8 : 3.4;
-  const stats = [
-    { label: "Total Creatives", value: creatives.length, icon: "video", tone: "sky" },
-    { label: "Total Views", value: compact(totalViews), icon: "view", tone: "emerald" },
-    { label: "Orders Generated", value: compact(totalOrders), icon: "bag", tone: "amber" },
-    { label: "Avg. CTR", value: `${ctr.toFixed(2)}%`, icon: "cursor", tone: "blue" },
-    { label: "Avg. ROAS", value: `${roas.toFixed(2)}x`, icon: "activity", tone: "rose" },
-    { label: "Recommendations", value: dashboard.actionItems.length + 5, icon: "bulb", tone: "violet" },
+function getStoredUser() {
+  if (typeof window === "undefined") return {};
+  return safeJsonParse(localStorage.getItem("user"), {});
+}
+
+function getStoredSelectedShop() {
+  if (typeof window === "undefined") return {};
+  return safeJsonParse(localStorage.getItem("selectedShop"), {});
+}
+
+function isDemoUser(user = getStoredUser()) {
+  return user?.is_demo === true;
+}
+
+function toShopId(value) {
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function getAllowedDemoShopIds(user = getStoredUser()) {
+  const ids = Array.isArray(user?.shop_ids) ? user.shop_ids : [];
+  return ids.map(toShopId).filter(Boolean);
+}
+
+function getLocalStorageItem(key) {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(key);
+}
+
+function getSafeSelectedShopId() {
+  if (typeof window === "undefined") return null;
+  return getSelectedShopId();
+}
+
+function getDashboardShopId(
+  user = getStoredUser(),
+  selectedShop = getStoredSelectedShop()
+) {
+  if (isDemoUser(user)) {
+    const allowedIds = getAllowedDemoShopIds(user);
+
+    const demoCandidates = [
+      getSafeSelectedShopId(),
+      selectedShop?.id,
+      selectedShop?.shop_id,
+      getLocalStorageItem("selectedShopId"),
+      getLocalStorageItem("demoShopId"),
+      getLocalStorageItem("shop_id"),
+      getLocalStorageItem("connected_shop_id"),
+    ];
+
+    const selectedAllowedId = demoCandidates
+      .map(toShopId)
+      .find((id) => id && allowedIds.includes(id));
+
+    return selectedAllowedId || allowedIds[0] || null;
+  }
+
+  const realCandidates = [
+    getSafeSelectedShopId(),
+    selectedShop?.id,
+    selectedShop?.shop_id,
+    getLocalStorageItem("connected_shop_id"),
+    getLocalStorageItem("shop_id"),
+    user?.shop_id,
+    user?.shopId,
+  ];
+
+  return realCandidates.map(toShopId).find(Boolean) || null;
+}
+
+function itemMatchesSearch(item, query) {
+  if (!query) return true;
+  if (item === null || item === undefined) return false;
+
+  if (typeof item === "string" || typeof item === "number") {
+    return String(item).toLowerCase().includes(query);
+  }
+
+  if (Array.isArray(item)) {
+    return item.some((entry) => itemMatchesSearch(entry, query));
+  }
+
+  if (typeof item === "object") {
+    return Object.values(item).some((value) => itemMatchesSearch(value, query));
+  }
+
+  return false;
+}
+
+function cloneDashboardData(data) {
+  if (!data) return data;
+
+  if (typeof structuredClone === "function") {
+    return structuredClone(data);
+  }
+
+  return JSON.parse(JSON.stringify(data));
+}
+
+function filterDashboardData(data, search) {
+  const query = search.trim().toLowerCase();
+
+  if (!query || !data) return data;
+
+  const clone = cloneDashboardData(data);
+
+  function filterArrays(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+
+    Object.keys(obj).forEach((key) => {
+      const value = obj[key];
+
+      if (Array.isArray(value)) {
+        obj[key] = value.filter((item) => itemMatchesSearch(item, query));
+      } else if (value && typeof value === "object") {
+        filterArrays(value);
+      }
+    });
+
+    return obj;
+  }
+
+  return filterArrays(clone);
+}
+
+function buildEmptyDashboardData(user, selectedShop) {
+  const shopName =
+    selectedShop?.shop_name ||
+    selectedShop?.name ||
+    user?.shop_name ||
+    user?.business_name ||
+    "Your Shop";
+
+  return {
+    isEmptyState: true,
+    shop: {
+      id: selectedShop?.id || selectedShop?.shop_id || user?.shop_id || null,
+      shop_name: shopName,
+      name: shopName,
+    },
+    totals: {
+      creatives: 0,
+      analyses: 0,
+      briefs: 0,
+      recommendations: 0,
+      views: 0,
+      clicks: 0,
+      orders: 0,
+      revenue: 0,
+      total_revenue: 0,
+      avg_ctr: 0,
+      ctr: 0,
+      avg_roas: 0,
+      roas: 0,
+      conversion_rate: 0,
+    },
+    patterns: {
+      hooks: {},
+      creator_types: {},
+      humor_styles: {},
+      delivery_styles: {},
+    },
+    recommendations: [],
+    next_actions: [],
+    top_creatives: [],
+    leaderboard: [],
+    issues: [],
+    strategy: {},
+  };
+}
+
+function dashboardHasData(data) {
+  const totals = data?.totals || {};
+
+  const numericFields = [
+    "creatives",
+    "total_creatives",
+    "views",
+    "total_views",
+    "clicks",
+    "orders",
+    "total_orders",
+    "revenue",
+    "total_revenue",
+    "briefs",
+    "recommendations",
   ];
 
   return (
-    <div className="bp-page bp-dashboard-command">
-      <section className="bp-dashboard-rangebar" aria-label="Dashboard date range">
+    numericFields.some((field) => Number(totals[field] || 0) > 0) ||
+    (data?.leaderboard || []).length > 0 ||
+    (data?.top_creatives || []).length > 0 ||
+    (data?.recommendations || []).length > 0 ||
+    (data?.next_actions || []).length > 0
+  );
+}
+
+export default function DashboardRoute() {
+  const [dateRange, setDateRange] = useState("30d");
+  const [search, setSearch] = useState("");
+  const [dashboardData, setDashboardData] = useState(null);
+  const [shopId, setShopId] = useState(null);
+  const [demoAccount, setDemoAccount] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const isEmptyDashboard = dashboardData?.isEmptyState === true;
+
+  const filteredDashboardData = useMemo(() => {
+    return filterDashboardData(dashboardData, search);
+  }, [dashboardData, search]);
+
+  useEffect(() => {
+    const currentUser = getStoredUser();
+    const currentSelectedShop = getStoredSelectedShop();
+
+    setDemoAccount(isDemoUser(currentUser));
+    setShopId(getDashboardShopId(currentUser, currentSelectedShop));
+  }, []);
+
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const currentUser = getStoredUser();
+        const currentSelectedShop = getStoredSelectedShop();
+        const currentDemoAccount = isDemoUser(currentUser);
+
+        let nextDashboardData = null;
+
+        if (!shopId) {
+          if (currentDemoAccount) {
+            setError("No allowed demo shop is available for this account.");
+            return;
+          }
+
+          nextDashboardData = buildEmptyDashboardData(
+            currentUser,
+            currentSelectedShop
+          );
+        } else {
+          const engineData = await getEngineAnalysis(shopId);
+
+          const data = {
+            ...engineData,
+            shop: {
+              id: engineData.shop_id,
+              shop_name: engineData.shop_name,
+              name: engineData.shop_name,
+            },
+            totals: engineData.totals || {},
+            patterns: engineData.patterns || {},
+            recommendations: engineData.strategy?.recommendations || [],
+            next_actions: engineData.strategy?.recommendations || [],
+            top_creatives: engineData.scored_creatives || [],
+            leaderboard: engineData.scored_creatives || [],
+            issues: engineData.issues || [],
+            strategy: engineData.strategy || {},
+          };
+
+          nextDashboardData =
+            !currentDemoAccount && !dashboardHasData(data)
+              ? {
+                  ...buildEmptyDashboardData(
+                    currentUser,
+                    currentSelectedShop
+                  ),
+                  ...data,
+                  isEmptyState: true,
+                }
+              : data;
+        }
+
+        setDashboardData(nextDashboardData);
+      } catch (err) {
+        console.error("Dashboard load error:", err);
+        setError(
+          "Could not load dashboard data. Make sure the backend is running."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboard();
+  }, [demoAccount, shopId]);
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-6">
+        <TopBar
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          search={search}
+          onSearchChange={setSearch}
+        />
+
         <div>
-          <strong>Dashboard</strong>
-          <span>Performance overview</span>
-        </div>
-        <div className="bp-range-tabs" role="tablist" aria-label="Time period">
-          {dateRanges.map((range) => (
-            <button
-              className={range === "Last 30 days" ? "bp-range-tab bp-range-tab-active" : "bp-range-tab"}
-              key={range}
-              type="button"
-            >
-              {range}
-            </button>
-          ))}
-        </div>
-      </section>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            {dashboardData?.shop?.shop_name ||
+              dashboardData?.shop?.name ||
+              "BluePrintAI"}{" "}
+            Dashboard
+          </h1>
 
-      <header className="bp-dashboard-title">
-        <h1>{formatShopName(shopName)} Dashboard</h1>
-        <p>
-          Shopify creative intelligence, performance patterns, and next actions for this connected shop.
-        </p>
-      </header>
+          <p className="text-sm text-muted-foreground mt-1">
+            TikTok Shop creative intelligence, performance patterns, and next
+            actions for this connected shop.
+          </p>
+        </div>
 
-      <div className="bp-section-stack bp-dashboard-stack">
-        {usingDemoProducts && (
-          <Notice tone="info">
-            No Shopify products were available, so the app is using demo products to keep the workspace populated.
-          </Notice>
+        {loading && (
+          <div className="glass rounded-xl p-5 text-sm text-muted-foreground">
+            Loading dashboard data...
+          </div>
         )}
 
-        {merchantData.errors.map((error) => (
-          <Notice tone="warning" key={error}>
+        {error && (
+          <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-5 text-sm text-rose-300">
             {error}
-          </Notice>
-        ))}
-
-        <section className="bp-ttsa-stat-grid" aria-label="Dashboard stats">
-          {stats.map((stat) => (
-            <article className="bp-ttsa-stat" data-tone={stat.tone} key={stat.label}>
-              <div className="bp-ttsa-stat-top">
-                <span className="bp-ttsa-stat-icon">
-                  <Icon name={stat.icon} />
-                </span>
-                <span className="bp-live-pill">Live</span>
-              </div>
-              <strong>{stat.value}</strong>
-              <p>{stat.label}</p>
-            </article>
-          ))}
-        </section>
-
-        <section className="bp-dashboard-main-grid">
-          <PerformanceTrend totalViews={totalViews} totalOrders={totalOrders} ctr={ctr} />
-          <PatternInsights />
-        </section>
-
-        <section className="bp-dashboard-main-grid bp-dashboard-lower-grid">
-          <TopCreatives creatives={creatives} roas={roas} />
-          <RecommendedActions actions={dashboard.actionItems} product={merchantData.products[0]} />
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function PerformanceTrend({ totalViews, totalOrders, ctr }) {
-  const points = Array.from({ length: 30 }, (_, index) => {
-    const progress = (index + 1) / 30;
-    const wave = 0.82 + Math.sin(index * 1.5) * 0.045 + Math.cos(index * 0.75) * 0.03;
-    return Math.max(1, Math.round(Math.max(totalViews, 120000) * progress * wave));
-  });
-  const path = buildPath(points, 600, 190, 14);
-  const area = `${path} L 586 176 L 14 176 Z`;
-
-  return (
-    <article className="bp-ttsa-panel bp-performance-panel">
-      <header className="bp-panel-heading">
-        <div>
-          <h2>Performance Trend</h2>
-          <p>Estimated trend from connected shop performance</p>
-        </div>
-        <div className="bp-metric-tabs">
-          <button className="bp-metric-tab bp-metric-tab-active" type="button">Views</button>
-          <button className="bp-metric-tab" type="button">Orders</button>
-          <button className="bp-metric-tab" type="button">Roas</button>
-        </div>
-      </header>
-      <div className="bp-chart-summary">
-        <strong>{compact(totalViews)}</strong>
-        <span>Total Views</span>
-        <mark>{ctr.toFixed(2)}% CTR</mark>
-        <small>{compact(totalOrders)} orders generated</small>
-      </div>
-      <div className="bp-chart-wrap">
-        <svg viewBox="0 0 600 190" preserveAspectRatio="none" role="img" aria-label="Performance trend chart">
-          <defs>
-            <linearGradient id="bpChartFill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#5bc6ff" stopOpacity=".30" />
-              <stop offset="100%" stopColor="#5bc6ff" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={area} fill="url(#bpChartFill)" />
-          <path d={path} fill="none" stroke="#5bc6ff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
-        </svg>
-        <div className="bp-chart-labels">
-          {["Day 5", "Day 10", "Day 15", "Day 20", "Day 25", "Day 30"].map((label) => (
-            <span key={label}>{label}</span>
-          ))}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function PatternInsights() {
-  return (
-    <article className="bp-ttsa-panel bp-pattern-panel">
-      <header className="bp-compact-heading">
-        <span><Icon name="sparkles" /></span>
-        <div>
-          <h2>Pattern Insights</h2>
-          <p>Win-rate by creative type</p>
-        </div>
-      </header>
-      <PatternGroup title="Hook Types" items={hookPatterns} />
-      <PatternGroup title="Creator Styles" items={creatorStyles} />
-    </article>
-  );
-}
-
-function PatternGroup({ title, items }) {
-  return (
-    <div className="bp-pattern-group">
-      <h3>{title}</h3>
-      {items.map((item) => (
-        <div className="bp-pattern-row" key={item.label}>
-          <div>
-            <span>{item.label}</span>
-            <strong>{item.value}%</strong>
           </div>
-          <i style={{ width: `${item.value}%` }} />
-        </div>
-      ))}
+        )}
+
+        {!loading && !error && (
+          <>
+            <StatCards data={dashboardData} />
+
+            {isEmptyDashboard && (
+              <div className="glass rounded-xl p-6">
+                <h2 className="text-[16px] font-semibold text-foreground mb-1">
+                  No shop data yet
+                </h2>
+
+                <p className="text-sm text-muted-foreground">
+                  Import data or upload creatives to populate your dashboard.
+                </p>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Link
+                    to="/app/data-import"
+                    className="px-4 py-2 rounded-lg bg-sky-500 text-white text-sm font-semibold hover:bg-sky-400 transition-colors"
+                  >
+                    Import Data
+                  </Link>
+
+                  <Link
+                    to="/app/video-analysis"
+                    className="px-4 py-2 rounded-lg border border-white/10 text-slate-200 text-sm font-semibold hover:border-white/20 hover:text-white transition-colors"
+                  >
+                    Upload Creative
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {!isEmptyDashboard && search.trim() && (
+              <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-4 text-sm text-sky-200">
+                Showing dashboard matches for &quot;{search}&quot;.
+              </div>
+            )}
+
+            {!isEmptyDashboard && (
+              <>
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  <div className="xl:col-span-2">
+                    <PerformanceChart
+                      dateRange={dateRange}
+                      data={dashboardData}
+                    />
+                  </div>
+
+                  <div>
+                    <PatternInsights data={filteredDashboardData} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  <div className="xl:col-span-2">
+                    <TopCreatives data={filteredDashboardData} />
+                  </div>
+
+                  <div>
+                    <NextActions data={filteredDashboardData} />
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
-}
-
-function TopCreatives({ creatives, roas }) {
-  return (
-    <article className="bp-ttsa-panel bp-top-creatives">
-      <header className="bp-panel-heading">
-        <div>
-          <h2>Top Performing Creatives</h2>
-          <p>Ranked by orders from your saved creative stats</p>
-        </div>
-      </header>
-      <div className="bp-creative-table-wrap">
-        <table className="bp-creative-table">
-          <thead>
-            <tr>
-              {["#", "Creative", "Product", "Views", "Orders", "CTR", "Est. ROAS"].map((heading) => (
-                <th key={heading}>{heading}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {creatives.map((creative, index) => (
-              <tr key={creative.id}>
-                <td>{index + 1}</td>
-                <td>
-                  <div className="bp-creative-cell">
-                    <span><Icon name="video" /></span>
-                    <div>
-                      <strong>{creative.title}</strong>
-                      <small>{creative.angle}</small>
-                    </div>
-                  </div>
-                </td>
-                <td>{creative.product}</td>
-                <td>{compact(creative.views)}</td>
-                <td>{compact(creative.orders)}</td>
-                <td>{creative.ctr.toFixed(2)}%</td>
-                <td><b>{roas.toFixed(1)}x</b> <Icon name="activity" /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </article>
-  );
-}
-
-function RecommendedActions({ actions, product }) {
-  const visibleActions = [
-    {
-      title: "Scale product demo creatives",
-      body: `${product?.title || "Your leading product"} is ready for more demo variations using a clear opening angle.`,
-      priority: "High",
-      href: `/app/ad-briefs?productId=${encodeURIComponent(product?.id || "")}`,
-      icon: "zap",
-    },
-    {
-      title: "Recruit more testimonial creators",
-      body: "Customer-led proof is showing up as a strong creative pattern. Prioritize creators with similar delivery.",
-      priority: "High",
-      href: "/app/creators",
-      icon: "users",
-    },
-    {
-      title: "Turn the top creative into variants",
-      body: "Test new CTAs, benefit-first openings, and product-page objections from the current top performer.",
-      priority: "Medium",
-      href: "/app/revenue-blueprint",
-      icon: "activity",
-    },
-    ...actions.map((action) => ({
-      title: action.title,
-      body: action.detail,
-      priority: "Medium",
-      href: action.href,
-      icon: "sparkles",
-    })),
-  ].slice(0, 3);
-
-  return (
-    <aside className="bp-ttsa-panel bp-actions-panel">
-      <header className="bp-actions-heading">
-        <span><Icon name="zap" /></span>
-        <div>
-          <h2>Recommended Actions</h2>
-          <p>Generated from connected shop patterns</p>
-        </div>
-      </header>
-      <div className="bp-action-stack">
-        {visibleActions.map((action) => (
-          <article className="bp-ttsa-action-card" key={action.title}>
-            <span className="bp-action-icon"><Icon name={action.icon} /></span>
-            <div>
-              <div className="bp-action-title-row">
-                <h3>{action.title}</h3>
-                <mark>{action.priority}</mark>
-              </div>
-              <p>{action.body}</p>
-              <Link to={action.href}>{action.title.includes("creator") ? "Find Creators" : "Generate Brief"} →</Link>
-            </div>
-          </article>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
-function buildCreatives(products, concepts, dashboard) {
-  const pool = products.length ? products : [{ id: "demo", title: "Hero Product" }];
-
-  return Array.from({ length: 8 }, (_, index) => {
-    const product = pool[index % pool.length];
-    const concept = concepts[index % Math.max(concepts.length, 1)];
-    const views = 177409 + (index + 1) * 83127 + (product.title.length % 7) * 18421;
-    const clicks = Math.max(1200, Math.round(views * (0.012 + (index % 4) * 0.007)));
-    const orders = Math.max(25, dashboard.orderCount || Math.round(clicks * (0.07 + (index % 3) * 0.015)));
-
-    return {
-      id: `${product.id}-${index}`,
-      title: `Demo Shopify creative for ${product.title}`,
-      product: product.title,
-      angle: concept?.angle || ["product demo", "benefit proof", "before-after"][index % 3],
-      views,
-      clicks,
-      orders,
-      ctr: (clicks / views) * 100,
-    };
-  });
-}
-
-function buildPath(data, width, height, padding) {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const points = data.map((value, index) => {
-    const x = padding + (index / (data.length - 1)) * (width - padding * 2);
-    const y = padding + (1 - (value - min) / range) * (height - padding * 2);
-    return [x, y];
-  });
-
-  return points.reduce((path, [x, y], index) => {
-    if (index === 0) return `M ${x} ${y}`;
-    const [previousX, previousY] = points[index - 1];
-    const controlX1 = previousX + (x - previousX) * 0.5;
-    const controlX2 = x - (x - previousX) * 0.5;
-    return `${path} C ${controlX1} ${previousY}, ${controlX2} ${y}, ${x} ${y}`;
-  }, "");
-}
-
-function compact(value) {
-  const number = Number(value || 0);
-  if (number >= 1000000) return `${(number / 1000000).toFixed(1)}M`;
-  if (number >= 1000) return `${(number / 1000).toFixed(1)}K`;
-  return number.toLocaleString();
-}
-
-function formatShopName(shop = "") {
-  const base = shop.replace(".myshopify.com", "").replace(/[-_]+/g, " ");
-  return base
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ") || "BluePrintAI";
-}
-
-export function ErrorBoundary() {
-  return boundary.error(useRouteError());
 }

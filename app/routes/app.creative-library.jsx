@@ -1,592 +1,527 @@
-/* eslint-disable react/prop-types */
-import { useMemo, useState } from "react";
-import { Link, useLoaderData } from "react-router";
-import { authenticate } from "../shopify.server";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
+import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
 import {
-  buildCreativeConcepts,
-  listSavedCreatives,
-  loadMerchantData,
-} from "../models/blueprint.server";
-import {
-  EmptyState,
-  Icon,
-  Notice,
-  PageHeader,
-  PrimaryButton,
-  ProductThumbnail,
-  SecondaryButton,
-} from "../components/blueprint-ui";
+  API_BASE,
+  getAuthHeaders,
+  getSelectedShopId,
+  isDemoAccount,
+} from "../lib/accountContext";
 
-const ANGLE_LABELS = {
-  problem: "Problem-Solution Demo",
-  proof: "Before-After Proof",
-  giftable: "Giftable Upgrade",
-  objection: "Objection Handling",
-  social: "Social Proof",
-  founder: "Founder Story",
-  ugc: "UGC Demo",
-  saved: "Saved Analyses",
+export const meta = () => {
+  return [{ title: "Creative Library | BluePrintAI" }];
 };
 
-const SOURCE_LABELS = ["UGC", "Studio", "Founder", "AI"];
-const HUES = [186, 145, 268, 18, 132, 345, 292, 215];
-
-export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
-  const url = new URL(request.url);
-  const merchantData = await loadMerchantData(admin, session);
-  const savedCreatives = await listSavedCreatives(session.shop);
-
-  return {
-    merchantData,
-    creatives: [
-      ...savedCreatives.map(savedCreativeToCard),
-      ...buildCreativeCards(
-        buildCreativeConcepts(merchantData.products),
-        merchantData.products,
-      ),
-    ],
-    initialCreativeId: url.searchParams.get("creativeId"),
-  };
-};
-
-function savedCreativeToCard(record, index = 0) {
-  const payload = record.payload || {};
-  const analysis = payload.analysis || {};
-
-  return {
-    id: record.id,
-    product: {
-      id: record.productId,
-      title: record.productTitle,
-      source: "saved",
-    },
-    angle: "saved",
-    title: record.title,
-    productTitle: record.productTitle,
-    source: "Saved",
-    durationSec: 30,
-    score: Math.max(
-      1,
-      Math.min(
-        100,
-        ((analysis.hookScore || 7) + (analysis.clarityScore || 7) + (analysis.ctaScore || 7)) * 3,
-      ),
-    ),
-    hookStrength: (analysis.hookScore || 7) * 10,
-    retention: analysis.retentionRisk === "Low" ? 82 : 64,
-    ctaQuality: (analysis.ctaScore || 7) * 10,
-    hook: analysis.firstTenSecondRisk || payload.brief || "Saved creative analysis",
-    insight: analysis.pacingNotes || "Saved from Creative analysis.",
-    improvement: analysis.rewriteSuggestions?.[0] || "Open the analysis and turn the strongest fix into a brief.",
-    mediaUrl: payload.mediaUrl || payload.videoUrl || "",
-    mediaType: payload.fileType || analysis.fileSignals?.fileType || "",
-    mediaState: payload.mediaState || (payload.mediaUrl ? "stored_media" : "analysis_only"),
-    fileName: payload.fileName || analysis.fileSignals?.fileName || "",
-    analysis,
-    thumbHue: 210 + index * 18,
-    saved: true,
-  };
+function Metric({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+      <p className="text-slate-400 font-bold">{label}</p>
+      <p className="text-white text-2xl font-black mt-2">
+        {Number(value || 0).toLocaleString()}
+      </p>
+    </div>
+  );
 }
 
-function buildCreativeCards(concepts, products) {
-  return concepts.map((concept, index) => {
-    const product =
-      products.find((item) => item.id === concept.productId) || products[index];
-    const angle = angleKey(concept.angle, index);
-    const score = 86 - ((index * 7) % 22);
-    const hookStrength = Math.min(95, score + 4 + (index % 3));
-    const retention = Math.max(62, score - 5 + (index % 4));
-    const ctaQuality = Math.max(64, score - 8 + (index % 5));
+const emptyCreativeForm = {
+  title: "",
+  product: "",
+  creator: "",
+  video_file: null,
+  video_url: "",
+  thumbnail: "",
+  insight: "",
+  transcript_summary: "",
+};
 
-    return {
-      id: concept.productId,
-      product,
-      angle,
-      title: titleForConcept(concept, product, index),
-      productTitle: product?.title || concept.productTitle,
-      source: SOURCE_LABELS[index % SOURCE_LABELS.length],
-      durationSec: [27, 32, 41, 24, 22, 48, 35, 29][index % 8],
-      score,
-      hookStrength,
-      retention,
-      ctaQuality,
-      hook: hookCopy(concept, index),
-      insight:
-        "Pain-first opener outperforms feature-led intros by 38%.",
-      improvement:
-        index % 2 === 0
-          ? "Add a 1-second product reveal between seconds 3-4."
-          : "Move the customer problem into the first spoken line.",
-      mediaUrl: concept.mediaUrl || "",
-      mediaType: "",
-      mediaState: "concept_only",
-      fileName: "",
-      thumbHue: HUES[index % HUES.length],
-    };
+async function getBackendErrorMessage(response) {
+  const text = await response.text().catch(() => "");
+
+  if (!text) return `Request failed with status ${response.status}.`;
+
+  try {
+    const data = JSON.parse(text);
+    return data?.detail || data?.error || text;
+  } catch {
+    return text;
+  }
+}
+
+function resolveMediaUrl(url) {
+  if (!url) return "";
+
+  if (/^(https?:|data:|blob:)/i.test(url)) {
+    return url;
+  }
+
+  if (url.startsWith("/")) {
+    return `${API_BASE.replace(/\/$/, "")}${url}`;
+  }
+
+  return url;
+}
+
+function getCreativeTime(creative) {
+  const rawDate =
+    creative.created_at ||
+    creative.createdAt ||
+    creative.uploaded_at ||
+    creative.uploadedAt ||
+    "";
+  const timestamp = rawDate ? Date.parse(rawDate) : 0;
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function newestCreativesFirst(creatives) {
+  return [...creatives].sort((left, right) => {
+    const timeDifference = getCreativeTime(right) - getCreativeTime(left);
+
+    if (timeDifference !== 0) return timeDifference;
+
+    return Number(right.id || 0) - Number(left.id || 0);
   });
 }
 
-function briefUrl(creative) {
-  const params = new URLSearchParams();
-  params.set("productId", creative?.product?.id || creative?.productId || "");
-  params.set("creativeId", creative?.id || "");
-  params.set("generate", "1");
-  return `/app/ad-briefs?${params.toString()}`;
-}
+export default function CreativeLibraryRoute() {
+  const [creatives, setCreatives] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [demo, setDemo] = useState(false);
+  const [shopId, setShopId] = useState("");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadForm, setUploadForm] = useState(emptyCreativeForm);
+  const [uploadSaving, setUploadSaving] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadSuccess, setUploadSuccess] = useState("");
 
-function angleKey(angle, index) {
-  const normalized = String(angle || "").toLowerCase();
-  if (normalized.includes("before")) return "proof";
-  if (normalized.includes("gift")) return "giftable";
-  if (normalized.includes("objection")) return "objection";
-  if (normalized.includes("founder")) return "founder";
-  if (normalized.includes("social")) return "social";
-  if (normalized.includes("ugc")) return "ugc";
-  return ["problem", "proof", "giftable", "objection", "social", "founder", "ugc"][
-    index % 7
-  ];
-}
+  useEffect(() => {
+    setDemo(isDemoAccount());
+    setShopId(getSelectedShopId());
+  }, []);
 
-function titleForConcept(concept, product, index) {
-  const productName = product?.title || concept.productTitle || "This product";
-  const titles = [
-    `Why I stopped ignoring ${productName}`,
-    `${productName} solves the daily problem`,
-    `The upgrade customers actually notice`,
-    `What changed after switching to ${productName}`,
-    `Real shoppers keep coming back for this`,
-    `I built this because the old way was broken`,
-    `Unboxing ${productName} without the usual delay`,
-  ];
+  const loadCreatives = useCallback(async () => {
+    if (!shopId) return;
 
-  return titles[index % titles.length];
-}
+    setLoading(true);
 
-function hookCopy(concept, index) {
-  return [
-    "Same routine, same problem, brand new outcome.",
-    "Open with the customer problem, then cut to the clearest result.",
-    "Three seconds to show why this belongs in the cart.",
-    "Address the hesitation before the product demo starts.",
-    "Lead with proof, then make the product feel inevitable.",
-    "A founder-style opener with one visible reason to care.",
-    concept.visual || "Watch this before buying the obvious alternative.",
-  ][index % 7];
-}
+    const endpoint = `${API_BASE}/personalized/creatives?shop_id=${encodeURIComponent(
+      shopId
+    )}`;
 
-function CreativeBoardCard({ creative, featured = false, onOpen, onPreview }) {
-  return (
-    <article
-      className={`bp-creative-card ${featured ? "bp-creative-card-featured" : ""}`}
-    >
-      <div
-        className="bp-creative-video"
-        style={{
-          "--creative-hue": creative.thumbHue,
-        }}
-      >
-        {creative.mediaUrl ? (
-          <>
-            <CreativePreviewSurface creative={creative} mode="media" />
-            <button
-              type="button"
-              className="bp-play-button"
-              aria-label={`Play ${creative.title}`}
-              onClick={() => onPreview(creative)}
-              title="Play saved media"
-            >
-              <span aria-hidden="true" />
-            </button>
-          </>
-        ) : (
-          <CreativePreviewSurface creative={creative} onClick={() => onOpen(creative)} />
-        )}
-      </div>
+    try {
+      const res = await fetch(endpoint, {
+        headers: getAuthHeaders(),
+      });
 
-      <div className="bp-creative-product">
-        <ProductThumbnail product={creative.product} />
-        <div>
-          <p>{creative.productTitle}</p>
-          <h4>{creative.title}</h4>
-          <small>{creative.source} · {ANGLE_LABELS[creative.angle] || creative.angle}</small>
-        </div>
-      </div>
+      const data = await res.json();
+      const items = Array.isArray(data) ? data : data.creatives || [];
 
-      <div className="bp-creative-hook">
-        <span>{creative.saved ? "Saved analysis" : "Concept"}</span>
-        <p>{creative.hook}</p>
-      </div>
+      setCreatives(newestCreativesFirst(items));
+    } finally {
+      setLoading(false);
+    }
+  }, [shopId]);
 
-      <div className="bp-creative-metrics">
-        <span>Score <strong>{creative.score}</strong></span>
-        <button type="button" onClick={() => onOpen(creative)}>
-          Open details
-        </button>
-      </div>
-      <Link className="bp-creative-brief-link" to={briefUrl(creative)}>
-        <Icon name="brief" /> Generate brief
-      </Link>
-    </article>
-  );
-}
+  useEffect(() => {
+    loadCreatives().catch((err) => {
+      console.error(err);
+      setCreatives([]);
+      setLoading(false);
+    });
+  }, [loadCreatives]);
 
-function CreativeListRow({ creative, onOpen, onPreview }) {
-  return (
-    <div className="bp-creative-row">
-      <ProductThumbnail product={creative.product} />
-      <div>
-        <strong>{creative.title}</strong>
-        <p>
-          {creative.productTitle} - {creative.source}
-        </p>
-      </div>
-      <span>{creative.score}/100</span>
-      <div className="bp-creative-row-actions">
-        <button type="button" onClick={() => onOpen(creative)}>Details</button>
-        <button type="button" onClick={() => onPreview(creative)}>
-          {creative.mediaUrl ? "Play" : creative.saved ? "Notes" : "Concept"}
-        </button>
-        <Link to={briefUrl(creative)}>Brief</Link>
-      </div>
-    </div>
-  );
-}
+  function updateUploadField(field, value) {
+    setUploadForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
 
-function CreativePreviewSurface({ creative, mode = "concept", onClick }) {
-  const label = mode === "media"
-    ? "Playable preview"
-    : creative.saved
-      ? "Analysis only"
-      : "Preview concept";
+  function openUploadForm() {
+    setUploadError("");
+    setUploadSuccess("");
+    setUploadOpen(true);
+  }
 
-  return (
-    <button
-      type="button"
-      className={`bp-creative-preview-surface bp-creative-preview-${mode}`}
-      aria-label={`${label} for ${creative.title}`}
-      onClick={onClick}
-      disabled={!onClick}
-    >
-      <span className="bp-creative-preview-glow" />
-      <span className="bp-creative-video-tags">
-        <span>{label}</span>
-        <span>{creative.durationSec}s</span>
-      </span>
-      <span className="bp-creative-preview-frame">
-        <span className="bp-creative-preview-product">
-          <ProductThumbnail product={creative.product} />
-        </span>
-        <span className="bp-creative-preview-copy">
-          <strong>{creative.productTitle}</strong>
-          <small>{ANGLE_LABELS[creative.angle] || creative.source}</small>
-        </span>
-      </span>
-      <span className="bp-creative-preview-icon">
-        <Icon name={mode === "media" ? "video" : "sparkles"} />
-      </span>
-      {mode === "concept" && (
-        <span className="bp-concept-preview-button">
-          {label}
-        </span>
-      )}
-    </button>
-  );
-}
+  function closeUploadForm() {
+    if (uploadSaving) return;
 
-export default function CreativeLibrary() {
-  const { merchantData, creatives, initialCreativeId } = useLoaderData();
-  const [view, setView] = useState("board");
-  const [query, setQuery] = useState("");
-  const [angle, setAngle] = useState("all");
-  const [source, setSource] = useState("all");
-  const [sort, setSort] = useState("score");
-  const [minScore, setMinScore] = useState("all");
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [selectedCreative, setSelectedCreative] = useState(
-    () => creatives.find((creative) => creative.id === initialCreativeId) || null,
-  );
-  const [previewCreative, setPreviewCreative] = useState(null);
+    setUploadOpen(false);
+    setUploadError("");
+  }
+
+  async function submitUpload(event) {
+    event.preventDefault();
+
+    if (!shopId) {
+      setUploadError("No shop is selected. Please select a shop and try again.");
+      return;
+    }
+
+    setUploadSaving(true);
+    setUploadError("");
+    setUploadSuccess("");
+
+    try {
+      const hasFile = Boolean(uploadForm.video_file);
+      const videoUrl = uploadForm.video_url.trim();
+
+      if (!hasFile && !videoUrl) {
+        throw new Error("Choose a video file or enter a Video URL.");
+      }
+
+      const response = hasFile
+        ? await submitFileUpload()
+        : await submitUrlUpload(videoUrl);
+
+      if (!response.ok) {
+        throw new Error(await getBackendErrorMessage(response));
+      }
+
+      setUploadForm(emptyCreativeForm);
+      setUploadOpen(false);
+      setUploadSuccess("Creative uploaded.");
+      await loadCreatives();
+    } catch (err) {
+      setUploadError(
+        err.message || "Could not upload this creative. Please try again."
+      );
+    } finally {
+      setUploadSaving(false);
+    }
+  }
+
+  function submitFileUpload() {
+    const formData = new FormData();
+
+    formData.append("file", uploadForm.video_file);
+    formData.append("shop_id", String(Number(shopId)));
+    formData.append("title", uploadForm.title.trim());
+    formData.append("product", uploadForm.product.trim());
+    formData.append("creator", uploadForm.creator.trim());
+    formData.append("insight", uploadForm.insight.trim());
+    formData.append(
+      "transcript_summary",
+      uploadForm.transcript_summary.trim()
+    );
+
+    return fetch(`${API_BASE}/personalized/creatives/upload`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: formData,
+    });
+  }
+
+  function submitUrlUpload(videoUrl) {
+    const payload = {
+      shop_id: Number(shopId),
+      title: uploadForm.title.trim(),
+      product: uploadForm.product.trim(),
+      creator: uploadForm.creator.trim(),
+      video_url: videoUrl,
+      thumbnail: uploadForm.thumbnail.trim(),
+      insight: uploadForm.insight.trim(),
+      transcript_summary: uploadForm.transcript_summary.trim(),
+      source: "creative_library_upload",
+      source_platform: "creative_library_upload",
+      type: "creative_library_upload",
+      score: 0,
+    };
+
+    return fetch(`${API_BASE}/personalized/creatives`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+  }
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-
     return creatives.filter((creative) => {
-      const matchesQuery =
-        !q ||
-        creative.title.toLowerCase().includes(q) ||
-        creative.productTitle.toLowerCase().includes(q);
-      const matchesAngle = angle === "all" || creative.angle === angle;
-      const matchesSource =
-        source === "all" || String(creative.source).toLowerCase() === source;
-      const matchesScore =
-        minScore === "all" || Number(creative.score || 0) >= Number(minScore);
+      const text = `${creative.title || ""} ${creative.product || ""} ${
+        creative.creator || ""
+      }`.toLowerCase();
 
-      return matchesQuery && matchesAngle && matchesSource && matchesScore;
-    }).sort((a, b) => {
-      if (sort === "product") return a.productTitle.localeCompare(b.productTitle);
-      if (sort === "recent") return String(b.id).localeCompare(String(a.id));
-      return Number(b.score || 0) - Number(a.score || 0);
+      return text.includes(search.toLowerCase());
     });
-  }, [angle, creatives, minScore, query, sort, source]);
-
-  const featured = filtered[0];
-  const grouped = useMemo(() => {
-    return filtered.slice(1).reduce((groups, creative) => {
-      groups[creative.angle] ||= [];
-      groups[creative.angle].push(creative);
-      return groups;
-    }, {});
-  }, [filtered]);
+  }, [creatives, search]);
 
   return (
-    <div className="bp-page bp-creative-library-page">
-      <PageHeader
-        eyebrow="Creatives"
-        title="Creative library"
-        subtitle="Browse saved analyses and product concepts, then open the next useful action."
-        action={
-          <PrimaryButton as={Link} to="/app/video-analysis">
-            <Icon name="upload" /> Analyze creative
-          </PrimaryButton>
-        }
-      />
+    <div className="space-y-8">
+      <div className="glass-strong rounded-2xl p-8">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-primary uppercase tracking-[0.18em] font-semibold text-xs">
+              Creative Intelligence
+            </p>
 
-      <div className="bp-section-stack">
-        {merchantData.errors.map((error) => (
-          <Notice tone="warning" key={error}>
-            {error}
-          </Notice>
-        ))}
+            <h1 className="font-display text-4xl font-semibold mt-3 text-foreground">
+              Creative Library
+            </h1>
 
-        <div className="bp-creative-filter-bar">
-          <label className="bp-creative-search">
-            <Icon name="search" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search creatives or products"
-              type="search"
-            />
-          </label>
-          <select
-            className="bp-creative-select"
-            value={angle}
-            onChange={(event) => setAngle(event.target.value)}
-          >
-            <option value="all">All angles</option>
-            {Object.entries(ANGLE_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <SecondaryButton
-            className="bp-creative-more"
+            <p className="text-muted-foreground mt-3 text-sm sm:text-[15px]">
+              {demo
+                ? "Demo creatives are visible for demo accounts."
+                : "Only creatives uploaded or saved to this shop will appear here."}
+            </p>
+          </div>
+
+          <button
             type="button"
-            onClick={() => setShowAdvancedFilters((value) => !value)}
+            onClick={openUploadForm}
+            className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground"
           >
-            <Icon name="filter" /> Filters
-          </SecondaryButton>
-          <div className="bp-view-toggle" aria-label="Creative library view">
-            <button
-              type="button"
-              className={view === "board" ? "bp-view-toggle-active" : ""}
-              onClick={() => setView("board")}
-              aria-label="Board view"
-            >
-              <Icon name="grid" />
-            </button>
-            <button
-              type="button"
-              className={view === "list" ? "bp-view-toggle-active" : ""}
-              onClick={() => setView("list")}
-              aria-label="List view"
-            >
-              <Icon name="list" />
-            </button>
-          </div>
+            Upload Creative
+          </button>
         </div>
+      </div>
 
-        {showAdvancedFilters && (
-          <div className="bp-creative-advanced-panel">
-            <label>
-              <span>Source</span>
-              <select value={source} onChange={(event) => setSource(event.target.value)}>
-                <option value="all">All sources</option>
-                {Array.from(new Set(creatives.map((creative) => String(creative.source).toLowerCase()))).map((item) => (
-                  <option value={item} key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Minimum score</span>
-              <select value={minScore} onChange={(event) => setMinScore(event.target.value)}>
-                <option value="all">Any score</option>
-                <option value="80">80+</option>
-                <option value="70">70+</option>
-                <option value="60">60+</option>
-              </select>
-            </label>
-            <label>
-              <span>Sort</span>
-              <select value={sort} onChange={(event) => setSort(event.target.value)}>
-                <option value="score">Highest score</option>
-                <option value="product">Product</option>
-                <option value="recent">Recently saved</option>
-              </select>
-            </label>
+      {(uploadSuccess || uploadError) && (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm font-semibold ${
+            uploadError
+              ? "border-red-500/40 bg-red-500/10 text-red-200"
+              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+          }`}
+        >
+          {uploadError || uploadSuccess}
+        </div>
+      )}
+
+      {uploadOpen && (
+        <div className="glass rounded-2xl p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="font-display text-2xl font-semibold text-foreground">
+                Upload Creative
+              </h2>
+              <p className="text-muted-foreground mt-2 text-sm">
+                Save a video URL and metadata directly to this shop&apos;s Creative
+                Library.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={closeUploadForm}
+              className="rounded-lg border border-border-strong bg-surface-2/60 px-4 py-2 text-sm font-semibold text-foreground"
+            >
+              Close
+            </button>
           </div>
-        )}
 
-        {previewCreative && (
-          <div className="bp-creative-detail-panel">
-            <header>
-              <div>
-                <span>Creative preview</span>
-                <h2>{previewCreative.title}</h2>
-              </div>
-              <button type="button" onClick={() => setPreviewCreative(null)}>Close</button>
-            </header>
-            {previewCreative.mediaUrl ? (
-              <MediaPreview creative={previewCreative} />
-            ) : (
-              <Notice tone="warning">
-                {previewCreative.saved
-                  ? "This saved analysis has no stored media file. Showing the saved hook and analysis instead."
-                  : "This is a generated concept, not a playable media asset. Showing concept details instead."}
-              </Notice>
-            )}
-            <p>{previewCreative.hook}</p>
-          </div>
-        )}
+          <form onSubmit={submitUpload} className="mt-6 space-y-5">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-foreground">
+                Title
+                <input
+                  value={uploadForm.title}
+                  onChange={(e) => updateUploadField("title", e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Summer launch ad"
+                />
+              </label>
 
-        {selectedCreative && (
-          <div className="bp-creative-detail-panel">
-            <header>
-              <div>
-                <span>Creative detail</span>
-                <h2>{selectedCreative.title}</h2>
-              </div>
-              <button type="button" onClick={() => setSelectedCreative(null)}>Close</button>
-            </header>
-            <dl className="bp-creative-detail-grid">
-              <div><dt>Product</dt><dd>{selectedCreative.productTitle}</dd></div>
-              <div><dt>Platform/source</dt><dd>{selectedCreative.source}</dd></div>
-              <div><dt>Angle</dt><dd>{ANGLE_LABELS[selectedCreative.angle] || selectedCreative.angle}</dd></div>
-              <div><dt>Score</dt><dd>{selectedCreative.score}/100</dd></div>
-              <div><dt>Hook</dt><dd>{selectedCreative.hook}</dd></div>
-              <div><dt>CTA quality</dt><dd>{selectedCreative.ctaQuality}/100</dd></div>
-              <div><dt>Analysis</dt><dd>{selectedCreative.insight}</dd></div>
-              <div><dt>Recommendation</dt><dd>{selectedCreative.improvement}</dd></div>
-              <div><dt>Saved</dt><dd>{selectedCreative.saved ? "Saved analysis" : "Concept board"}</dd></div>
-              <div><dt>Media</dt><dd>{selectedCreative.mediaUrl ? "Playable media attached" : selectedCreative.saved ? "Analysis only - no media stored" : "Concept only - no media file"}</dd></div>
-            </dl>
-            <div className="bp-creative-detail-actions">
-              <Link to={briefUrl(selectedCreative)}>Generate brief</Link>
-              <button type="button" onClick={() => setPreviewCreative(selectedCreative)}>
-                {selectedCreative.mediaUrl ? "Play media" : "Open notes"}
+              <label className="block text-sm font-semibold text-foreground">
+                Product
+                <input
+                  value={uploadForm.product}
+                  onChange={(e) => updateUploadField("product", e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Product name"
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-foreground">
+                Creator
+                <input
+                  value={uploadForm.creator}
+                  onChange={(e) => updateUploadField("creator", e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="@creator"
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-foreground">
+                Video URL
+                <input
+                  value={uploadForm.video_url}
+                  onChange={(e) =>
+                    updateUploadField("video_url", e.target.value)
+                  }
+                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="https://..."
+                  type="url"
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-foreground md:col-span-2">
+                Video file
+                <input
+                  accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
+                  onChange={(e) =>
+                    updateUploadField("video_file", e.target.files?.[0] || null)
+                  }
+                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-4 file:py-2 file:font-semibold file:text-primary-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  type="file"
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-foreground md:col-span-2">
+                Thumbnail URL
+                <input
+                  value={uploadForm.thumbnail}
+                  onChange={(e) =>
+                    updateUploadField("thumbnail", e.target.value)
+                  }
+                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="https://..."
+                  type="url"
+                />
+              </label>
+            </div>
+
+            <label className="block text-sm font-semibold text-foreground">
+              Insight / notes
+              <textarea
+                value={uploadForm.insight}
+                onChange={(e) => updateUploadField("insight", e.target.value)}
+                className="mt-2 min-h-28 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="What should the team remember about this creative?"
+              />
+            </label>
+
+            <label className="block text-sm font-semibold text-foreground">
+              Transcript summary
+              <textarea
+                value={uploadForm.transcript_summary}
+                onChange={(e) =>
+                  updateUploadField("transcript_summary", e.target.value)
+                }
+                className="mt-2 min-h-28 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="Short summary of the spoken script or creative structure."
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={uploadSaving}
+                className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {uploadSaving ? "Uploading..." : "Save Creative"}
+              </button>
+
+              <button
+                type="button"
+                onClick={closeUploadForm}
+                disabled={uploadSaving}
+                className="rounded-lg border border-border-strong bg-surface-2/60 px-5 py-2.5 font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
               </button>
             </div>
-          </div>
-        )}
+          </form>
+        </div>
+      )}
 
-        {filtered.length === 0 ? (
-          <EmptyState
-            title="No creatives match those filters"
-            body="Try a different angle or clear your search to see the full board."
-          />
-        ) : view === "list" ? (
-          <div className="bp-creative-list">
+      {loading && <p className="text-muted-foreground">Loading creatives...</p>}
+
+      {!loading && filtered.length === 0 && (
+        <EmptyWorkspaceState
+          title="No creatives yet"
+          description="This new shop has no demo videos. Upload your first TikTok ad or connect shop data to begin building your personalized Creative Library."
+          primaryText="Analyze Video"
+          primaryLink="/app/video-analysis"
+        />
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <div className="glass rounded-2xl p-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search creatives..."
+              className="w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          <div className="space-y-8">
             {filtered.map((creative) => (
-              <CreativeListRow
-                key={creative.id}
-                creative={creative}
-                onOpen={setSelectedCreative}
-                onPreview={setPreviewCreative}
-              />
+              <CreativeCard key={creative.id} creative={creative} />
             ))}
           </div>
-        ) : (
-          <div className="bp-creative-board">
-            {featured && (
-              <div className="bp-featured-creative">
-                <CreativeBoardCard
-                  creative={featured}
-                  featured
-                  onOpen={setSelectedCreative}
-                  onPreview={setPreviewCreative}
-                />
-                <div className="bp-featured-side">
-                  <div className="bp-featured-winner">
-                    <Icon name="sparkles" />
-                    <div>
-                      <span>Top creative to review</span>
-                      <p>
-                        <strong>{featured.title}</strong> - {featured.insight}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="bp-improvement-card">
-                    <header>
-                      <Icon name="sparkles" />
-                      <strong>Improvement opportunity</strong>
-                    </header>
-                    <p>{featured.improvement}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {Object.entries(grouped).map(([groupAngle, items]) => (
-              <section className="bp-creative-angle-section" key={groupAngle}>
-                <div className="bp-creative-angle-header">
-                  <h3>{ANGLE_LABELS[groupAngle]}</h3>
-                  <span>{items.length} creatives</span>
-                </div>
-                <div className="bp-creative-angle-grid">
-                  {items.map((creative) => (
-                    <CreativeBoardCard
-                      key={creative.id}
-                      creative={creative}
-                      onOpen={setSelectedCreative}
-                      onPreview={setPreviewCreative}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
-function MediaPreview({ creative }) {
-  const mediaType = String(creative.mediaType || "").toLowerCase();
-
-  if (mediaType.startsWith("image/")) {
-    return (
-      <img
-        alt={creative.title}
-        className="bp-creative-preview-video"
-        src={creative.mediaUrl}
-      />
-    );
-  }
-
-  if (mediaType.startsWith("audio/")) {
-    return (
-      <audio controls className="bp-creative-preview-audio" src={creative.mediaUrl}>
-        <track kind="captions" />
-      </audio>
-    );
-  }
+function CreativeCard({ creative }) {
+  const videoUrl = resolveMediaUrl(creative.video_url || creative.videoUrl || "");
+  const posterUrl = resolveMediaUrl(
+    creative.thumbnail || creative.thumbnail_url || ""
+  );
+  const isUploadedVideo =
+    creative.source_platform === "creative_library_upload";
 
   return (
-    <video src={creative.mediaUrl} controls className="bp-creative-preview-video">
-      <track kind="captions" />
-    </video>
+    <div className="glass rounded-2xl p-6 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
+      {videoUrl ? (
+        <video
+          src={videoUrl}
+          poster={posterUrl || undefined}
+          controls
+          className="w-full rounded-2xl bg-black aspect-video object-cover"
+        >
+          <track kind="captions" />
+        </video>
+      ) : (
+        <div className="flex aspect-video w-full items-center justify-center rounded-2xl bg-black text-slate-400">
+          No video available
+        </div>
+      )}
+
+      <div>
+        {isUploadedVideo && (
+          <p className="mb-3 inline-flex rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-cyan-200">
+            Uploaded video
+          </p>
+        )}
+
+        <h2 className="font-display text-3xl font-semibold text-foreground">
+          {creative.title || "Untitled Creative"}
+        </h2>
+
+        <p className="text-muted-foreground mt-2 text-sm">
+          {creative.product || "Product"} · {creative.creator || "Creator"}
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-7">
+          <Metric label="Views" value={creative.views} />
+          <Metric label="Likes" value={creative.likes} />
+          <Metric label="Shares" value={creative.shares} />
+          <Metric label="Clicks" value={creative.clicks} />
+          <Metric label="Orders" value={creative.orders} />
+        </div>
+
+        <p className="text-muted-foreground mt-7 text-sm">
+          {creative.insight ||
+            creative.transcript_summary ||
+            "No insight available."}
+        </p>
+
+        <Link
+          to={`/app/creative-library/${creative.id}`}
+          className="inline-block text-primary font-semibold mt-6"
+        >
+          View creative details →
+        </Link>
+      </div>
+    </div>
   );
 }

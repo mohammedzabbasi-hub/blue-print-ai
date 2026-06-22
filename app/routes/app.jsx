@@ -1,6 +1,13 @@
 /* eslint-disable react/prop-types */
 import { useState } from "react";
-import { Link, Outlet, useLoaderData, useLocation, useRouteError } from "react-router";
+import {
+  Link,
+  Outlet,
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useRouteError,
+} from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
@@ -18,9 +25,55 @@ import {
   getAppHandleFromConfig,
   getPlanSelectionUrl,
 } from "../utils/billing.server";
-import "../styles/blueprint.css";
 
 export const loader = async ({ request }) => {
+  const url = new URL(request.url);
+  const isLocalDemoHost = ["localhost", "127.0.0.1", "::1"].includes(
+    url.hostname,
+  );
+
+  const shouldUseDemoBypass =
+    isLocalDemoHost ||
+    process.env.NODE_ENV !== "production" ||
+    process.env.DEV_BYPASS_SHOPIFY_AUTH === "true" ||
+    url.searchParams.get("demo") === "1";
+
+  if (shouldUseDemoBypass) {
+    const demoShop = "blueprintai-test-store.myshopify.com";
+    const appHandle = getAppHandleFromConfig();
+
+    const [briefs, creatives, analyses, blueprints, requests, tiktokConnection] =
+      await Promise.all([
+        listSavedBriefs(demoShop, 4),
+        listSavedCreatives(demoShop, 4),
+        listVideoAnalyses(demoShop, 4),
+        listRevenueBlueprints(demoShop, 4),
+        listWorkspaceRequests(demoShop, 4),
+        loadTikTokConnection(demoShop),
+      ]);
+
+    const notifications = buildNotifications({
+      briefs,
+      creatives,
+      analyses,
+      blueprints,
+      requests,
+      tiktokConnection,
+    });
+
+    return {
+      apiKey: process.env.SHOPIFY_API_KEY || "",
+      shop: demoShop,
+      billingStatus: {
+        appHandle,
+        bypassed: true,
+        hasActivePayment: true,
+        required: false,
+      },
+      notifications,
+    };
+  }
+
   const { billing, redirect, session } = await authenticate.admin(request);
   const appHandle = getAppHandleFromConfig();
   const shouldRequireBilling = billingRequired();
@@ -54,6 +107,7 @@ export const loader = async ({ request }) => {
       listWorkspaceRequests(session.shop, 4),
       loadTikTokConnection(session.shop),
     ]);
+
   const notifications = buildNotifications({
     briefs,
     creatives,
@@ -64,7 +118,6 @@ export const loader = async ({ request }) => {
   });
 
   return {
-    // eslint-disable-next-line no-undef
     apiKey: process.env.SHOPIFY_API_KEY || "",
     shop: session.shop,
     billingStatus: {
@@ -83,7 +136,11 @@ const navItems = [
   { to: "/app/video-analysis", label: "AI Review Studio", icon: "video" },
   { to: "/app/ad-briefs", label: "Ad Briefs", icon: "brief" },
   { to: "/app/recommendations", label: "Recommendations", icon: "list" },
-  { to: "/app/revenue-blueprint", label: "Revenue Blueprint", icon: "activity" },
+  {
+    to: "/app/revenue-blueprint",
+    label: "Revenue Blueprint",
+    icon: "activity",
+  },
   { to: "/app/creators", label: "Creators", icon: "users" },
   { to: "/app/data-import", label: "Data Import", icon: "database" },
   { to: "/app/settings", label: "Settings", icon: "settings" },
@@ -92,54 +149,34 @@ const navItems = [
 export default function App() {
   const { apiKey, shop, billingStatus, notifications } = useLoaderData();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const closeMobileNav = () => setMobileNavOpen(false);
+  const handleLogout = () => {
+    if (typeof window !== "undefined") {
+      [
+        "token",
+        "access_token",
+        "authToken",
+        "user",
+        "selectedShop",
+        "selectedShopId",
+        "shop_id",
+        "connected_shop_id",
+        "selectedShopName",
+        "connected_shop_name",
+        "onboardingComplete",
+      ].forEach((key) => window.localStorage.removeItem(key));
+    }
 
-  return (
-    <AppProvider embedded apiKey={apiKey}>
-      <div className="bp-app-frame">
-        <aside className="bp-sidebar" aria-label="BluePrintAI navigation">
-          <Link to="/app" className="bp-brand">
-            <span className="bp-brand-mark">✦</span>
-            <span>
-              <strong>BluePrintAI</strong>
-              <small>Creative OS</small>
-            </span>
-          </Link>
+    navigate(billingStatus.bypassed ? "/" : "/auth/login", { replace: true });
+  };
 
-          <nav className="bp-side-nav">
-            {navItems.map((item) => {
-              const active =
-                location.pathname === item.to ||
-                (item.to !== "/app" && location.pathname.startsWith(`${item.to}/`));
-
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className={active ? "bp-side-link bp-side-link-active" : "bp-side-link"}
-                >
-                  <ShellIcon name={item.icon} />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="bp-sidebar-note">
-            <span>Workspace</span>
-            <p>
-              {billingStatus.bypassed
-                ? "Development billing is bypassed; Shopify auth and sessions remain active."
-                : "Billing, auth, and shop data stay scoped through Shopify."}
-            </p>
-          </div>
-          <div className="bp-sidebar-footer-links">
-            <Link to="/app/activity-log">Activity</Link>
-            <Link to="/app/settings">Settings</Link>
-          </div>
-        </aside>
+  const shell = (
+    <div className="bp-app-frame">
+        <ShellSidebar location={location} onLogout={handleLogout} />
 
         <div className="bp-main-frame">
           <header className="bp-topbar">
@@ -148,10 +185,11 @@ export default function App() {
               type="button"
               aria-label="Open navigation"
               aria-expanded={mobileNavOpen}
-              onClick={() => setMobileNavOpen((value) => !value)}
+              onClick={() => setMobileNavOpen(true)}
             >
-              ☰
+              <ShellIcon name="menu" />
             </button>
+
             <div className="bp-topbar-store">
               <ShellIcon className="bp-topbar-store-icon" name="bag" />
               <div>
@@ -159,6 +197,7 @@ export default function App() {
                 <strong>{formatShopName(shop)}</strong>
               </div>
             </div>
+
             <form
               className="bp-topbar-search"
               method="get"
@@ -178,10 +217,12 @@ export default function App() {
                 value={searchQuery}
               />
             </form>
+
             <span className="bp-status-pill">
               <ShellIcon name={billingStatus.bypassed ? "sparkles" : "check"} />
               {billingStatus.bypassed ? "Demo" : "Live"}
             </span>
+
             <button
               className="bp-topbar-bell"
               type="button"
@@ -191,23 +232,45 @@ export default function App() {
             >
               <ShellIcon name="bell" />
               {notifications.length > 0 && (
-                <span className="bp-notification-count">{notifications.length}</span>
+                <span className="bp-notification-count">
+                  {notifications.length}
+                </span>
               )}
             </button>
           </header>
 
           {mobileNavOpen && (
-            <nav className="bp-mobile-nav-panel" aria-label="Mobile navigation">
-              {navItems.map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setMobileNavOpen(false)}
+            <div
+              className="bp-mobile-nav-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Mobile navigation"
+            >
+              <button
+                className="bp-mobile-nav-backdrop"
+                type="button"
+                aria-label="Close navigation"
+                onClick={closeMobileNav}
+              />
+
+              <div className="bp-mobile-sidebar-wrap">
+                <button
+                  className="bp-mobile-nav-close"
+                  type="button"
+                  aria-label="Close navigation"
+                  onClick={closeMobileNav}
                 >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
+                  <ShellIcon name="close" />
+                </button>
+
+                <ShellSidebar
+                  location={location}
+                  onNavigate={closeMobileNav}
+                  onLogout={handleLogout}
+                  mobile
+                />
+              </div>
+            </div>
           )}
 
           {notificationsOpen && (
@@ -216,13 +279,20 @@ export default function App() {
                 <span>Recent activity</span>
                 <strong>Workspace updates</strong>
               </header>
+
               {notifications.length === 0 ? (
-                <p>No recent briefs, analyses, blueprints, exports, or integration updates.</p>
+                <p>
+                  No recent briefs, analyses, blueprints, exports, or
+                  integration updates.
+                </p>
               ) : (
                 <ul>
                   {notifications.map((item) => (
                     <li key={item.id}>
-                      <Link to={item.href} onClick={() => setNotificationsOpen(false)}>
+                      <Link
+                        to={item.href}
+                        onClick={() => setNotificationsOpen(false)}
+                      >
                         <span>{item.label}</span>
                         <strong>{item.title}</strong>
                         <small>{formatNotificationTime(item.createdAt)}</small>
@@ -239,11 +309,100 @@ export default function App() {
           </main>
         </div>
       </div>
+  );
+
+  if (billingStatus.bypassed) {
+    return shell;
+  }
+
+  return (
+    <AppProvider embedded apiKey={apiKey}>
+      {shell}
     </AppProvider>
   );
 }
 
-// Shopify needs React Router to catch some thrown responses, so that their headers are included in the response.
+function ShellSidebar({ location, onNavigate, onLogout, mobile = false }) {
+  return (
+    <aside
+      className={mobile ? "bp-sidebar bp-sidebar-mobile" : "bp-sidebar"}
+      aria-label="BluePrintAI navigation"
+    >
+      <Link to="/app" onClick={onNavigate} className="bp-brand">
+        <span className="bp-brand-mark">
+          <ShellIcon name="sparkles" />
+        </span>
+        <span>
+          <strong>BluePrintAI</strong>
+          <small>Creative OS</small>
+        </span>
+      </Link>
+
+      <nav className="bp-side-nav">
+        {navItems.map((item) => {
+          const active =
+            location.pathname === item.to ||
+            (item.to !== "/app" && location.pathname.startsWith(`${item.to}/`));
+
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
+              className={
+                active ? "bp-side-link bp-side-link-active" : "bp-side-link"
+              }
+            >
+              <ShellIcon name={item.icon} />
+              <span className="bp-side-label">{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="bp-sidebar-note">
+        <span>
+          <ShellIcon name="sparkles" />
+          Workspace
+        </span>
+        <p>
+          Connected to Shopify as the system of record for routing, auth,
+          billing, and store context.
+        </p>
+      </div>
+
+      <div className="bp-sidebar-footer-links">
+        <Link to="/app/settings?panel=support" onClick={onNavigate}>
+          Support
+        </Link>
+        <Link to="/app/settings?panel=privacy" onClick={onNavigate}>
+          Privacy
+        </Link>
+        <Link to="/app/settings?panel=terms" onClick={onNavigate}>
+          Terms
+        </Link>
+      </div>
+
+      <div className="bp-sidebar-logout-form">
+        <button
+          className="bp-sidebar-logout"
+          type="button"
+          onClick={() => {
+            onNavigate?.();
+            onLogout?.();
+          }}
+        >
+          <ShellIcon name="logout" />
+          Logout
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+// Shopify needs React Router to catch some thrown responses,
+// so that their headers are included in the response.
 export function ErrorBoundary() {
   return boundary.error(useRouteError());
 }
@@ -265,19 +424,25 @@ function buildNotifications({
       id: `brief-${brief.id}`,
       label: "Brief saved",
       title: `${brief.productTitle} · ${brief.angle}`,
-      href: `/app/ad-briefs?productId=${encodeURIComponent(brief.productId)}&briefId=${encodeURIComponent(brief.id)}`,
+      href: `/app/ad-briefs?productId=${encodeURIComponent(
+        brief.productId,
+      )}&briefId=${encodeURIComponent(brief.id)}`,
       createdAt: brief.createdAt,
     })),
     ...creatives.map((creative) => ({
       id: `creative-${creative.id}`,
       label: creative.payload?.mediaUrl ? "Creative saved" : "Analysis saved",
       title: creative.title,
-      href: `/app/creative-library?creativeId=${encodeURIComponent(creative.id)}`,
+      href: `/app/creative-library?creativeId=${encodeURIComponent(
+        creative.id,
+      )}`,
       createdAt: creative.createdAt,
     })),
     ...analyses.map((analysis) => ({
       id: `analysis-${analysis.id}`,
-      label: analysis.savedToLibrary ? "Analysis added to library" : "Analysis saved",
+      label: analysis.savedToLibrary
+        ? "Analysis added to library"
+        : "Analysis saved",
       title: analysis.productTitle,
       href: "/app/video-analysis",
       createdAt: analysis.createdAt,
@@ -286,12 +451,17 @@ function buildNotifications({
       id: `blueprint-${blueprint.id}`,
       label: "Revenue blueprint generated",
       title: blueprint.payload?.context?.generatedFor || "7-day growth plan",
-      href: `/app/revenue-blueprint?blueprintId=${encodeURIComponent(blueprint.id)}`,
+      href: `/app/revenue-blueprint?blueprintId=${encodeURIComponent(
+        blueprint.id,
+      )}`,
       createdAt: blueprint.createdAt,
     })),
     ...requests.map((request) => ({
       id: `request-${request.id}`,
-      label: request.type === "data_export" ? "Data export requested" : "Workspace request",
+      label:
+        request.type === "data_export"
+          ? "Data export requested"
+          : "Workspace request",
       title: requestLabel(request.type),
       href: "/app/settings",
       createdAt: request.createdAt,
@@ -300,10 +470,16 @@ function buildNotifications({
 
   if (tiktokConnection?.connectedAt || tiktokConnection?.disconnectedAt) {
     items.push({
-      id: `tiktok-${tiktokConnection.connected ? "connected" : "disconnected"}-${tiktokConnection.connectedAt || tiktokConnection.disconnectedAt}`,
-      label: tiktokConnection.connected ? "TikTok connected" : "TikTok disconnected",
+      id: `tiktok-${tiktokConnection.connected ? "connected" : "disconnected"}-${
+        tiktokConnection.connectedAt || tiktokConnection.disconnectedAt
+      }`,
+      label: tiktokConnection.connected
+        ? "TikTok connected"
+        : "TikTok disconnected",
       title: tiktokConnection.connected
-        ? tiktokConnection.sellerName || tiktokConnection.sellerId || "TikTok account connected"
+        ? tiktokConnection.sellerName ||
+          tiktokConnection.sellerId ||
+          "TikTok account connected"
         : "TikTok connection metadata cleared",
       href: "/app/settings",
       createdAt: tiktokConnection.connectedAt || tiktokConnection.disconnectedAt,
@@ -318,11 +494,14 @@ function buildNotifications({
 
 function formatShopName(shop = "") {
   const base = shop.replace(".myshopify.com", "").replace(/[-_]+/g, " ");
-  return base
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ") || shop;
+
+  return (
+    base
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || shop
+  );
 }
 
 function ShellIcon({ name, className = "" }) {
@@ -332,10 +511,13 @@ function ShellIcon({ name, className = "" }) {
     bell: "♢",
     brief: "▤",
     check: "✓",
+    close: "×",
     database: "◫",
     grid: "▦",
     layers: "▱",
     list: "☷",
+    logout: "↪",
+    menu: "☰",
     search: "⌕",
     settings: "⚙",
     sparkles: "✣",
