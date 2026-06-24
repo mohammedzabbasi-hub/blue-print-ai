@@ -36,10 +36,10 @@ export default function SupportRoute() {
               </h2>
 
               <p className="mt-3 leading-7 text-slate-400">
-                Current MVP supports demo accounts, onboarding-created
-                workspaces, manual CSV/JSON import, and creative
-                upload/analysis. TikTok Shop OAuth/API connection is not live
-                yet.
+                Current Shopify embedded app workflows support saved creative
+                records, uploaded creative analysis, generated briefs,
+                recommendations, and revenue blueprints. TikTok Shop OAuth/API
+                connection is not live yet.
               </p>
             </section>
 
@@ -49,11 +49,10 @@ export default function SupportRoute() {
               </h2>
 
               <ul className="mt-3 list-disc space-y-2 pl-5 leading-7 text-slate-400">
-                <li>Your account email or workspace name.</li>
+                <li>Your Shopify store domain or workspace name.</li>
                 <li>The page or workflow where the issue happened.</li>
                 <li>
-                  Whether you are using a demo account or an onboarding-created
-                  workspace.
+                  Whether you are using the embedded app or local demo mode.
                 </li>
                 <li>
                   A brief description of what you expected and what happened.
@@ -65,10 +64,9 @@ export default function SupportRoute() {
               <h2 className="text-xl font-black text-white">Contact</h2>
 
               <p className="mt-3 leading-7 text-slate-400">
-                Support contact is being finalized for the MVP. For now, use
-                the app owner or project review contact provided with your test
-                access. Do not send passwords, API keys, access tokens, or other
-                secrets.
+                Contact mohammedzabbasi@gmail.com for support, privacy, data
+                deletion, billing, copyright, or legal questions. Do not send
+                passwords, API keys, access tokens, or other secrets.
               </p>
             </section>
           </div>
@@ -83,7 +81,7 @@ export default function SupportRoute() {
             </Link>
 
             <Link to="/auth/login" className="hover:text-cyan-100">
-              Login
+              Shopify login
             </Link>
           </div>
         </div>

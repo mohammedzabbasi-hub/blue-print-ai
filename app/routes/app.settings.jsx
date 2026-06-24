@@ -1,436 +1,168 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { getAuthHeaders as getAccountAuthHeaders } from "../lib/accountContext";
 import {
-  getSelectedShopId,
-  getStoredShopName,
-  setSelectedShop,
-} from "../lib/shopSession";
-
-const API_BASE =
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://127.0.0.1:8000";
-
-const FALLBACK_SHOPS = [
-  {
-    id: "1",
-    shop_name: "GlowLab Beauty",
-    category: "Beauty & Personal Care",
-    region: "US",
-    creatives: 17,
-    creators: 4,
-  },
-  {
-    id: "2",
-    shop_name: "FitPulse Gear",
-    category: "Fitness Accessories",
-    region: "US",
-    creatives: 17,
-      creators: 4,
-  },
-  {
-    id: "3",
-    shop_name: "HomeEase Finds",
-    category: "Home & Kitchen",
-    region: "US",
-    creatives: 17,
-    creators: 4,
-  },
-  {
-    id: "4",
-    shop_name: "StyleNest Apparel",
-    category: "Fashion",
-    region: "US",
-    creatives: 15,
-    creators: 4,
-  },
-  {
-    id: "5",
-    shop_name: "TechTok Gadgets",
-    category: "Consumer Electronics",
-    region: "US",
-    creatives: 14,
-    creators: 4,
-  },
-];
+  Form,
+  Link,
+  redirect,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+} from "react-router";
+import BillingNotice from "../components/legal/BillingNotice";
+import {
+  createActivityLogRecord,
+  getWorkspaceProfile,
+  getWorkspaceSettingsMap,
+  saveWorkspaceProfile,
+  upsertWorkspaceSettings,
+} from "../models/blueprint.server";
+import {
+  BRAND_TONE_OPTIONS,
+  CREATIVE_GOAL_OPTIONS,
+  CREATIVE_SOURCE_OPTIONS,
+  PRODUCT_CATEGORY_OPTIONS,
+} from "../models/workspace-profile-options";
+import { loadShopifyRouteContext } from "../models/route-context.server";
 
 export const meta = () => {
   return [{ title: "Settings | BluePrintAI" }];
 };
 
-function normalizeShop(shop, index = 0) {
-  const rawId = shop.id || shop.shop_id || shop.shopId || String(index + 1);
+const SETTINGS_DEFAULTS = {
+  analysis_depth: "standard",
+  auto_save_analyzed_videos: "true",
+  email_summaries: "false",
+};
 
-  const numericId = String(rawId).includes("demo_shop_")
-    ? String(Number(String(rawId).replace("demo_shop_", "")))
-    : String(rawId);
+const ANALYSIS_DEPTH_OPTIONS = new Set(["standard", "deep", "fast"]);
+
+export const loader = async ({ request }) => {
+  const url = new URL(request.url);
+  const legacyPanelRoute = {
+    privacy: "/app/privacy",
+    support: "/app/support",
+    terms: "/app/terms",
+  }[url.searchParams.get("panel")];
+
+  if (legacyPanelRoute) {
+    throw redirect(legacyPanelRoute);
+  }
+
+  const { session } = await loadShopifyRouteContext(request);
+  const [settings, profile] = await Promise.all([
+    getWorkspaceSettingsMap(session.shop, SETTINGS_DEFAULTS),
+    getWorkspaceProfile(session.shop),
+  ]);
 
   return {
-    ...shop,
-    id: numericId,
-    shop_name: shop.shop_name || shop.name || `Shop ${numericId}`,
-    category: shop.category || shop.industry || "TikTok Shop",
-    region: shop.region || "US",
-    creatives:
-      shop.creative_count ||
-      shop.creatives_count ||
-      shop.total_creatives ||
-      shop.creatives ||
-      shop.summary?.total_creatives ||
-      0,
-    creators:
-      shop.creator_count ||
-      shop.creators_count ||
-      shop.total_creators ||
-      shop.creators ||
-      shop.summary?.total_creators ||
-      0,
+    profile,
+    shop: session.shop,
+    settings,
   };
-}
+};
 
-function safeJsonParse(value, fallback = null) {
-  try {
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
+export const action = async ({ request }) => {
+  const { session } = await loadShopifyRouteContext(request);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") || "");
+
+  if (intent === "saveProfile") {
+    try {
+      const profile = await saveWorkspaceProfile(session.shop, {
+        brandTone: String(formData.get("brandTone") || ""),
+        category: String(formData.get("category") || ""),
+        creativeGoal: String(formData.get("creativeGoal") || ""),
+        creativeSource: String(formData.get("creativeSource") || ""),
+        mainProduct: String(formData.get("mainProduct") || ""),
+        targetCustomer: String(formData.get("targetCustomer") || ""),
+      });
+
+      await createActivityLogRecord(session.shop, {
+        type: "settings",
+        title: "Workspace profile updated",
+        description: profile.mainProduct
+          ? `${profile.mainProduct} · ${profile.category || "Product context"}`
+          : "Workspace profile updated",
+        relatedType: "WorkspaceSetting",
+        relatedId: `workspace-profile:${Date.now()}`,
+        payload: profile,
+      });
+
+      return {
+        profile,
+        profileSuccess: "Workspace profile saved.",
+      };
+    } catch (error) {
+      return { profileError: error.message || "Could not save workspace profile." };
+    }
   }
-}
 
-function getLocalStorageItem(key) {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(key);
-}
+  if (intent !== "savePreferences") {
+    return { error: "Unknown settings action." };
+  }
 
-function getStoredUser() {
-  if (typeof window === "undefined") return {};
-  return safeJsonParse(localStorage.getItem("user"), {});
-}
+  const analysisDepth = String(formData.get("analysis_depth") || "standard");
 
-function getStoredSelectedShop() {
-  if (typeof window === "undefined") return null;
-  return safeJsonParse(localStorage.getItem("selectedShop"), null);
-}
+  if (!ANALYSIS_DEPTH_OPTIONS.has(analysisDepth)) {
+    return { error: "Choose a valid analysis depth." };
+  }
 
-function getSafeSelectedShopId() {
-  if (typeof window === "undefined") return "1";
-  return getSelectedShopId();
-}
+  try {
+    const settings = await upsertWorkspaceSettings(session.shop, {
+      analysis_depth: analysisDepth,
+      auto_save_analyzed_videos: formData.has("auto_save_analyzed_videos")
+        ? "true"
+        : "false",
+      email_summaries: formData.has("email_summaries") ? "true" : "false",
+    });
 
-function getSafeStoredShopName() {
-  if (typeof window === "undefined") return "BlueprintAI";
-  return getStoredShopName();
-}
+    await createActivityLogRecord(session.shop, {
+      type: "settings",
+      title: "Settings updated",
+      description: "Video analysis and notification preferences were updated.",
+      relatedType: "WorkspaceSetting",
+      relatedId: `preferences:${Date.now()}`,
+      payload: settings,
+    });
 
-function isDemoUser(user) {
-  return user?.is_demo === true;
-}
+    return {
+      settings,
+      success:
+        "Settings saved. Email summaries are saved as a preference only; delivery is not active yet.",
+    };
+  } catch (error) {
+    return { error: error.message || "Could not save settings." };
+  }
+};
 
-function getAllowedDemoShopIds(user) {
-  return Array.isArray(user?.shop_ids) ? user.shop_ids.map(Number) : [];
-}
+function formatShopName(shop = "") {
+  const base = String(shop || "")
+    .replace(".myshopify.com", "")
+    .replace(/[-_]+/g, " ");
 
-function filterAllowedDemoShops(shops, user) {
-  const allowed = new Set(getAllowedDemoShopIds(user));
-  return shops.filter((shop) => allowed.has(Number(shop.id || shop.shop_id)));
-}
-
-function getRealUserShop(user) {
-  const storedShop = getStoredSelectedShop();
-
-  const rawId =
-    storedShop?.id ||
-    storedShop?.shop_id ||
-    user?.shop_id ||
-    getLocalStorageItem("selectedShopId") ||
-    getLocalStorageItem("shop_id");
-
-  if (!rawId) return null;
-
-  return normalizeShop({
-    id: rawId,
-    shop_id: rawId,
-    shop_name:
-      storedShop?.shop_name ||
-      storedShop?.name ||
-      user?.shop_name ||
-      "My TikTok Shop",
-    name:
-      storedShop?.name ||
-      storedShop?.shop_name ||
-      user?.shop_name ||
-      "My TikTok Shop",
-    category: storedShop?.category || "TikTok Shop",
-    region: storedShop?.region || "US",
-    currency: storedShop?.currency || "USD",
-  });
+  return (
+    base
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || shop
+  );
 }
 
 export default function SettingsRoute() {
-  const navigate = useNavigate();
+  const { profile, settings, shop } = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
+  const savingPreferences =
+    navigation.state === "submitting" &&
+    navigation.formData?.get("intent") === "savePreferences";
+  const currentSettings = actionData?.settings || settings;
+  const currentProfile = actionData?.profile || profile;
+  const shopName = formatShopName(shop);
 
-  const [shops, setShops] = useState([]);
-  const [selectedShopId, setSelectedShopId] = useState("1");
-  const [selectedShopName, setSelectedShopName] = useState("BlueprintAI");
-  const [shopModalOpen, setShopModalOpen] = useState(false);
-  const [loadingShops, setLoadingShops] = useState(false);
-  const [tiktokConnection, setTiktokConnection] = useState({
-    connected: false,
-  });
-  const [tiktokStatus, setTiktokStatus] = useState(null);
-  const [connectingTikTok, setConnectingTikTok] = useState(false);
-  const [demoConnectingTikTok, setDemoConnectingTikTok] = useState(false);
-  const [disconnectingTikTok, setDisconnectingTikTok] = useState(false);
-
-  useEffect(() => {
-    setSelectedShopId(getSafeSelectedShopId());
-    setSelectedShopName(getSafeStoredShopName());
-
-    if (typeof window === "undefined") return;
-
-    const value = new URLSearchParams(window.location.search).get("tiktok");
-    setTiktokStatus(["connected", "error", "pending"].includes(value) ? value : null);
-  }, []);
-
-  useEffect(() => {
-    async function loadShops() {
-      setLoadingShops(true);
-      const user = getStoredUser();
-
-      try {
-        if (isDemoUser(user)) {
-          let demoShops = FALLBACK_SHOPS;
-
-          try {
-            const res = await fetch(`${API_BASE}/demo/shops`, {
-              headers: getAccountAuthHeaders(),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              const list = Array.isArray(data) ? data : data.shops || [];
-              demoShops = list.length
-                ? list.map((shop, index) => normalizeShop(shop, index))
-                : FALLBACK_SHOPS;
-            }
-          } catch {
-            demoShops = FALLBACK_SHOPS;
-          }
-
-          const allowedShops = filterAllowedDemoShops(demoShops, user);
-          setShops(allowedShops);
-
-          const currentSelectedShopId = getSafeSelectedShopId();
-          const stillAllowed = allowedShops.some(
-            (shop) => String(shop.id) === String(currentSelectedShopId)
-          );
-
-          if (!stillAllowed && allowedShops[0]) {
-            setSelectedShop(allowedShops[0]);
-            setSelectedShopId(String(allowedShops[0].id));
-            setSelectedShopName(allowedShops[0].shop_name);
-          }
-
-          return;
-        }
-
-        const realShop = getRealUserShop(user);
-        setShops(realShop ? [realShop] : []);
-
-        if (realShop) {
-          setSelectedShopId(String(realShop.id));
-          setSelectedShopName(realShop.shop_name);
-        }
-      } finally {
-        setLoadingShops(false);
-      }
-    }
-
-    loadShops();
-  }, []);
-
-  async function loadTikTokConnection() {
-    try {
-      const res = await fetch(`${API_BASE}/tiktok/oauth/status`, {
-        headers: getAccountAuthHeaders(),
-      });
-
-      if (res.ok) {
-        setTiktokConnection(await res.json());
-        return;
-      }
-    } catch {
-      // Fall through to disconnected state.
-    }
-
-    setTiktokConnection({
-      connected: false,
-      mode: "none",
-      message: "TikTok Shop status is unavailable right now.",
-      requires_seller_account: true,
-      requires_development_shop: true,
-    });
-  }
-
-  useEffect(() => {
-    loadTikTokConnection();
-  }, []);
-
-  const activeShop = useMemo(() => {
-    return shops.find((shop) => String(shop.id) === String(selectedShopId));
-  }, [shops, selectedShopId]);
-
-  function handleSelectShop(shop) {
-    const user = getStoredUser();
-
-    if (
-      isDemoUser(user) &&
-      !getAllowedDemoShopIds(user).includes(Number(shop.id))
-    ) {
-      return;
-    }
-
-    if (!isDemoUser(user)) {
-      const realShop = getRealUserShop(user);
-
-      if (!realShop || String(realShop.id) !== String(shop.id)) {
-        return;
-      }
-    }
-
-    setSelectedShop(shop);
-    setSelectedShopId(String(shop.id));
-    setSelectedShopName(shop.shop_name);
-    setShopModalOpen(false);
-  }
-
-  function handleLogout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("authToken");
-      localStorage.removeItem("user");
-      localStorage.removeItem("demoUser");
-      localStorage.removeItem("isAuthenticated");
-    }
-
-    navigate("/auth/login");
-  }
-
-  async function handleConnectTikTokShop() {
-    setConnectingTikTok(true);
-    setTiktokStatus(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/tiktok/oauth/start`, {
-        headers: getAccountAuthHeaders(),
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.auth_url) {
-        throw new Error(data.error || "Could not start TikTok OAuth");
-      }
-
-      const requiredParts = ["app_key=", "tts_state=", "redirect_uri="];
-
-      if (!requiredParts.every((part) => data.auth_url.includes(part))) {
-        throw new Error("TikTok OAuth URL is missing required parameters");
-      }
-
-      if (typeof window === "undefined") return;
-
-      window.location.assign(data.auth_url);
-      window.setTimeout(() => setConnectingTikTok(false), 3000);
-    } catch {
-      setConnectingTikTok(false);
-      setTiktokStatus("error");
-    }
-  }
-
-  async function handleDemoConnectTikTokShop() {
-    setDemoConnectingTikTok(true);
-    setTiktokStatus(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/tiktok/oauth/demo-connect`, {
-        method: "POST",
-        headers: getAccountAuthHeaders(),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Could not enable demo TikTok data");
-      }
-
-      setTiktokConnection(data);
-      setTiktokStatus("demo");
-    } catch {
-      setTiktokStatus("error");
-    } finally {
-      setDemoConnectingTikTok(false);
-    }
-  }
-
-  async function handleDisconnectTikTokShop() {
-    setDisconnectingTikTok(true);
-    setTiktokStatus(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/tiktok/oauth/disconnect`, {
-        method: "POST",
-        headers: getAccountAuthHeaders(),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Could not disconnect TikTok Shop");
-      }
-
-      setTiktokConnection(data);
-      setTiktokStatus("disconnected");
-    } catch {
-      setTiktokStatus("error");
-    } finally {
-      setDisconnectingTikTok(false);
-    }
-  }
-
-  const tiktokMode =
-    tiktokConnection.mode || (tiktokConnection.connected ? "live" : "none");
-
-  const tiktokStatusLabel =
-    tiktokMode === "live"
-      ? "Connected to TikTok Shop"
-      : tiktokMode === "demo"
-        ? "Demo TikTok Shop data enabled"
-        : tiktokStatus === "pending"
-          ? "Authorization pending"
-          : "Not connected";
-
-  const tiktokStatusTone =
-    tiktokMode === "live"
-      ? "bg-emerald-500/15 text-emerald-300"
-      : tiktokMode === "demo"
-        ? "bg-cyan-500/15 text-cyan-200"
-        : tiktokStatus === "pending"
-          ? "bg-amber-500/15 text-amber-200"
-          : "bg-slate-700/70 text-slate-300";
-
+  const tiktokStatusLabel = "TikTok connection coming soon";
+  const tiktokStatusTone = "bg-slate-700/70 text-slate-300";
   const tiktokStatusMessage =
-    tiktokStatus === "pending"
-      ? "Authorization pending: requires real seller shop or TikTok Development Shop Sandbox."
-      : tiktokConnection.message ||
-        "Connect TikTok Shop to sync seller data into BlueprintAI.";
-
-  const tiktokBadgeLabel =
-    tiktokMode === "live"
-      ? "Live"
-      : tiktokMode === "demo"
-        ? "Demo"
-        : tiktokStatus === "pending"
-          ? "Pending"
-          : "Not Connected";
+    "TikTok OAuth is not live in this Shopify app yet. BlueprintAI currently works with uploaded videos, saved creative records, generated briefs, and manual creative data.";
+  const tiktokBadgeLabel = "Coming Soon";
 
   return (
     <div className="space-y-8">
@@ -446,8 +178,8 @@ export default function SettingsRoute() {
             </h1>
 
             <p className="mt-2 text-muted-foreground">
-              Manage your BlueprintAI workspace, active shop, and video analysis
-              preferences.
+              Manage your BlueprintAI workspace, Shopify store context, and
+              video analysis preferences.
             </p>
           </div>
         </div>
@@ -462,32 +194,30 @@ export default function SettingsRoute() {
               <div>
                 <h2 className="text-2xl font-black">Workspace Profile</h2>
                 <p className="text-slate-400">
-                  Identity and goals for this workspace.
+                  Product context used for recommendations and planning.
                 </p>
               </div>
             </div>
 
-            <div className="space-y-5">
-              <div className="flex justify-between border-b border-slate-800 pb-4">
-                <span className="text-slate-400">Workspace Name</span>
-                <span className="font-bold">BlueprintAI</span>
+            {actionData?.profileError && (
+              <div className="mb-5 rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-4 font-bold text-red-200">
+                {actionData.profileError}
               </div>
+            )}
 
-              <div className="flex justify-between border-b border-slate-800 pb-4">
-                <span className="text-slate-400">Main Platform</span>
-                <span className="font-bold">TikTok Shop</span>
+            {actionData?.profileSuccess && (
+              <div className="mb-5 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 font-bold text-emerald-200">
+                {actionData.profileSuccess}
               </div>
+            )}
 
-              <div className="flex justify-between border-b border-slate-800 pb-4">
-                <span className="text-slate-400">Primary Goal</span>
-                <span className="font-bold">Creative Intelligence</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="text-slate-400">Account Type</span>
-                <span className="font-bold">MVP Testing</span>
-              </div>
-            </div>
+            <WorkspaceProfileForm
+              profile={currentProfile}
+              saving={
+                navigation.state === "submitting" &&
+                navigation.formData?.get("intent") === "saveProfile"
+              }
+            />
           </section>
 
           <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
@@ -499,41 +229,15 @@ export default function SettingsRoute() {
               <div>
                 <h2 className="text-2xl font-black">TikTok Shop Connection</h2>
                 <p className="text-slate-400">
-                  Connect your seller account for live commerce data.
+                  TikTok OAuth/API sync is planned, but not live in this Shopify app yet.
                 </p>
               </div>
             </div>
 
-            {tiktokStatus === "connected" && (
-              <div className="mb-5 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 font-bold text-emerald-200">
-                TikTok Shop connected successfully.
-              </div>
-            )}
-
-            {tiktokStatus === "demo" && (
-              <div className="mb-5 rounded-2xl border border-cyan-500/40 bg-cyan-500/10 px-5 py-4 font-bold text-cyan-100">
-                Demo TikTok Shop data is enabled.
-              </div>
-            )}
-
-            {tiktokStatus === "disconnected" && (
-              <div className="mb-5 rounded-2xl border border-slate-600 bg-slate-900/70 px-5 py-4 font-bold text-slate-200">
-                TikTok Shop disconnected.
-              </div>
-            )}
-
-            {tiktokStatus === "error" && (
-              <div className="mb-5 rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-4 font-bold text-red-200">
-                TikTok Shop could not be connected. Please try again.
-              </div>
-            )}
-
-            {tiktokStatus === "pending" && (
-              <div className="mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 font-bold text-amber-100">
-                Authorization pending: requires a real TikTok Shop seller
-                account or TikTok Development Shop Sandbox.
-              </div>
-            )}
+            <div className="mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 font-bold text-amber-100">
+              TikTok connection coming soon. No TikTok seller account is connected
+              to this Shopify app right now.
+            </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-5">
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -559,46 +263,35 @@ export default function SettingsRoute() {
               </div>
 
               <p className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm leading-6 text-cyan-50/90">
-                TikTok Shop OAuth is implemented, but final authorization
-                requires either a real registered TikTok Shop seller account or a
-                TikTok Development Shop test seller account. While sandbox
-                access is pending, you can use demo TikTok Shop data.
+                Until TikTok OAuth is implemented end-to-end, use uploaded
+                videos, manual creative records, generated ad briefs, and saved
+                revenue blueprints inside this Shopify workspace.
               </p>
             </div>
 
             <div className="mt-5 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={handleConnectTikTokShop}
-                disabled={connectingTikTok}
+                disabled
                 className="rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 font-black text-white transition hover:from-cyan-400 hover:to-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {connectingTikTok
-                  ? "Opening TikTok..."
-                  : "Connect TikTok Shop"}
+                Connect TikTok Shop - Coming Soon
               </button>
 
               <button
                 type="button"
-                onClick={handleDemoConnectTikTokShop}
-                disabled={demoConnectingTikTok}
+                disabled
                 className="rounded-2xl border border-cyan-400/60 bg-cyan-500/10 px-6 py-3 font-black text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {demoConnectingTikTok
-                  ? "Enabling Demo..."
-                  : "Use Demo TikTok Shop Data"}
+                Demo TikTok Sync - Coming Soon
               </button>
 
               <button
                 type="button"
-                onClick={handleDisconnectTikTokShop}
-                disabled={
-                  disconnectingTikTok ||
-                  (!tiktokConnection.connected && tiktokMode === "none")
-                }
+                disabled
                 className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300 transition hover:border-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {disconnectingTikTok ? "Disconnecting..." : "Disconnect"}
+                Disconnect Unavailable
               </button>
             </div>
 
@@ -609,10 +302,10 @@ export default function SettingsRoute() {
 
               <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
                 {[
-                  "OAuth route working",
-                  "Seller authorization requires TikTok Shop seller account or Development Shop",
-                  "Sandbox request pending with TikTok Partner Support",
-                  "Demo data can be used until access is approved",
+                  "TikTok OAuth is not wired in this Shopify app yet",
+                  "No TikTok access or refresh tokens are stored",
+                  "No TikTok seller account is connected",
+                  "Uploaded and manual creative workflows are available now",
                 ].map((item) => (
                   <div
                     key={item}
@@ -635,7 +328,7 @@ export default function SettingsRoute() {
               <div>
                 <h2 className="text-2xl font-black">Active Shop</h2>
                 <p className="text-slate-400">
-                  The shop currently powering your account data.
+                  The authenticated Shopify store powering this embedded app session.
                 </p>
               </div>
             </div>
@@ -643,17 +336,10 @@ export default function SettingsRoute() {
             <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-5">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-xl font-black">
-                    {activeShop?.shop_name ||
-                      (shops.length ? selectedShopName : "No shop connected")}
-                  </h3>
+                  <h3 className="text-xl font-black">{shopName}</h3>
 
                   <p className="mt-1 text-slate-400">
-                    {shops.length
-                      ? `${activeShop?.category || "TikTok Shop"} · ${
-                          activeShop?.region || "US"
-                        }`
-                      : "Create a shop through onboarding to start using workspace data."}
+                    {shop}
                   </p>
                 </div>
 
@@ -663,17 +349,9 @@ export default function SettingsRoute() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShopModalOpen(true)}
-              className="mt-5 rounded-2xl bg-cyan-500 px-6 py-3 font-black text-white transition hover:bg-cyan-400"
-            >
-              Manage Shops
-            </button>
-
-            <p className="mt-4 text-sm text-slate-400">
-              One account can manage multiple shops, but BlueprintAI
-              personalizes pages around one active shop at a time.
+            <p className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm leading-6 text-cyan-50/90">
+              This embedded app session is connected to the current Shopify
+              store. Switch stores from Shopify admin, not inside BluePrintAI.
             </p>
           </section>
 
@@ -694,45 +372,65 @@ export default function SettingsRoute() {
               </div>
             </div>
 
-            <div className="space-y-6">
+            {actionData?.error && (
+              <div className="mb-5 rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-4 font-bold text-red-200">
+                {actionData.error}
+              </div>
+            )}
+
+            {actionData?.success && (
+              <div className="mb-5 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 font-bold text-emerald-200">
+                {actionData.success}
+              </div>
+            )}
+
+            <Form method="post" className="space-y-6">
+              <input name="intent" type="hidden" value="savePreferences" />
+
               <label className="block">
                 <span className="mb-2 block text-slate-400">
                   Analysis Depth
                 </span>
 
-                <select className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 font-bold outline-none">
-                  <option>Standard Analysis</option>
-                  <option>Deep Creative Breakdown</option>
-                  <option>Fast Summary</option>
+                <select
+                  className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 font-bold outline-none"
+                  defaultValue={currentSettings.analysis_depth}
+                  disabled={savingPreferences}
+                  name="analysis_depth"
+                >
+                  <option value="standard">Standard Analysis</option>
+                  <option value="deep">Deep Creative Breakdown</option>
+                  <option value="fast">Fast Summary</option>
                 </select>
               </label>
 
-              <div className="flex items-center justify-between border-b border-slate-800 pb-5">
-                <div>
-                  <p className="font-black">Auto-save analyzed videos</p>
-                  <p className="text-sm text-slate-400">
-                    Save results to the Creative Library automatically.
-                  </p>
-                </div>
+              <PreferenceToggle
+                defaultChecked={
+                  currentSettings.auto_save_analyzed_videos === "true"
+                }
+                disabled={savingPreferences}
+                label="Auto-save analyzed videos"
+                name="auto_save_analyzed_videos"
+                description="Save results to the Creative Library automatically."
+              />
 
-                <div className="h-7 w-14 rounded-full bg-cyan-500 p-1">
-                  <div className="ml-auto h-5 w-5 rounded-full bg-slate-950" />
-                </div>
-              </div>
+              <PreferenceToggle
+                defaultChecked={currentSettings.email_summaries === "true"}
+                disabled={savingPreferences}
+                label="Email summaries"
+                name="email_summaries"
+                description="Save the preference for future weekly digests. Email delivery is not active yet."
+                last
+              />
 
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-black">Email summaries</p>
-                  <p className="text-sm text-slate-400">
-                    Get a weekly digest of new insights.
-                  </p>
-                </div>
-
-                <div className="h-7 w-14 rounded-full bg-slate-700 p-1">
-                  <div className="h-5 w-5 rounded-full bg-slate-950" />
-                </div>
-              </div>
-            </div>
+              <button
+                type="submit"
+                disabled={savingPreferences}
+                className="rounded-2xl bg-cyan-500 px-6 py-3 font-black text-white transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingPreferences ? "Saving..." : "Save Preferences"}
+              </button>
+            </Form>
           </section>
 
           <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
@@ -779,133 +477,212 @@ export default function SettingsRoute() {
             <div className="mb-6 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black">Account</h2>
-                <p className="text-slate-400">Signed in to BlueprintAI.</p>
+                <p className="text-slate-400">
+                  Access is managed by the current Shopify admin session.
+                </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300 hover:border-red-400 hover:text-red-300"
-              >
-                Logout
-              </button>
+              <span className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300">
+                Shopify session
+              </span>
             </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7 xl:col-span-2">
+            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-2xl font-black">Legal & Privacy</h2>
+                <p className="mt-2 max-w-3xl text-slate-400">
+                  Review policies and send privacy or data deletion requests
+                  for this Shopify workspace.
+                </p>
+              </div>
+              <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-black text-cyan-200">
+                Review ready
+              </span>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <Link
+                to="/app/privacy"
+                className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
+              >
+                Privacy Policy
+              </Link>
+              <Link
+                to="/app/terms"
+                className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
+              >
+                Terms of Service
+              </Link>
+              <Link
+                to="/app/contact"
+                className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
+              >
+                Contact & Data Requests
+              </Link>
+            </div>
+
+            <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm leading-6 text-slate-300">
+              For privacy or data deletion requests, contact{" "}
+              <span className="font-black text-cyan-100">
+                mohammedzabbasi@gmail.com
+              </span>{" "}
+              with your Shopify store domain and enough detail to identify the
+              workspace. Destructive deletion logic is not implemented here yet.
+            </p>
+            {/* TODO: Implement authenticated, shop-scoped deletion request handling once the retention and approval workflow is finalized. */}
+
+            <BillingNotice className="mt-5" />
           </section>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {shopModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-[28px] border border-slate-700 bg-[#0b1322] p-7 shadow-2xl">
-            <div className="mb-7 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">
-                  Shop Management
-                </p>
+function WorkspaceProfileForm({ profile = {}, saving = false }) {
+  return (
+    <Form method="post" className="space-y-5">
+      <input name="intent" type="hidden" value="saveProfile" />
 
-                <h2 className="mt-2 text-3xl font-black">
-                  Choose Active Shop
-                </h2>
+      <SettingsSelect
+        defaultValue={profile.category}
+        disabled={saving}
+        label="Store/product category"
+        name="category"
+        options={PRODUCT_CATEGORY_OPTIONS}
+      />
 
-                <p className="mt-2 text-slate-400">
-                  Switching shops updates the data shown across Dashboard,
-                  Recommendations, Creators, Ad Briefs, and Blueprint Creation.
-                </p>
-              </div>
+      <SettingsText
+        defaultValue={profile.mainProduct}
+        disabled={saving}
+        label="Main product or product line"
+        name="mainProduct"
+        placeholder="Flagship product, resistance bands, coffee bundle"
+      />
 
-              <button
-                type="button"
-                onClick={() => setShopModalOpen(false)}
-                className="rounded-xl border border-slate-700 px-4 py-2 font-black text-slate-300 hover:border-cyan-400"
-              >
-                ✕
-              </button>
-            </div>
+      <SettingsText
+        defaultValue={profile.targetCustomer}
+        disabled={saving}
+        label="Target customer"
+        name="targetCustomer"
+        placeholder="Busy parents, first-time runners, gift buyers"
+      />
 
-            {loadingShops ? (
-              <div className="rounded-2xl border border-slate-800 p-6 text-slate-300">
-                Loading shops...
-              </div>
-            ) : shops.length === 0 ? (
-              <div className="rounded-2xl border border-slate-800 p-6 text-slate-300">
-                No shop is available for this account yet.
-              </div>
-            ) : (
-              <div className="grid gap-5 md:grid-cols-2">
-                {shops.map((shop) => {
-                  const isActive = String(shop.id) === String(selectedShopId);
+      <SettingsSelect
+        defaultValue={profile.creativeGoal}
+        disabled={saving}
+        label="Main creative goal"
+        name="creativeGoal"
+        options={CREATIVE_GOAL_OPTIONS}
+      />
 
-                  return (
-                    <button
-                      type="button"
-                      key={shop.id}
-                      onClick={() => handleSelectShop(shop)}
-                      className={`rounded-3xl border p-5 text-left transition ${
-                        isActive
-                          ? "border-cyan-400 bg-cyan-950/25"
-                          : "border-slate-800 bg-slate-950/40 hover:border-cyan-700"
-                      }`}
-                    >
-                      <div className="mb-5 flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-2xl font-black">
-                            {shop.shop_name}
-                          </h3>
+      <SettingsSelect
+        defaultValue={profile.creativeSource}
+        disabled={saving}
+        label="Current creative source"
+        name="creativeSource"
+        options={CREATIVE_SOURCE_OPTIONS}
+      />
 
-                          <p className="mt-1 text-slate-400">
-                            {shop.category} · {shop.region}
-                          </p>
-                        </div>
+      <SettingsSelect
+        defaultValue={profile.brandTone}
+        disabled={saving}
+        label="Brand tone"
+        name="brandTone"
+        options={BRAND_TONE_OPTIONS}
+      />
 
-                        {isActive && (
-                          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-black text-emerald-300">
-                            Active
-                          </span>
-                        )}
-                      </div>
+      <button
+        type="submit"
+        disabled={saving}
+        className="rounded-2xl bg-cyan-500 px-6 py-3 font-black text-white transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {saving ? "Saving profile..." : "Save Workspace Profile"}
+      </button>
+    </Form>
+  );
+}
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl border border-slate-800 p-4">
-                          <p className="text-sm text-slate-400">Creatives</p>
-                          <p className="mt-1 text-xl font-black">
-                            {shop.creatives}
-                          </p>
-                        </div>
+function SettingsText({
+  defaultValue = "",
+  disabled = false,
+  label,
+  name,
+  placeholder = "",
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-slate-400">{label}</span>
+      <input
+        className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 font-bold outline-none"
+        defaultValue={defaultValue || ""}
+        disabled={disabled}
+        name={name}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
 
-                        <div className="rounded-2xl border border-slate-800 p-4">
-                          <p className="text-sm text-slate-400">Creators</p>
-                          <p className="mt-1 text-xl font-black">
-                            {shop.creators}
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+function SettingsSelect({
+  defaultValue = "",
+  disabled = false,
+  label,
+  name,
+  options = [],
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-slate-400">{label}</span>
+      <select
+        className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 font-bold outline-none"
+        defaultValue={defaultValue || ""}
+        disabled={disabled}
+        name={name}
+      >
+        <option value="">Not set</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
-            <div className="mt-7 flex flex-wrap gap-4">
-              <button
-                type="button"
-                onClick={handleConnectTikTokShop}
-                disabled={connectingTikTok}
-                className="rounded-2xl bg-cyan-500 px-6 py-3 font-black text-white hover:bg-cyan-400"
-              >
-                {connectingTikTok ? "Opening TikTok..." : "+ Connect New Shop"}
-              </button>
+function PreferenceToggle({
+  defaultChecked,
+  description,
+  disabled,
+  label,
+  last = false,
+  name,
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-5 ${
+        last ? "" : "border-b border-slate-800 pb-5"
+      }`}
+    >
+      <span>
+        <label className="block font-black" htmlFor={name}>
+          {label}
+        </label>
+        <span className="block text-sm text-slate-400">{description}</span>
+      </span>
 
-              <button
-                type="button"
-                onClick={() => setShopModalOpen(false)}
-                className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300 hover:border-cyan-400"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <input
+        id={name}
+        className="h-6 w-11 accent-cyan-500"
+        defaultChecked={defaultChecked}
+        disabled={disabled}
+        name={name}
+        type="checkbox"
+        value="true"
+      />
     </div>
   );
 }
