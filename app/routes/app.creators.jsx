@@ -151,9 +151,8 @@ export default function CreatorsRoute() {
           </div>
           <p className="max-w-xl text-sm leading-6 text-slate-400">
             Use this view to compare creator accounts by contribution to
-            revenue, clicks, engagement, and buying intent. Current values are
-            read from unified CreativePerformance records until live creator
-            attribution sync/import is connected.
+            revenue, clicks, engagement, and buying intent. Imported CSV rows
+            are attributed through unified creative performance records.
           </p>
         </div>
 
@@ -216,14 +215,14 @@ export default function CreatorsRoute() {
                     </p>
                   </td>
                   <td className="px-5 py-4">{creator.channel}</td>
-                  <td className="px-5 py-4">{formatNumber(creator.clicks)}</td>
-                  <td className="px-5 py-4">{creator.engagementRate}%</td>
-                  <td className="px-5 py-4">{formatNumber(creator.orders)}</td>
-                  <td className="px-5 py-4">{formatCurrency(creator.sales)}</td>
-                  <td className="px-5 py-4">{creator.conversionRate}%</td>
+                  <td className="px-5 py-4">{formatOptionalNumber(creator.clicks)}</td>
+                  <td className="px-5 py-4">{formatOptionalRate(creator.engagementRate, "%")}</td>
+                  <td className="px-5 py-4">{formatOptionalNumber(creator.orders)}</td>
+                  <td className="px-5 py-4">{formatOptionalCurrency(creator.sales)}</td>
+                  <td className="px-5 py-4">{formatOptionalRate(creator.conversionRate, "%")}</td>
                   <td className="px-5 py-4">{creator.topProduct || creator.productTitle}</td>
                   <td className="px-5 py-4">{creator.topCreativeAngle || creator.specialty}</td>
-                  <td className="px-5 py-4">{formatCurrency(creator.aov)}</td>
+                  <td className="px-5 py-4">{formatOptionalCurrency(creator.aov)}</td>
                   <td className="px-5 py-4 font-bold text-cyan-100">
                     {creator.decision}
                   </td>
@@ -272,7 +271,7 @@ function CreatorPerformanceCard({ creator, onView }) {
             {creator.handle} · {creator.channel}
           </p>
           <p className="mt-2 text-xs font-semibold text-slate-500">
-            {formatNumber(creator.followerCount)} followers · {formatNumber(creator.averageViews)} avg views
+            {formatOptionalNumber(creator.followerCount)} followers · {formatOptionalNumber(creator.averageViews)} avg views
           </p>
         </div>
         <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">
@@ -281,9 +280,9 @@ function CreatorPerformanceCard({ creator, onView }) {
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <MiniMetric label="Clicks" value={formatNumber(creator.clicks)} />
-        <MiniMetric label="Engagement" value={`${creator.engagementRate}%`} />
-        <MiniMetric label="Sales" value={formatCurrency(creator.sales)} />
+        <MiniMetric label="Clicks" value={formatOptionalNumber(creator.clicks)} />
+        <MiniMetric label="Engagement" value={formatOptionalRate(creator.engagementRate, "%")} />
+        <MiniMetric label="Sales" value={formatOptionalCurrency(creator.sales)} />
         <MiniMetric label="ROAS" value={formatOptionalRate(creator.roas, "x")} />
       </div>
 
@@ -379,18 +378,18 @@ function CreatorAccountPopIn({ creator, onClose, search = "" }) {
           </div>
 
           <section className="grid gap-4 md:grid-cols-4">
-            <MiniMetric label="Followers" value={formatNumber(creator.followerCount)} />
-            <MiniMetric label="Average views" value={formatNumber(creator.averageViews)} />
-            <MiniMetric label="Clicks" value={formatNumber(creator.clicks)} />
-            <MiniMetric label="Attributed sales" value={formatCurrency(creator.sales)} />
-            <MiniMetric label="Spend" value={formatCurrency(creator.spend)} />
+            <MiniMetric label="Followers" value={formatOptionalNumber(creator.followerCount)} />
+            <MiniMetric label="Average views" value={formatOptionalNumber(creator.averageViews)} />
+            <MiniMetric label="Clicks" value={formatOptionalNumber(creator.clicks)} />
+            <MiniMetric label="Attributed sales" value={formatOptionalCurrency(creator.sales)} />
+            <MiniMetric label="Spend" value={formatOptionalCurrency(creator.spend)} />
             <MiniMetric label="ROAS" value={formatOptionalRate(creator.roas, "x")} />
-            <MiniMetric label="Orders" value={formatNumber(creator.orders)} />
-            <MiniMetric label="Engagement" value={`${creator.engagementRate}%`} />
-            <MiniMetric label="Conversion rate" value={`${creator.conversionRate}%`} />
+            <MiniMetric label="Orders" value={formatOptionalNumber(creator.orders)} />
+            <MiniMetric label="Engagement" value={formatOptionalRate(creator.engagementRate, "%")} />
+            <MiniMetric label="Conversion rate" value={formatOptionalRate(creator.conversionRate, "%")} />
             <MiniMetric label="Video views" value={formatOptionalNumber(creator.videoViews)} />
             <MiniMetric label="Completion" value={formatOptionalRate(creator.videoCompletionRate, "%")} />
-            <MiniMetric label="AOV" value={formatCurrency(creator.aov)} />
+            <MiniMetric label="AOV" value={formatOptionalCurrency(creator.aov)} />
           </section>
 
           <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -594,7 +593,7 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function buildCreatorPerformanceRows(creators = [], performanceRecords = []) {
+export function buildCreatorPerformanceRows(creators = [], performanceRecords = []) {
   const byCreator = groupPerformanceByCreator(performanceRecords);
   const knownCreatorKeys = new Set(
     creators.map((creator) => normalizeCreatorKey(creator.handle || creator.name)),
@@ -609,11 +608,12 @@ function buildCreatorPerformanceRows(creators = [], performanceRecords = []) {
       const matchingRecords =
         byCreator.get(creatorKey) ||
         performanceRecords.filter((record) => record.shopifyProductId === creator.productId);
-      const clicks = matchingRecords.reduce((sum, record) => sum + Number(record.clicks || 0), 0);
-      const orders = matchingRecords.reduce((sum, record) => sum + Number(record.orders || 0), 0);
-      const sales = matchingRecords.reduce((sum, record) => sum + Number(record.revenue || 0), 0);
-      const spend = matchingRecords.reduce((sum, record) => sum + Number(record.spend || 0), 0);
-      const views = matchingRecords.reduce((sum, record) => sum + Number(record.views || 0), 0);
+      const imported = creator.status === "Imported";
+      const clicks = aggregateNullable(matchingRecords, "clicks");
+      const orders = aggregateNullable(matchingRecords, "orders");
+      const sales = aggregateNullable(matchingRecords, "revenue");
+      const spend = aggregateNullable(matchingRecords, "spend");
+      const views = aggregateNullable(matchingRecords, "views");
       const videoViews = matchingRecords.reduce((sum, record) => sum + Number(record.videoViews || record.views || 0), 0);
       const videoCompletions = matchingRecords.reduce((sum, record) => sum + Number(record.video100PercentWatched || 0), 0);
       const engagements = matchingRecords.reduce(
@@ -627,26 +627,30 @@ function buildCreatorPerformanceRows(creators = [], performanceRecords = []) {
               Number(record.reposts || 0)),
         0,
       );
-      const finalClicks = clicks || Math.round(creator.averageViews * 0.08);
-      const finalOrders = orders || creator.orders;
-      const finalSales = sales || creator.revenue;
-      const finalViews = views || creator.averageViews;
-      const engagementRate = views
+      const finalClicks = imported ? clicks : clicks || Math.round(creator.averageViews * 0.08);
+      const finalOrders = imported ? orders : orders || creator.orders;
+      const finalSales = imported ? sales : sales || creator.revenue;
+      const finalViews = imported ? views : views || creator.averageViews;
+      const engagementRate = views !== null && views > 0
         ? Number(((engagements / views) * 100).toFixed(1))
-        : creator.engagementRate;
-      const conversionRate = finalClicks ? Number(((finalOrders / finalClicks) * 100).toFixed(1)) : creator.conversionRate;
-      const roas = spend ? Number((finalSales / spend).toFixed(2)) : null;
+        : imported ? null : creator.engagementRate;
+      const conversionRate = finalClicks && finalOrders !== null
+        ? Number(((finalOrders / finalClicks) * 100).toFixed(1))
+        : imported ? null : creator.conversionRate;
+      const roas = spend && finalSales !== null ? Number((finalSales / spend).toFixed(2)) : null;
       const videoCompletionRate = videoViews
         ? Number(((videoCompletions / videoViews) * 100).toFixed(1))
         : null;
-      const aov = Number((finalSales / Math.max(finalOrders, 1)).toFixed(0));
+      const aov = finalSales !== null && finalOrders
+        ? Number((finalSales / finalOrders).toFixed(0))
+        : null;
       const performanceScore = Math.min(
         99,
         Math.round(
           creator.fitScore * 0.25 +
-            engagementRate * 5 +
-            conversionRate * 7 +
-            orders * 0.2 +
+            Number(engagementRate || 0) * 5 +
+            Number(conversionRate || 0) * 7 +
+            Number(orders || 0) * 0.2 +
             Math.min(matchingRecords.length, 4) * 6,
         ),
       );
@@ -703,34 +707,34 @@ function buildCreatorPerformanceRows(creators = [], performanceRecords = []) {
 
 function buildImportedCreatorBase(key, records = []) {
   const first = records[0] || {};
-  const handle = first.creatorHandle || `@${key}`;
-  const views = records.reduce((sum, record) => sum + Number(record.views || 0), 0);
-  const orders = records.reduce((sum, record) => sum + Number(record.orders || 0), 0);
-  const revenue = records.reduce((sum, record) => sum + Number(record.revenue || 0), 0);
-  const spend = records.reduce((sum, record) => sum + Number(record.spend || 0), 0);
+  const handle = first.creatorHandle || "Not imported";
+  const views = aggregateNullable(records, "views");
+  const orders = aggregateNullable(records, "orders");
+  const revenue = aggregateNullable(records, "revenue");
+  const spend = aggregateNullable(records, "spend");
   const productTitle =
     first.productTitle || first.productLabel || first.productHandle || "Imported product";
 
   return {
     id: key,
-    name: handle,
+    name: first.creatorName || first.creatorHandle || key,
     handle,
     platform: first.sourcePlatform || first.platform || "Imported",
     niche: "Imported public engagement",
     topProduct: productTitle,
-    topCreativeAngle: first.creativeTitle || "Imported creative",
+    topCreativeAngle: first.angle || first.creativeTitle || "Not imported",
     productId: first.shopifyProductId || "",
     productTitle,
     fitScore: 70,
-    averageViews: Math.round(views / Math.max(records.length, 1)),
-    clicks: 0,
+    averageViews: views === null ? null : Math.round(views / Math.max(records.length, 1)),
+    clicks: aggregateNullable(records, "clicks"),
     orders,
     revenue,
     spend,
-    roas: spend ? Number((revenue / spend).toFixed(2)) : null,
-    engagementRate: 0,
-    conversionRate: 0,
-    followerCount: 0,
+    roas: spend && revenue !== null ? Number((revenue / spend).toFixed(2)) : null,
+    engagementRate: null,
+    conversionRate: null,
+    followerCount: null,
     status: "Imported",
     specialty: "Public engagement records",
     strengths: ["Imported public engagement records are available."],
@@ -740,6 +744,15 @@ function buildImportedCreatorBase(key, records = []) {
     recommendedNextAction:
       "Use this creator in a product-specific brief, then import deeper performance stats when available.",
   };
+}
+
+function aggregateNullable(records, key) {
+  const values = records
+    .map((record) => record[key])
+    .filter((value) => value !== null && value !== undefined && value !== "");
+  return values.length
+    ? values.reduce((sum, value) => sum + Number(value), 0)
+    : null;
 }
 
 function groupPerformanceByCreator(records = []) {

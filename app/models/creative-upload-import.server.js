@@ -2,6 +2,7 @@ import db from "../db.server.js";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server.js";
 import { CREATIVE_VIDEO_FILE_FIELD } from "../utils/selected-video-files.js";
 import { assignCampaignRecords } from "./campaign.server.js";
+import { summarizeCreatorPreview } from "./creator-attribution.server.js";
 
 export { CREATIVE_VIDEO_FILE_FIELD } from "../utils/selected-video-files.js";
 export const CREATIVE_VIDEO_FILENAME_COLUMNS = [
@@ -23,6 +24,8 @@ export function getUploadedVideoFiles(formData) {
 
 export function buildCreativeUploadPreview({
   csvText = "",
+  existingCreators = [],
+  createCreatorProfiles = true,
   parsePublicEngagementCsv,
   uploadedVideos = [],
 }) {
@@ -32,6 +35,15 @@ export function buildCreativeUploadPreview({
     decorateCreativeUploadRow(row, fileIndex),
   );
   const summary = summarizeCreativeUploadPreview(rows, fileIndex);
+  const creatorSummary = createCreatorProfiles
+    ? summarizeCreatorPreview(rows, existingCreators)
+    : {
+        creatorsDetected: 0,
+        duplicateCreatorRowsMerged: 0,
+        missingCreatorIdentity: 0,
+        newCreators: 0,
+        updatedCreators: 0,
+      };
   const fileWarnings = [
     ...fileIndex.files
       .filter((file) => !file.supported)
@@ -48,6 +60,7 @@ export function buildCreativeUploadPreview({
     rows,
     summary: {
       ...summary,
+      ...creatorSummary,
       warnings: summary.warnings + fileWarnings.length,
     },
   };
@@ -55,6 +68,7 @@ export function buildCreativeUploadPreview({
 
 export async function importMatchedCreativeRows({
   campaignId = "",
+  createCreatorProfiles = true,
   preview,
   shop,
   uploadedVideos,
@@ -69,6 +83,11 @@ export async function importMatchedCreativeRows({
     skipped: 0,
     updated: 0,
     warnings: 0,
+    creatorsDetected: preview.summary?.creatorsDetected || 0,
+    duplicateCreatorRowsMerged: preview.summary?.duplicateCreatorRowsMerged || 0,
+    missingCreatorIdentity: preview.summary?.missingCreatorIdentity || 0,
+    newCreators: preview.summary?.newCreators || 0,
+    updatedCreators: preview.summary?.updatedCreators || 0,
   };
   const rows = [];
   const importedKeys = [];
@@ -126,6 +145,7 @@ export async function importMatchedCreativeRows({
           savedCreativeSourceType: "creative_performance_upload_import",
           sourceRecordType: "creative_upload_performance_import",
           sourceType: "creative_performance_upload_import",
+          createCreatorProfile: createCreatorProfiles,
         },
       });
       summary[result] += 1;
@@ -161,6 +181,15 @@ export async function importMatchedCreativeRows({
       creativePerformanceIds: performanceRecords.map((record) => record.id),
       savedCreativeIds: savedCreatives.map((record) => record.id),
     });
+    if (createCreatorProfiles) {
+      await db.creatorAttribution.updateMany({
+        where: {
+          shop,
+          creativePerformanceId: { in: performanceRecords.map((record) => record.id) },
+        },
+        data: { campaignId },
+      });
+    }
   }
 
   return {

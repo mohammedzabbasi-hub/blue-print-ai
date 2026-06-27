@@ -27,10 +27,10 @@ export const meta = () => {
   return [{ title: "Data Import | BluePrintAI" }];
 };
 
-const sampleCsv = `creative_id,creative_name,video_filename,platform,campaign_id,campaign_name,ad_id,ad_name,creator_handle,creator_name,product_id,product_name,reporting_date,impressions,reach,video_views,likes,comments,shares,clicks,orders,conversions,revenue,conversion_value,spend,ctr,cvr,roas,cpc,cpm,notes
-cr_ice_001,Ice Roller morning demo,ice-roller-demo.mp4,TikTok Ads,camp_summer_26,June Scale Tests,ad_ice_001,Ice Roller Pro morning depuff demo,@mayaglowup,Maya Chen,shopify_101,Ice Roller Pro,2026-06-01,148000,121400,126000,9800,640,850,2600,94,94,4230,4230,820,1.76,3.62,5.16,0.32,5.54,Full paid and engagement metrics
-cr_lash_002,LashLift before-after,lashlift-before-after.mp4,Meta Ads,camp_creator_ugc,Creator UGC Batch,ad_lash_002,LashLift Starter Kit before-after,@lashlabdaily,Ari Brooks,shopify_102,LashLift Starter Kit,2026-06-03,101000,88400,84200,6100,320,430,1400,51,51,2295,2295,530,1.39,3.64,4.33,0.38,5.25,Attach a matching video by filename
-cr_bundle_003,Glass Skin Bundle shelfie,,Google Ads,camp_pmax_bundle,Performance Max Bundle Push,ad_bundle_003,Glass Skin Bundle shelfie angle,@beautyops,Leah Kim,shopify_103,Glass Skin Bundle,2026-06-09,52000,44100,,2300,120,170,620,17,17,1190,1190,260,1.19,2.74,4.58,0.42,5.00,Valid performance-only creative with no video`;
+const sampleCsv = `creative_id,creative_name,video_filename,platform,campaign_id,campaign_name,ad_id,ad_name,creator_handle,creator_name,creator_platform,creator_profile_url,creator_type,creator_clicks,creator_orders,creator_revenue,creator_commission,creator_notes,product_id,product_name,reporting_date,impressions,reach,video_views,likes,comments,shares,clicks,orders,conversions,revenue,conversion_value,spend,ctr,cvr,roas,cpc,cpm,notes
+cr_ice_001,Ice Roller morning demo,ice-roller-demo.mp4,TikTok Ads,camp_summer_26,June Scale Tests,ad_ice_001,Ice Roller Pro morning depuff demo,@mayaglowup,Maya Chen,TikTok,https://www.tiktok.com/@mayaglowup,affiliate,2600,94,4230,423,Optional creator attribution,shopify_101,Ice Roller Pro,2026-06-01,148000,121400,126000,9800,640,850,2600,94,94,4230,4230,820,1.76,3.62,5.16,0.32,5.54,Full paid and engagement metrics
+cr_lash_002,LashLift before-after,lashlift-before-after.mp4,Meta Ads,camp_creator_ugc,Creator UGC Batch,ad_lash_002,LashLift Starter Kit before-after,@lashlabdaily,Ari Brooks,Instagram,https://instagram.com/lashlabdaily,ugc,1400,51,2295,230,,shopify_102,LashLift Starter Kit,2026-06-03,101000,88400,84200,6100,320,430,1400,51,51,2295,2295,530,1.39,3.64,4.33,0.38,5.25,Attach a matching video by filename
+cr_bundle_003,Glass Skin Bundle shelfie,,Google Ads,camp_pmax_bundle,Performance Max Bundle Push,ad_bundle_003,Glass Skin Bundle shelfie angle,,,,,,,,,,,shopify_103,Glass Skin Bundle,2026-06-09,52000,44100,,2300,120,170,620,17,17,1190,1190,260,1.19,2.74,4.58,0.42,5.00,Valid performance-only creative with optional creator fields blank`;
 const requiredColumns = [
   "platform",
   "ad_name/creative_name or video_url/source_url",
@@ -41,6 +41,10 @@ const optionalColumns = [
   "creative_id",
   "campaign/ad identifiers",
   "creator_name",
+  "creator_handle and creator_name (either is enough)",
+  "creator_platform / creator_profile_url / creator_type",
+  "creator_clicks / creator_orders / creator_revenue",
+  "creator_commission / creator_notes",
   "product_id / product_name",
   "thumbnail_url",
   "asset_url / source_url",
@@ -142,8 +146,14 @@ export const action = async ({ request }) => {
   }
 
   const uploadedVideos = getUploadedVideoFiles(formData);
+  const createCreatorProfiles = formData.get("createCreatorProfiles") !== "false";
+  const existingCreators = createCreatorProfiles
+    ? await (await import("../models/creator-attribution.server")).listCreatorProfiles(session.shop)
+    : [];
   const preview = buildCreativeUploadPreview({
     csvText: input.csvText,
+    createCreatorProfiles,
+    existingCreators,
     parsePublicEngagementCsv,
     uploadedVideos,
   });
@@ -172,6 +182,7 @@ export const action = async ({ request }) => {
   }
   const result = await importMatchedCreativeRows({
     campaignId,
+    createCreatorProfiles,
     preview,
     shop: session.shop,
     uploadedVideos,
@@ -202,6 +213,7 @@ export default function DataImportRoute() {
   const [fileInputKey, setFileInputKey] = useState(0);
   const [videoInputKey, setVideoInputKey] = useState(0);
   const [selectedVideos, setSelectedVideos] = useState([]);
+  const [createCreatorProfiles, setCreateCreatorProfiles] = useState(true);
   const submitting = navigation.state === "submitting";
   const submittingIntent = navigation.formData
     ? String(navigation.formData.get("intent") || "preview")
@@ -262,6 +274,7 @@ export default function DataImportRoute() {
     setSelectedVideos([]);
     setSelectedCampaignId("");
     setNewCampaignName("");
+    setCreateCreatorProfiles(true);
   }
 
   function addSelectedVideoFiles(fileList) {
@@ -290,6 +303,7 @@ export default function DataImportRoute() {
       intent,
       selectedVideos,
     });
+    formData.set("createCreatorProfiles", String(createCreatorProfiles));
 
     submit(formData, {
       encType: "multipart/form-data",
@@ -514,6 +528,21 @@ export default function DataImportRoute() {
             </label>
             </div>
           </div>
+          <div className="rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-violet-200">Creator attribution</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              Rows with creator_name or creator_handle will update Creator Performance and connect creators to imported creatives.
+            </p>
+            <label className="mt-3 flex items-center gap-3 text-sm font-bold text-slate-200">
+              <input
+                checked={createCreatorProfiles}
+                className="h-4 w-4 accent-violet-400"
+                onChange={(event) => setCreateCreatorProfiles(event.target.checked)}
+                type="checkbox"
+              />
+              Create/update creator profiles from CSV rows
+            </label>
+          </div>
           <div className="flex flex-wrap gap-3">
             <div className="w-full">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Step 4 · Review import</p>
@@ -733,6 +762,19 @@ function CreativeUploadPreview({
         <Metric label="Errors" value={summary.errors || 0} />
         <Metric label="Files matched" value={summary.uploadedFilesMatched || 0} />
         <Metric label="Files unused" value={summary.uploadedFilesUnused || 0} />
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-4">
+        <p className="text-xs font-black uppercase tracking-[0.14em] text-violet-200">
+          Creator attribution
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Metric label="Creators detected" value={summary.creatorsDetected || 0} />
+          <Metric label="New creators" value={summary.newCreators || 0} />
+          <Metric label="Updated creators" value={summary.updatedCreators || 0} />
+          <Metric label="Missing identity" value={summary.missingCreatorIdentity || 0} />
+          <Metric label="Duplicate rows merged" value={summary.duplicateCreatorRowsMerged || 0} />
+        </div>
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">

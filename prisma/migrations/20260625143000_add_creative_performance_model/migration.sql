@@ -1,0 +1,67 @@
+CREATE TABLE "CreativePerformance" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shop" TEXT NOT NULL,
+    "creativeId" TEXT,
+    "platform" TEXT,
+    "campaignId" TEXT,
+    "campaignName" TEXT,
+    "adsetId" TEXT,
+    "adsetName" TEXT,
+    "adGroupId" TEXT,
+    "adGroupName" TEXT,
+    "adId" TEXT,
+    "adName" TEXT,
+    "creatorHandle" TEXT,
+    "creatorName" TEXT,
+    "productId" TEXT,
+    "productName" TEXT,
+    "productHandle" TEXT,
+    "thumbnailUrl" TEXT,
+    "videoUrl" TEXT,
+    "assetUrl" TEXT,
+    "sourceUrl" TEXT,
+    "sourceType" TEXT,
+    "sourceRecordId" TEXT,
+    "sourceRecordType" TEXT,
+    "importKey" TEXT,
+    "reportingDate" DATETIME,
+    "importedAt" DATETIME,
+    "syncedAt" DATETIME,
+    "impressions" REAL,
+    "reach" REAL,
+    "clicks" REAL,
+    "spend" REAL,
+    "conversions" REAL,
+    "orders" REAL,
+    "revenue" REAL,
+    "conversionValue" REAL,
+    "ctr" REAL,
+    "cpc" REAL,
+    "cpm" REAL,
+    "cvr" REAL,
+    "roas" REAL,
+    "videoViews" REAL,
+    "video2SecondViews" REAL,
+    "video3SecondViews" REAL,
+    "video25PercentWatched" REAL,
+    "video50PercentWatched" REAL,
+    "video75PercentWatched" REAL,
+    "video100PercentWatched" REAL,
+    "averageWatchTime" REAL,
+    "engagements" REAL,
+    "likes" REAL,
+    "comments" REAL,
+    "shares" REAL,
+    "payloadJson" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+CREATE INDEX "CreativePerformance_shop_reportingDate_idx" ON "CreativePerformance"("shop", "reportingDate");
+CREATE INDEX "CreativePerformance_shop_platform_idx" ON "CreativePerformance"("shop", "platform");
+CREATE INDEX "CreativePerformance_shop_creatorHandle_idx" ON "CreativePerformance"("shop", "creatorHandle");
+CREATE INDEX "CreativePerformance_shop_productHandle_idx" ON "CreativePerformance"("shop", "productHandle");
+CREATE INDEX "CreativePerformance_shop_creativeId_idx" ON "CreativePerformance"("shop", "creativeId");
+CREATE INDEX "CreativePerformance_shop_sourceType_idx" ON "CreativePerformance"("shop", "sourceType");
+CREATE INDEX "CreativePerformance_shop_sourceRecordType_sourceRecordId_idx" ON "CreativePerformance"("shop", "sourceRecordType", "sourceRecordId");
+CREATE UNIQUE INDEX "CreativePerformance_shop_importKey_key" ON "CreativePerformance"("shop", "importKey");

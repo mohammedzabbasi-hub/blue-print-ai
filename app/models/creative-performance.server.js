@@ -16,6 +16,7 @@ import {
 } from "./blueprint.server.js";
 import { MAX_PUBLIC_IMPORT_BYTES } from "../constants/import-limits.js";
 import { syncImportedCampaignAssignment } from "./campaign.server.js";
+import { upsertCreatorAttribution } from "./creator-attribution.server.js";
 
 export const DEMO_PERFORMANCE_DATA_LABEL = "Demo performance data";
 export const PERFORMANCE_EMPTY_STATE =
@@ -57,7 +58,6 @@ export const PLAYABLE_VIDEO_EXTENSIONS = [".mp4", ".mov", ".m4v", ".webm"];
 
 const REQUIRED_IMPORT_FIELDS = ["platform", "date"];
 const RECOMMENDED_IMPORT_FIELDS = [
-  "creator_handle",
   "product_handle",
   "product_name",
 ];
@@ -94,6 +94,11 @@ const NUMERIC_IMPORT_FIELDS = [
   "hook_rate",
   "hold_rate",
   "retention_rate",
+  "creator_commission",
+  "creator_clicks",
+  "creator_orders",
+  "creator_revenue",
+  "creator_spend",
 ];
 const ZERO_DEFAULT_FIELDS = ["likes", "comments", "shares", "saves", "reposts"];
 const OPTIONAL_PERFORMANCE_FIELDS = [
@@ -123,6 +128,11 @@ const OPTIONAL_PERFORMANCE_FIELDS = [
   "hold_rate",
   "average_watch_time",
   "retention_rate",
+  "creator_commission",
+  "creator_clicks",
+  "creator_orders",
+  "creator_revenue",
+  "creator_spend",
 ];
 const DEEPER_PERFORMANCE_KEYS = [
   "impressions",
@@ -228,6 +238,7 @@ export async function listCreativePerformance({
     shop
       ? db.creativePerformance.findMany({
           where: { shop },
+          include: { creatorAttribution: { include: { creator: true } } },
           orderBy: [{ reportingDate: "desc" }, { createdAt: "desc" }],
         })
       : [],
@@ -351,8 +362,15 @@ function creativePerformanceDbRecordToPerformance(record = {}, index = 0) {
     cvr: record.cvr,
     creativeId: record.creativeId ?? payload.creativeId,
     creativeTitle: record.adName ?? payload.creativeTitle ?? payload.creativeName,
-    creatorHandle: record.creatorHandle ?? payload.creatorHandle,
-    creatorName: record.creatorName ?? payload.creatorName,
+    creatorHandle:
+      record.creatorAttribution?.creator?.handle ?? record.creatorHandle ?? payload.creatorHandle,
+    creatorName:
+      record.creatorAttribution?.creator?.name ?? record.creatorName ?? payload.creatorName,
+    creatorPlatform:
+      record.creatorAttribution?.creator?.platform ?? payload.creatorPlatform,
+    creatorProfileUrl:
+      record.creatorAttribution?.creator?.profileUrl ?? payload.creatorProfileUrl,
+    creatorType: record.creatorAttribution?.creator?.type ?? payload.creatorType,
     engagements: record.engagements,
     engagementCount: record.engagements,
     firstSeenAt: record.reportingDate || record.createdAt,
@@ -682,6 +700,7 @@ export async function upsertPublicEngagementRecord(shop, row) {
       savedCreativeId: savedCreative.id,
       creativePerformanceId: performance?.id,
     });
+    await syncCreatorAttribution(shop, record, performance);
     return "updated";
   }
 
@@ -697,7 +716,23 @@ export async function upsertPublicEngagementRecord(shop, row) {
     savedCreativeId: savedCreative.id,
     creativePerformanceId: performance?.id,
   });
+  await syncCreatorAttribution(shop, record, performance);
   return "created";
+}
+
+async function syncCreatorAttribution(shop, record, performance) {
+  if (!performance || record.createCreatorProfile === false) return;
+  const assignment = await db.adCampaignCreative.findFirst({
+    where: { shop, creativePerformanceId: performance.id },
+    select: { campaignId: true },
+    orderBy: { createdAt: "desc" },
+  });
+  await upsertCreatorAttribution({
+    campaignId: assignment?.campaignId || null,
+    creativePerformance: performance,
+    record,
+    shop,
+  });
 }
 
 async function upsertCreativePerformanceMetric(shop, record, sourceId) {
@@ -846,6 +881,16 @@ export function normalizeCreativePerformance(input = {}) {
     productId: cleanText(aliased.productId || aliased.shopifyProductId),
     creatorName: cleanText(aliased.creatorName),
     creatorHandle: normalizeHandle(aliased.creatorHandle),
+    creatorProfileUrl: cleanText(aliased.creatorProfileUrl),
+    creatorPlatform: cleanText(aliased.creatorPlatform),
+    creatorType: cleanText(aliased.creatorType),
+    creatorEmail: cleanText(aliased.creatorEmail),
+    creatorCommission: nullableNumber(aliased.creatorCommission),
+    creatorClicks: nullableNumber(aliased.creatorClicks),
+    creatorOrders: nullableNumber(aliased.creatorOrders),
+    creatorRevenue: nullableNumber(aliased.creatorRevenue),
+    creatorSpend: nullableNumber(aliased.creatorSpend),
+    creatorNotes: cleanText(aliased.creatorNotes),
     creativeTitle: cleanText(aliased.creativeTitle || aliased.adName || aliased.title),
     hook: cleanText(aliased.hook),
     angle: cleanText(aliased.angle),
@@ -1311,8 +1356,8 @@ function validatePublicEngagementRow(input, rowNumber) {
 
   if (!date) errors.push("date must be a valid date.");
 
-  if (!cleanImportText(row.creator_handle)) {
-    warnings.push("creator_handle is recommended for creator comparisons.");
+  if (!cleanImportText(row.creator_handle) && !cleanImportText(row.creator_name)) {
+    warnings.push("creator_handle or creator_name is recommended for creator attribution.");
   }
 
   if (!cleanImportText(row.product_handle) && !cleanImportText(row.product_name)) {
@@ -1353,6 +1398,16 @@ function validatePublicEngagementRow(input, rowNumber) {
     videoUrl,
     creatorHandle: normalizeHandle(row.creator_handle),
     creatorName: cleanImportText(row.creator_name),
+    creatorProfileUrl: cleanImportText(row.creator_profile_url),
+    creatorPlatform: cleanImportText(row.creator_platform || row.platform),
+    creatorType: cleanImportText(row.creator_type),
+    creatorEmail: cleanImportText(row.creator_email),
+    creatorCommission: metrics.creator_commission,
+    creatorClicks: metrics.creator_clicks,
+    creatorOrders: metrics.creator_orders,
+    creatorRevenue: metrics.creator_revenue,
+    creatorSpend: metrics.creator_spend,
+    creatorNotes: cleanImportText(row.creator_notes),
     productId: cleanImportText(row.product_id),
     productHandle: cleanImportText(row.product_handle),
     productName: cleanImportText(row.product_name),
@@ -1369,10 +1424,10 @@ function validatePublicEngagementRow(input, rowNumber) {
     reposts: metrics.reposts,
     engagementCount,
     engagementRate: metrics.engagement_rate,
-    clicks,
-    orders,
-    revenue,
-    spend,
+    clicks: clicks ?? metrics.creator_clicks,
+    orders: orders ?? metrics.creator_orders,
+    revenue: revenue ?? metrics.creator_revenue,
+    spend: spend ?? metrics.creator_spend,
     impressions,
     conversions: metrics.conversions,
     conversionValue: metrics.conversion_value,

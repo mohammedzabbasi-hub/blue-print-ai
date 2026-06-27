@@ -75,6 +75,7 @@ model SavedCreative {
   payloadJson  String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  campaignAssignments AdCampaignCreative[]
 
   @@index([shop, createdAt])
   @@index([shop, productId])
@@ -112,4 +113,179 @@ model WorkspaceSetting {
   updatedAt DateTime @updatedAt
 
   @@unique([shop, key])
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  shop        String
+  type        String
+  title       String
+  description String?
+  relatedType String?
+  relatedId   String?
+  payloadJson String?
+  createdAt   DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, type])
+  @@index([shop, relatedType, relatedId])
+}
+
+model CreativePerformance {
+  id                       String    @id @default(cuid())
+  shop                     String
+  creativeId               String?
+  platform                 String?
+  campaignId               String?
+  campaignName             String?
+  adsetId                  String?
+  adsetName                String?
+  adGroupId                String?
+  adGroupName              String?
+  adId                     String?
+  adName                   String?
+  creatorHandle            String?
+  creatorName              String?
+  productId                String?
+  productName              String?
+  productHandle            String?
+  thumbnailUrl             String?
+  videoUrl                 String?
+  assetUrl                 String?
+  sourceUrl                String?
+  sourceType               String?
+  sourceRecordId           String?
+  sourceRecordType         String?
+  importKey                String?
+  reportingDate            DateTime?
+  importedAt               DateTime?
+  syncedAt                 DateTime?
+  impressions              Float?
+  reach                    Float?
+  clicks                   Float?
+  spend                    Float?
+  conversions              Float?
+  orders                   Float?
+  revenue                  Float?
+  conversionValue          Float?
+  ctr                      Float?
+  cpc                      Float?
+  cpm                      Float?
+  cvr                      Float?
+  roas                     Float?
+  videoViews               Float?
+  video2SecondViews        Float?
+  video3SecondViews        Float?
+  video25PercentWatched    Float?
+  video50PercentWatched    Float?
+  video75PercentWatched    Float?
+  video100PercentWatched   Float?
+  averageWatchTime         Float?
+  engagements              Float?
+  likes                    Float?
+  comments                 Float?
+  shares                   Float?
+  payloadJson              String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  campaignAssignments      AdCampaignCreative[]
+  creatorAttribution       CreatorAttribution?
+
+  @@index([shop, reportingDate])
+  @@index([shop, platform])
+  @@index([shop, creatorHandle])
+  @@index([shop, productHandle])
+  @@index([shop, creativeId])
+  @@index([shop, sourceType])
+  @@index([shop, sourceRecordType, sourceRecordId])
+  @@unique([shop, importKey])
+}
+
+model Creator {
+  id                     String   @id @default(cuid())
+  shop                   String
+  handle                 String?
+  normalizedHandle       String?
+  name                   String?
+  normalizedName         String?
+  normalizedPlatformName String?
+  profileUrl             String?
+  platform               String?
+  type                   String?
+  email                  String?
+  commission             Float?
+  notes                  String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  attributions           CreatorAttribution[]
+
+  @@unique([shop, normalizedHandle])
+  @@index([shop, normalizedName])
+  @@index([shop, normalizedPlatformName])
+  @@index([shop, updatedAt])
+}
+
+model CreatorAttribution {
+  id                    String              @id @default(cuid())
+  shop                  String
+  creatorId             String
+  creativePerformanceId String              @unique
+  campaignId            String?
+  clicks                Float?
+  orders                Float?
+  revenue               Float?
+  spend                 Float?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  creator               Creator             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creativePerformance   CreativePerformance @relation(fields: [creativePerformanceId], references: [id], onDelete: Cascade)
+  campaign              AdCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([shop, creatorId])
+  @@index([shop, campaignId])
+}
+
+model AdCampaign {
+  id                 String   @id @default(cuid())
+  shop               String
+  name               String
+  normalizedName     String
+  description        String?
+  status             String   @default("draft")
+  objective          String   @default("awareness")
+  platform           String   @default("manual")
+  primaryProductName String?
+  startDate          DateTime?
+  endDate            DateTime?
+  budget             Float?
+  targetAudience     String?
+  notes              String?
+  externalCampaignId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  assignments        AdCampaignCreative[]
+  creatorAttributions CreatorAttribution[]
+
+  @@unique([shop, normalizedName])
+  @@index([shop, status])
+  @@index([shop, updatedAt])
+  @@index([shop, externalCampaignId])
+}
+
+model AdCampaignCreative {
+  id                    String               @id @default(cuid())
+  shop                  String
+  campaignId            String
+  savedCreativeId       String?
+  creativePerformanceId String?
+  createdAt             DateTime             @default(now())
+  campaign              AdCampaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  savedCreative         SavedCreative?        @relation(fields: [savedCreativeId], references: [id], onDelete: Cascade)
+  creativePerformance   CreativePerformance?  @relation(fields: [creativePerformanceId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, savedCreativeId])
+  @@unique([campaignId, creativePerformanceId])
+  @@index([shop, campaignId])
+  @@index([shop, savedCreativeId])
+  @@index([shop, creativePerformanceId])
 }
