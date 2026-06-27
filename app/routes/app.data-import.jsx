@@ -1,5 +1,4 @@
 import {
-  Form,
   Link,
   useActionData,
   useLoaderData,
@@ -11,10 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  Download,
-  FileUp,
   Film,
-  Table2,
   X,
 } from "lucide-react";
 
@@ -31,11 +27,10 @@ export const meta = () => {
   return [{ title: "Data Import | BluePrintAI" }];
 };
 
-const sampleCsv = `creative_id,platform,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,creator_handle,creator_name,product_id,product_name,product_handle,thumbnail_url,video_url,asset_url,source_url,source_type,reporting_date,impressions,reach,clicks,spend,conversions,orders,revenue,conversion_value,ctr,cpc,cpm,cvr,roas,video_views,video_2_second_views,video_3_second_views,video_25_percent_watched,video_50_percent_watched,video_75_percent_watched,video_100_percent_watched,average_watch_time,engagements,likes,comments,shares,notes
-cr_ice_001,TikTok Ads,camp_summer_26,June Scale Tests,adset_warm_01,Warm skincare shoppers,ad_ice_001,Ice Roller Pro morning depuff demo,@mayaglowup,Maya Chen,shopify_101,Ice Roller Pro,ice-roller-pro,https://example.com/thumbs/ice.jpg,/uploads/creative-library/blueprintai-test-store.myshopify.com/ice-roller-pro-demo.mp4,https://cdn.example.com/ice.mp4,https://www.tiktok.com/@mayaglowup/video/1,csv,2026-06-01,148000,121400,2600,820,94,94,4230,4230,1.76,0.32,5.54,3.62,5.16,126000,94000,88200,69000,42100,23800,11600,8.4,11290,9800,640,850,Full paid and video metrics
-cr_lash_002,Meta Ads,camp_creator_ugc,Creator UGC Batch,adset_retarget_02,Retargeting beauty carts,ad_lash_002,LashLift Starter Kit before-after,@lashlabdaily,Ari Brooks,shopify_102,LashLift Starter Kit,lashlift-starter-kit,https://example.com/thumbs/lash.jpg,https://example.com/video/lash.mp4,https://cdn.example.com/lash.mp4,https://instagram.com/reel/2,csv,2026-06-03,101000,88400,1400,530,51,51,2295,2295,,,,,4.33,84200,62100,58800,39200,21400,12200,7100,7.2,6850,6100,320,430,Derived CTR/CPC/CPM/CVR from base inputs
-cr_glow_003,YouTube Ads,camp_shorts_test,Shorts Prospecting,ad_group_04,Routine shoppers,ad_glow_003,GlowPrep Headband Set routine,@skincarewithnora,Nora Patel,shopify_103,GlowPrep Headband Set,glowprep-headband-set,https://example.com/thumbs/glow.jpg,https://example.com/video/glow.mp4,https://cdn.example.com/glow.mp4,https://youtube.com/shorts/3,csv,2026-06-05,57500,50100,720,260,17,17,1190,1190,,,,,,,,,,,,,4550,3600,190,240,Partial row with missing video quartiles
-cr_bundle_004,Google Ads,camp_pmax_bundle,Performance Max Bundle Push,ad_group_07,Bundle shoppers,ad_bundle_004,Glass Skin Bundle shelfie angle,@beautyops,Leah Kim,shopify_104,Glass Skin Bundle,glass-skin-bundle,https://example.com/thumbs/bundle.jpg,,https://cdn.example.com/bundle.jpg,https://example.com/ads/bundle,csv,2026-06-09,52000,44100,620,260,17,17,1190,1190,1.19,0.42,5.00,2.74,4.58,,,,,,,,2600,2300,120,170,Static/image creative with no video metrics`;
+const sampleCsv = `creative_id,creative_name,video_filename,platform,campaign_id,campaign_name,ad_id,ad_name,creator_handle,creator_name,product_id,product_name,reporting_date,impressions,reach,video_views,likes,comments,shares,clicks,orders,conversions,revenue,conversion_value,spend,ctr,cvr,roas,cpc,cpm,notes
+cr_ice_001,Ice Roller morning demo,ice-roller-demo.mp4,TikTok Ads,camp_summer_26,June Scale Tests,ad_ice_001,Ice Roller Pro morning depuff demo,@mayaglowup,Maya Chen,shopify_101,Ice Roller Pro,2026-06-01,148000,121400,126000,9800,640,850,2600,94,94,4230,4230,820,1.76,3.62,5.16,0.32,5.54,Full paid and engagement metrics
+cr_lash_002,LashLift before-after,lashlift-before-after.mp4,Meta Ads,camp_creator_ugc,Creator UGC Batch,ad_lash_002,LashLift Starter Kit before-after,@lashlabdaily,Ari Brooks,shopify_102,LashLift Starter Kit,2026-06-03,101000,88400,84200,6100,320,430,1400,51,51,2295,2295,530,1.39,3.64,4.33,0.38,5.25,Attach a matching video by filename
+cr_bundle_003,Glass Skin Bundle shelfie,,Google Ads,camp_pmax_bundle,Performance Max Bundle Push,ad_bundle_003,Glass Skin Bundle shelfie angle,@beautyops,Leah Kim,shopify_103,Glass Skin Bundle,2026-06-09,52000,44100,,2300,120,170,620,17,17,1190,1190,260,1.19,2.74,4.58,0.42,5.00,Valid performance-only creative with no video`;
 const requiredColumns = [
   "platform",
   "ad_name/creative_name or video_url/source_url",
@@ -123,11 +118,9 @@ export const loader = async ({ request }) => {
 
 export const action = async ({ request }) => {
   const { loadShopifyRouteContext } = await import("../models/route-context.server");
-  const {
-    importPublicEngagementRows,
-    parsePublicEngagementCsv,
-    upsertPublicEngagementRecord,
-  } = await import("../models/creative-performance.server");
+  const { parsePublicEngagementCsv, upsertPublicEngagementRecord } = await import(
+    "../models/creative-performance.server"
+  );
   const {
     buildCreativeUploadPreview,
     getUploadedVideoFiles,
@@ -135,119 +128,61 @@ export const action = async ({ request }) => {
   } = await import("../models/creative-upload-import.server");
   const { session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
-  const intent = String(formData.get("intent") || "preview");
-  const isCreativeUploadIntent =
-    intent === "creative-upload-preview" || intent === "creative-upload-confirm";
-
-  if (isCreativeUploadIntent) {
-    const input = await readCsvInput(formData);
-
-    if (input.error) {
-      return {
-        actionIntent: intent,
-        creativeUploadPreview: intent === "creative-upload-preview",
-        errors: [input.error],
-        headers: [],
-        rows: [],
-        totalRows: 0,
-      };
-    }
-
-    const uploadedVideos = getUploadedVideoFiles(formData);
-    const preview = buildCreativeUploadPreview({
-      csvText: input.csvText,
-      parsePublicEngagementCsv,
-      uploadedVideos,
-    });
-
-    if (intent === "creative-upload-preview") {
-      return {
-        ...preview,
-        actionIntent: intent,
-        creativeUploadPreview: true,
-        csvText: input.csvText,
-        ok: false,
-      };
-    }
-
-    let campaignId = String(formData.get("campaignId") || "");
-    const newCampaignName = String(formData.get("newCampaignName") || "").trim();
-    if (!campaignId && newCampaignName) {
-      const { createCampaign } = await import("../models/campaign.server");
-      const createdCampaign = await createCampaign(session.shop, {
-        name: newCampaignName,
-        objective: "testing",
-        platform: "other",
-        status: "draft",
-      });
-      campaignId = createdCampaign.id;
-    }
-    const result = await importMatchedCreativeRows({
-      campaignId,
-      preview,
-      shop: session.shop,
-      uploadedVideos,
-      upsertPublicEngagementRecord,
-    });
-
-    return {
-      ...result,
-      actionIntent: intent,
-      creativeUploadPreview: false,
-      importToastId: createImportToastId(),
-    };
-  }
-
+  const intent = String(formData.get("intent") || "creative-upload-preview");
   const input = await readCsvInput(formData);
-
   if (input.error) {
-    const response = {
+    return {
       actionIntent: intent,
+      creativeUploadPreview: intent === "creative-upload-preview",
       errors: [input.error],
       headers: [],
       rows: [],
       totalRows: 0,
     };
-
-    if (intent === "confirm") {
-      return {
-        ...response,
-        importToastId: createImportToastId(),
-        ok: false,
-        summary: {
-          created: 0,
-          errors: 1,
-          skipped: 0,
-          updated: 0,
-          warnings: 0,
-        },
-        topErrors: [input.error],
-      };
-    }
-
-    return response;
   }
-  const csvText = input.csvText;
 
-  if (intent === "confirm") {
-    const result = await importPublicEngagementRows({
-      csvText,
-      shop: session.shop,
-    });
+  const uploadedVideos = getUploadedVideoFiles(formData);
+  const preview = buildCreativeUploadPreview({
+    csvText: input.csvText,
+    parsePublicEngagementCsv,
+    uploadedVideos,
+  });
 
+  if (intent === "creative-upload-preview") {
     return {
-      ...result,
-      actionIntent: "confirm",
-      importToastId: createImportToastId(),
+      ...preview,
+      actionIntent: intent,
+      creativeUploadPreview: true,
+      csvText: input.csvText,
+      ok: false,
     };
   }
 
+  let campaignId = String(formData.get("campaignId") || "");
+  const newCampaignName = String(formData.get("newCampaignName") || "").trim();
+  if (!campaignId && newCampaignName) {
+    const { createCampaign } = await import("../models/campaign.server");
+    const createdCampaign = await createCampaign(session.shop, {
+      name: newCampaignName,
+      objective: "testing",
+      platform: "other",
+      status: "draft",
+    });
+    campaignId = createdCampaign.id;
+  }
+  const result = await importMatchedCreativeRows({
+    campaignId,
+    preview,
+    shop: session.shop,
+    uploadedVideos,
+    upsertPublicEngagementRecord,
+  });
+
   return {
-    ...parsePublicEngagementCsv(csvText),
-    actionIntent: "preview",
-    csvText,
-    ok: false,
-    preview: true,
+    ...result,
+    actionIntent: "creative-upload-confirm",
+    creativeUploadPreview: false,
+    importToastId: createImportToastId(),
   };
 };
 
@@ -261,7 +196,6 @@ export default function DataImportRoute() {
   const videoFileInputRef = useRef(null);
   const [previewCleared, setPreviewCleared] = useState(false);
   const [clearMessage, setClearMessage] = useState("");
-  const [csvDraft, setCsvDraft] = useState("");
   const [creativeUploadCsvDraft, setCreativeUploadCsvDraft] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
@@ -272,34 +206,19 @@ export default function DataImportRoute() {
   const submittingIntent = navigation.formData
     ? String(navigation.formData.get("intent") || "preview")
     : "";
-  const previewSubmitting = submitting && submittingIntent === "preview";
-  const importing = submitting && submittingIntent === "confirm";
   const creativeUploadReviewing =
     submitting && submittingIntent === "creative-upload-preview";
   const creativeUploadImporting =
     submitting && submittingIntent === "creative-upload-confirm";
   const visibleActionData = previewCleared ? null : actionData;
-  const isCreativeUploadAction =
-    visibleActionData?.actionIntent === "creative-upload-preview" ||
-    visibleActionData?.actionIntent === "creative-upload-confirm";
   const rows = visibleActionData?.rows || [];
-  const readyRows = rows.filter((row) => row.status === "ready").length;
-  const warningRows = rows.filter((row) => row.status === "warning").length;
-  const errorRows = rows.filter((row) => row.status === "error").length;
-  const validRows = readyRows + warningRows;
-  const previewRows = rows.slice(0, 25);
-  const csvForConfirm = visibleActionData?.csvText || loaderSampleCsv;
-  const hasPreview =
-    !isCreativeUploadAction &&
-    (rows.length > 0 || visibleActionData?.errors?.length > 0);
-  const showConfirm = visibleActionData?.preview && rows.length > 0;
   const hasCreativeUploadPreview =
-    isCreativeUploadAction &&
+    visibleActionData?.actionIntent === "creative-upload-preview" &&
     (rows.length > 0 || visibleActionData?.errors?.length > 0);
   const showCreativeUploadConfirm =
     visibleActionData?.creativeUploadPreview && rows.length > 0;
   const hasImportToast =
-    ["confirm", "creative-upload-confirm"].includes(actionData?.actionIntent) &&
+    actionData?.actionIntent === "creative-upload-confirm" &&
     actionData?.summary;
   const importSucceeded = Boolean(hasImportToast && actionData?.ok);
   const importedPerformanceRows = Number(actionData?.summary?.performanceRows || 0);
@@ -328,10 +247,6 @@ export default function DataImportRoute() {
   useEffect(() => {
     setPreviewCleared(false);
 
-    if (actionData?.actionIntent === "preview") {
-      setClearMessage("");
-      setCsvDraft(actionData.csvText || "");
-    }
     if (actionData?.actionIntent === "creative-upload-preview") {
       setClearMessage("");
       setCreativeUploadCsvDraft(actionData.csvText || "");
@@ -341,7 +256,6 @@ export default function DataImportRoute() {
   function clearImportPreview() {
     setPreviewCleared(true);
     setClearMessage("Import preview cleared. No rows were saved.");
-    setCsvDraft("");
     setCreativeUploadCsvDraft("");
     setFileInputKey((key) => key + 1);
     setVideoInputKey((key) => key + 1);
@@ -383,14 +297,6 @@ export default function DataImportRoute() {
     });
   }
 
-  const confirmLabel = "Import valid rows";
-  const importBlockedReason =
-    errorRows > 0
-      ? "Some rows need fixes before import. Review the errors in the preview table below."
-      : validRows === 0 && rows.length > 0
-        ? "No valid rows are ready to import yet."
-        : "";
-
   return (
     <div className="space-y-8">
       {hasImportToast && !toastDismissed && (
@@ -404,26 +310,26 @@ export default function DataImportRoute() {
       <section className="glass-strong rounded-2xl p-8">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-primary uppercase tracking-[0.18em] font-semibold text-xs">
-            Public Engagement Import
+            Creative data import
           </p>
           <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-1 text-xs font-black uppercase tracking-widest text-cyan-200">
-            CSV and manual paste
+            CSV + optional videos
           </span>
         </div>
 
         <h1 className="font-display mt-3 text-4xl font-semibold text-foreground">
-          Import performance data
+          Import creative performance data
         </h1>
 
         <p className="mt-3 max-w-4xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
-          Upload Level 1 public engagement stats, then add Level 2 optional
-          performance stats when you have ad, affiliate, or store attribution
-          data.
+          Upload a CSV and add matching video files to create creative records,
+          attach ads to campaigns, and populate dashboard metrics.
         </p>
 
         <p className="mt-4 max-w-4xl rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs font-semibold leading-5 text-cyan-100">
-          BluePrintAI does not scrape TikTok, Instagram, or Meta automatically.
-          Imported records come from merchant-provided CSV/manual data.
+          Each CSV row becomes an ad or creative performance record. A matching
+          video adds a playable Creative Library asset; rows without videos are
+          still imported as performance-only creative records.
         </p>
         <p className="mt-3 max-w-4xl rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs font-semibold leading-5 text-amber-100">
           Fields like spend, clicks, orders, revenue, ROAS, and CVR will show as
@@ -435,63 +341,6 @@ export default function DataImportRoute() {
         </p>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-3">
-        <ImportCard icon={FileUp} title="Upload CSV">
-          <Form method="post" encType="multipart/form-data" className="space-y-4">
-            <input type="hidden" name="intent" value="preview" />
-            <input
-              key={fileInputKey}
-              accept=".csv,text/csv"
-              className="block w-full rounded-xl border border-slate-700 bg-slate-950/50 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500/15 file:px-3 file:py-2 file:font-bold file:text-cyan-100"
-              name="csvFile"
-              type="file"
-            />
-            <button type="submit" disabled={submitting} className="bp-primary-cta">
-              {previewSubmitting ? "Reviewing..." : "Review uploaded CSV"}
-            </button>
-            <p className="text-xs font-semibold leading-5 text-slate-400">
-              Review checks your rows for missing fields, calculates engagement
-              rate, and shows what will be created or updated before anything is
-              saved.
-            </p>
-          </Form>
-        </ImportCard>
-
-        <ImportCard icon={Table2} title="Paste CSV">
-          <Form method="post" className="space-y-4">
-            <input type="hidden" name="intent" value="preview" />
-            <textarea
-              className="min-h-[240px] w-full rounded-xl border border-slate-700 bg-slate-950/50 px-4 py-3 font-mono text-xs leading-5 text-slate-200 placeholder:text-slate-600"
-              name="csvText"
-              onChange={(event) => setCsvDraft(event.target.value)}
-              placeholder={loaderSampleCsv}
-              value={csvDraft}
-            />
-            <button type="submit" disabled={submitting} className="bp-primary-cta">
-              {previewSubmitting ? "Reviewing..." : "Review pasted CSV"}
-            </button>
-            <p className="text-xs font-semibold leading-5 text-slate-400">
-              Pasted CSV is reviewed first. Records are only saved after you
-              confirm the import.
-            </p>
-          </Form>
-        </ImportCard>
-
-        <ImportCard icon={Download} title="Download sample CSV">
-          <p className="text-sm leading-6 text-slate-400">
-            Use the sample to format merchant-provided public post stats and a
-            complete optional performance set. Rows are demo examples only.
-          </p>
-          <a
-            className="bp-primary-cta mt-5"
-            download="blueprintai-public-engagement-sample.csv"
-            href={`data:text/csv;charset=utf-8,${encodeURIComponent(loaderSampleCsv)}`}
-          >
-            Download sample CSV
-          </a>
-        </ImportCard>
-      </section>
-
       <section className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
         <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-xl bg-emerald-400/10 p-3 text-emerald-300">
@@ -499,29 +348,30 @@ export default function DataImportRoute() {
           </span>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">
-              Import creatives + performance
+              One guided workflow
             </p>
             <h2 className="mt-1 text-3xl font-black text-white">
-              Match CSV rows to uploaded videos
+              Import creative performance data
             </h2>
           </div>
         </div>
         <p className="mt-4 max-w-4xl text-sm leading-6 text-slate-400">
-          Upload or paste performance CSV data, add the matching MP4, MOV, M4V,
-          or WebM files, then review the row-to-file matches before saving.
-          Stored files are written under the current Shopify shop in
-          public uploads with a fingerprint prefix to avoid accidental
-          overwrites.
+          Add creative/ad CSV data, optionally attach matching MP4, MOV, M4V,
+          or WebM files, choose campaign behavior, and review everything before
+          saving.
         </p>
 
         <div className="mt-6 space-y-6">
           <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-3">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">
+                Step 1 · Add CSV data
+              </p>
               <label
                 className="text-xs font-black uppercase tracking-[0.16em] text-slate-400"
                 htmlFor="creative-upload-csv"
               >
-                CSV file or pasted CSV
+                Upload a CSV file
               </label>
               <input
                 key={`creative-csv-${fileInputKey}`}
@@ -531,6 +381,11 @@ export default function DataImportRoute() {
                 ref={creativeCsvFileInputRef}
                 type="file"
               />
+              <div className="flex items-center gap-3 text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+                <span className="h-px flex-1 bg-slate-800" />
+                or paste CSV text
+                <span className="h-px flex-1 bg-slate-800" />
+              </div>
               <textarea
                 className="min-h-[190px] w-full rounded-xl border border-slate-700 bg-slate-950/50 px-4 py-3 font-mono text-xs leading-5 text-slate-200 placeholder:text-slate-600"
                 id="creative-upload-csv"
@@ -539,12 +394,24 @@ export default function DataImportRoute() {
                 placeholder="Paste CSV here, including video_filename for each uploaded file."
                 value={creativeUploadCsvDraft}
               />
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  className="rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-4 py-2.5 text-sm font-black text-cyan-100 transition hover:bg-cyan-500/20"
+                  download="blueprintai-creative-performance-sample.csv"
+                  href={`data:text/csv;charset=utf-8,${encodeURIComponent(loaderSampleCsv)}`}
+                >
+                  Download sample CSV
+                </a>
+                <p className="text-xs font-semibold text-slate-500">
+                  Upload a file or paste text—if both are present, the uploaded file is used.
+                </p>
+              </div>
             </div>
             <div className="space-y-3">
               <p
-                className="text-xs font-black uppercase tracking-[0.16em] text-slate-400"
+                className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300"
               >
-                Video files
+                Step 2 · Add video files (optional)
               </p>
               <input
                 key={`creative-videos-${videoInputKey}`}
@@ -615,16 +482,16 @@ export default function DataImportRoute() {
               />
               <p className="rounded-2xl border border-slate-700 bg-slate-950/40 px-4 py-3 text-xs font-semibold leading-5 text-slate-400">
                 Filenames are matched case-insensitively using base filenames
-                only. Rows with paths, ambiguous duplicates, missing videos, or
-                unsupported video extensions are skipped unless they already
-                include a direct playable video URL.
+                only. A row without a match remains a valid performance-only
+                creative; paths, ambiguous duplicates, and unsupported file
+                extensions must be fixed before importing that video.
               </p>
             </div>
           </div>
 
           <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.04] p-4">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Optional campaign assignment</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">Add every matched creative to an existing campaign, create a new one, or leave both fields empty to skip.</p>
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Step 3 · Assign campaign</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">Apply an existing or new campaign to every imported row, or leave both fields empty to use row-level campaign_id/campaign_name values.</p>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
               Select existing campaign
@@ -648,13 +515,17 @@ export default function DataImportRoute() {
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
+            <div className="w-full">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Step 4 · Review import</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">Preview records, video matches, campaign data, warnings, and errors before anything is saved.</p>
+            </div>
             <button
               className="bp-primary-cta"
               disabled={submitting}
               onClick={() => submitCreativeImport("creative-upload-preview")}
               type="button"
             >
-              {creativeUploadReviewing ? "Reviewing..." : "Review creative import"}
+              {creativeUploadReviewing ? "Reviewing..." : "Review import"}
             </button>
           </div>
 
@@ -696,117 +567,6 @@ export default function DataImportRoute() {
         >
           {clearMessage}
         </div>
-      )}
-
-      {hasPreview && (
-        <section className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">
-                Import preview
-              </p>
-              <h2 className="mt-2 text-3xl font-black text-white">Import preview</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                Review detected records before saving them to this Shopify
-                workspace.
-              </p>
-              <p className="mt-2 text-sm text-slate-400">
-                Showing first {Math.min(25, rows.length)} of{" "}
-                {visibleActionData?.totalRows || rows.length} rows.
-              </p>
-            </div>
-
-            {showConfirm && (
-              <Form method="post" className="max-w-sm space-y-3">
-                <input type="hidden" name="intent" value="confirm" />
-                <textarea className="hidden" name="csvText" readOnly value={csvForConfirm} />
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="submit"
-                    disabled={importing || validRows === 0 || errorRows > 0}
-                    className="bp-primary-cta disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {importing ? "Importing..." : confirmLabel}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-2xl border border-slate-700 bg-slate-950/50 px-6 py-3 font-black text-slate-200 transition hover:border-cyan-500/50 hover:bg-cyan-500/10 hover:text-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={importing}
-                    onClick={clearImportPreview}
-                  >
-                    Clear preview
-                  </button>
-                </div>
-                {importBlockedReason && (
-                  <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold leading-5 text-amber-100">
-                    {importBlockedReason}
-                  </p>
-                )}
-                <p className="text-xs font-semibold leading-5 text-slate-400">
-                  Importing will save valid rows as shop-scoped BluePrintAI
-                  performance records. Duplicate rows will update existing
-                  records.
-                </p>
-              </Form>
-            )}
-          </div>
-
-          <Messages messages={visibleActionData?.errors || []} tone="error" />
-          <Messages messages={visibleActionData?.topErrors || []} tone="error" />
-
-          {rows.length > 0 && (
-            <div className="mt-6 grid gap-4 md:grid-cols-5">
-              <Metric label="Ready rows" value={readyRows} />
-              <Metric label="Warning rows" value={warningRows} />
-              <Metric label="Error rows" value={errorRows} />
-              <Metric
-                label="Created"
-                value={visibleActionData?.summary?.created ?? "Preview"}
-              />
-              <Metric
-                label="Updated"
-                value={visibleActionData?.summary?.updated ?? "Preview"}
-              />
-            </div>
-          )}
-
-          <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
-            <table className="min-w-[1120px] w-full border-collapse text-left">
-              <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.16em] text-slate-500">
-                <tr>
-                  {[
-                    "Row",
-                    "Status",
-                    "Product",
-                    "Creator",
-                    "Platform",
-                    "Campaign / ad",
-                    "Impressions",
-                    "Clicks",
-                    "Spend",
-                    "Orders / conv.",
-                    "Revenue",
-                    "ROAS",
-                    "CTR",
-                    "CVR",
-                    "Video views",
-                    "Completion",
-                    "Message",
-                  ].map((heading) => (
-                    <th key={heading} className="px-5 py-4">
-                      {heading}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {previewRows.map((row) => (
-                  <PreviewRow key={row.rowNumber} row={row} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
       )}
 
       {hasImportToast && (
@@ -924,12 +684,12 @@ function CreativeUploadPreview({
             Import preview
           </p>
           <h3 className="mt-2 text-2xl font-black text-white">
-            Creative import matches
+            Creative/ad import preview
           </h3>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
             Showing first {Math.min(50, rows.length)} of{" "}
             {actionData?.totalRows || rows.length} rows. Only ready rows are
-            imported.
+            imported. Performance-only rows remain valid without a video.
           </p>
         </div>
 
@@ -942,7 +702,7 @@ function CreativeUploadPreview({
                 onClick={onImport}
                 type="button"
               >
-                {importing ? "Importing..." : "Import matched creatives"}
+                {importing ? "Importing..." : "Import creative records"}
               </button>
               <button
                 className="rounded-2xl border border-slate-700 bg-slate-950/50 px-6 py-3 font-black text-slate-200 transition hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -955,7 +715,7 @@ function CreativeUploadPreview({
             </div>
             {importBlocked && (
               <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold leading-5 text-amber-100">
-                No matched creative rows are ready to import yet.
+                No creative/ad rows are ready to import yet.
               </p>
             )}
           </div>
@@ -1117,20 +877,6 @@ function createImportToastId() {
   return `import:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
 
-function ImportCard({ children, icon: Icon, title }) {
-  return (
-    <section className="rounded-3xl border border-slate-800 bg-[#0b1220] p-6">
-      <div className="flex items-center gap-3">
-        <span className="rounded-xl bg-cyan-400/10 p-3 text-cyan-300">
-          <Icon className="h-5 w-5" />
-        </span>
-        <h2 className="text-xl font-black text-white">{title}</h2>
-      </div>
-      <div className="mt-5">{children}</div>
-    </section>
-  );
-}
-
 function ColumnList({ items, title }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-5">
@@ -1148,56 +894,6 @@ function ColumnList({ items, title }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function PreviewRow({ row }) {
-  const record = row.record || {};
-  const messages = [...(row.errors || []), ...(row.warnings || [])];
-  const tone =
-    row.status === "error"
-      ? "border-red-500/30 bg-red-500/10 text-red-100"
-      : row.status === "warning"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
-
-  return (
-    <tr className="border-t border-white/10 text-sm text-slate-300">
-      <td className="px-5 py-4">{row.rowNumber}</td>
-      <td className="px-5 py-4">
-        <span className={`rounded-full border px-3 py-1 text-xs font-black ${tone}`}>
-          {row.status === "error" ? "Error" : row.status === "warning" ? "Warning" : "Ready"}
-        </span>
-      </td>
-      <td className="px-5 py-4">
-        {record.productName || record.productLabel || record.productHandle || "Not provided"}
-      </td>
-      <td className="px-5 py-4">{record.creatorHandle || record.creatorName || "Not provided"}</td>
-      <td className="px-5 py-4">{record.platform || "Unknown"}</td>
-      <td className="px-5 py-4 font-bold text-white">
-        {record.campaignName ? `${record.campaignName} / ` : ""}
-        {record.adName || record.creativeName || record.creativeTitle || "Untitled creative"}
-      </td>
-      <td className="px-5 py-4">{formatOptionalNumber(record.impressions)}</td>
-      <td className="px-5 py-4">{formatOptionalNumber(record.clicks)}</td>
-      <td className="px-5 py-4">{formatOptionalCurrency(record.spend)}</td>
-      <td className="px-5 py-4">
-        {formatOptionalNumber(record.orders ?? record.conversions)}
-      </td>
-      <td className="px-5 py-4">
-        {formatOptionalCurrency(record.revenue ?? record.conversionValue)}
-      </td>
-      <td className="px-5 py-4">{formatOptionalRate(record.roas, "x")}</td>
-      <td className="px-5 py-4">{formatOptionalRate(record.ctr, "%")}</td>
-      <td className="px-5 py-4">{formatOptionalRate(record.conversionRate, "%")}</td>
-      <td className="px-5 py-4">{formatOptionalNumber(record.videoViews ?? record.views)}</td>
-      <td className="px-5 py-4">
-        {formatOptionalRate(record.videoCompletionRate, "%")}
-      </td>
-      <td className="px-5 py-4">
-        {messages.length ? messages.join(" ") : "Ready to import."}
-      </td>
-    </tr>
   );
 }
 
@@ -1262,8 +958,4 @@ function formatOptionalCurrency(value) {
 
 function formatOptionalNumber(value) {
   return hasOptionalValue(value) ? formatNumber(value) : "Not imported";
-}
-
-function formatOptionalRate(value, suffix) {
-  return hasOptionalValue(value) ? `${Number(value).toFixed(2)}${suffix}` : "Not imported";
 }

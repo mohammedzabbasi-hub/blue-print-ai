@@ -1,171 +1,172 @@
-import { useState } from "react";
-import { TrendingUp } from "lucide-react";
+import { useMemo, useState } from "react";
+import { BarChart3, Lightbulb } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-function num(value) {
-  return Number(value || 0);
-}
+import {
+  EFFECTIVENESS_METRICS,
+  EFFECTIVENESS_VIEWS,
+  aggregateEffectiveness,
+  buildEffectivenessGroups,
+  buildTrendRows,
+  comparisonGroups,
+  filterEffectivenessRecords,
+  metricNumber,
+  performanceInsight,
+} from "../../utils/ad-effectiveness";
 
 function compact(value) {
-  const n = num(value);
+  const n = Number(value || 0);
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toLocaleString();
 }
 
-function buildPath(data, width, height, padding) {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-
-  const pts = data.map((v, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = padding + (1 - (v - min) / range) * (height - padding * 2);
-    return [x, y];
-  });
-
-  return pts.reduce((acc, [x, y], i) => {
-    if (i === 0) return `M ${x} ${y}`;
-    const [px, py] = pts[i - 1];
-    const cx1 = px + (x - px) * 0.5;
-    const cx2 = x - (x - px) * 0.5;
-    return `${acc} C ${cx1} ${py}, ${cx2} ${y}, ${x} ${y}`;
-  }, "");
+function formatMetric(metric, entry, unavailable = "Not imported") {
+  if (!entry?.imported) return unavailable;
+  const value = Number(entry.value || 0);
+  if (["revenue", "spend", "cpc", "cpm", "costPerOrder"].includes(metric)) {
+    return value.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  }
+  if (["ctr", "cvr", "engagementRate"].includes(metric)) return `${value.toFixed(2)}%`;
+  if (metric === "roas") return `${value.toFixed(2)}x`;
+  return compact(value);
 }
 
-function buildAreaPath(linePath, width, height, padding) {
-  return `${linePath} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
-}
+const cards = [
+  ["revenue", "Attributed revenue"], ["spend", "Spend"], ["roas", "ROAS"],
+  ["ctr", "CTR"], ["cvr", "CVR"], ["orders", "Orders / conversions"],
+  ["clicks", "Clicks"], ["videoViews", "Video views / impressions"],
+  ["impressions", "Impressions"], ["reach", "Reach"],
+  ["engagementRate", "Engagement rate"], ["cpc", "Cost per click"],
+  ["cpm", "Cost per 1,000 impressions"],
+  ["costPerOrder", "Cost per order / acquisition"],
+];
 
-function makeTrend(total, points) {
-  const finalTotal = Math.max(num(total), 1);
-  return Array.from({ length: points }, (_, i) => {
-    const progress = (i + 1) / points;
-    const wave = 0.84 + Math.sin(i * 1.7) * 0.055 + Math.cos(i * 0.9) * 0.035;
-    return Math.max(1, Math.round(finalTotal * progress * wave));
-  });
+function scopeHeading(view, group, recordCount, creativeCount) {
+  if (view === "all") return `All imported ads/campaigns · ${recordCount} ${recordCount === 1 ? "record" : "records"}`;
+  const prefix = { campaign: "Campaign", creative: "Creative/ad", creator: "Creator", product: "Product" }[view];
+  if (view === "creative") return `${prefix}: ${group?.label || "Select an item"}`;
+  return `${prefix}: ${group?.label || "Select an item"} · ${creativeCount} ${creativeCount === 1 ? "creative" : "creatives"}`;
 }
 
 export default function PerformanceChart({ dateRange, data }) {
-  const [metric, setMetric] = useState("views");
+  const records = useMemo(
+    () => Array.isArray(data?.effectivenessRecords) ? data.effectivenessRecords : [],
+    [data?.effectivenessRecords],
+  );
+  const [view, setView] = useState("all");
+  const [selection, setSelection] = useState("");
+  const [metric, setMetric] = useState("revenue");
+  const groups = useMemo(() => {
+    if (view === "all") return [];
+    const importedGroups = buildEffectivenessGroups(records, view);
+    if (view !== "campaign") return importedGroups;
+    const actual = (data?.campaigns || []).map((campaign) => ({
+      key: campaign.id,
+      label: campaign.name,
+      metadata: campaign,
+      records: records.filter((record) => record.workspaceCampaignId === campaign.id),
+    }));
+    const actualKeys = new Set(actual.map((group) => group.key));
+    return [...actual, ...importedGroups.filter((group) => !actualKeys.has(group.key))];
+  }, [data?.campaigns, records, view]);
+  const activeKey = selection && groups.some((group) => group.key === selection) ? selection : groups[0]?.key || "";
+  const selectedRecords = useMemo(() => filterEffectivenessRecords(records, view, activeKey), [records, view, activeKey]);
+  const summary = useMemo(() => aggregateEffectiveness(selectedRecords), [selectedRecords]);
+  const activeGroup = groups.find((group) => group.key === activeKey);
+  const selectedCreativeCount = buildEffectivenessGroups(selectedRecords, "creative").length;
 
-  const totals = data?.totals || {};
-  const leaderboard = data?.leaderboard || [];
+  const chartRows = useMemo(() => {
+    if (view === "all") {
+      return comparisonGroups(records)
+        .map((group) => ({ name: group.label, value: metricNumber(aggregateEffectiveness(group.records), metric) }))
+        .filter((row) => row.value !== null)
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
+    }
+    const limit = dateRange === "7d" ? 7 : dateRange === "90d" ? 90 : 30;
+    return buildTrendRows(selectedRecords).slice(-limit).map((row) => ({ name: row.label, value: metricNumber(row.summary, metric) })).filter((row) => row.value !== null);
+  }, [dateRange, metric, records, selectedRecords, view]);
 
-  const clicks = num(totals.clicks) || leaderboard.reduce((sum, c) => sum + num(c.clicks), 0);
-  const views = num(totals.views);
-  const orders = num(totals.orders);
-  const roas = num(totals.roas || totals.avg_roas);
+  if (!records.length && !(data?.campaigns || []).length) {
+    return (
+      <section className="bg-[#0d1526] border border-white/5 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white">Ad &amp; campaign effectiveness</h2>
+        <p className="mt-1 text-sm text-slate-400">Track engagement, conversion, spend, and attributed revenue for each imported ad, creative, or creator campaign.</p>
+        <div className="mt-6 rounded-xl border border-dashed border-slate-700 bg-slate-950/35 p-6">
+          <h3 className="font-semibold text-white">No imported ad or creative performance data yet.</h3>
+          <p className="mt-2 text-sm text-slate-400">Upload a creative performance CSV or import creatives with videos to compare campaign effectiveness.</p>
+        </div>
+      </section>
+    );
+  }
 
-  const points = dateRange === "7d" ? 7 : dateRange === "90d" ? 90 : 30;
-
-  const metricTotals = {
-    views,
-    orders,
-    roas: roas || 0,
-  };
-
-  const rawData = makeTrend(metricTotals[metric], points);
-
-  const labels =
-    dateRange === "7d"
-      ? ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"]
-      : dateRange === "90d"
-        ? Array.from({ length: 90 }, (_, i) => (i % 15 === 0 ? `+${i}d` : ""))
-        : Array.from({ length: 30 }, (_, i) => ((i + 1) % 5 === 0 ? `Day ${i + 1}` : ""));
-
-  const W = 600;
-  const H = 200;
-  const PAD = 12;
-
-  const linePath = buildPath(rawData, W, H, PAD);
-  const areaPath = buildAreaPath(linePath, W, H, PAD);
-
-  const metricLabels = {
-    views: "Total Views",
-    orders: "Orders",
-    roas: "ROAS",
-  };
-
-  const metricValues = {
-    views: compact(views),
-    orders: compact(orders),
-    roas: `${roas.toFixed(2)}x`,
-  };
-
-  const ctr = views > 0 ? ((clicks / views) * 100).toFixed(2) : "0.00";
+  const hasChart = chartRows.length > 0;
+  const singleDate = view !== "all" && chartRows.length === 1;
 
   return (
-    <div className="bg-[#0d1526] border border-white/5 rounded-xl p-5">
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h2 className="text-[14px] font-semibold text-white mb-0.5">Performance Trend</h2>
-          <p className="text-[11px] text-slate-500">Estimated trend from connected shop performance</p>
-        </div>
-
-        <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1">
-          {["views", "orders", "roas"].map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMetric(m)}
-              className={`px-3 py-1.5 rounded-md text-[11px] font-medium capitalize transition-all duration-150 ${
-                metric === m
-                  ? "bg-sky-500 text-white shadow-sm shadow-sky-500/20"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
+    <section className="bg-[#0d1526] border border-white/5 rounded-xl p-5">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Ad &amp; campaign effectiveness</h2>
+        <p className="mt-1 text-sm text-slate-400">Track engagement, conversion, spend, and attributed revenue for each imported ad, creative, or creator campaign.</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-1.5 bg-white/5 rounded-lg px-3 py-2">
-          <span className="text-[18px] font-bold text-white">{metricValues[metric]}</span>
-          <span className="text-[11px] text-slate-500 ml-1">{metricLabels[metric]}</span>
-        </div>
-
-        <div className="flex items-center gap-1 bg-emerald-500/10 rounded-lg px-2.5 py-2">
-          <TrendingUp size={11} className="text-emerald-400" />
-          <span className="text-[11px] font-semibold text-emerald-400">{ctr}% CTR</span>
-          <span className="text-[11px] text-slate-500">from backend clicks/views</span>
-        </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <label className="text-xs font-semibold text-slate-300">View
+          <select value={view} onChange={(event) => { setView(event.target.value); setSelection(""); }} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+            {EFFECTIVENESS_VIEWS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        {view !== "all" && <label className="text-xs font-semibold text-slate-300">Item
+          <select value={activeKey} onChange={(event) => setSelection(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+            {groups.map((group) => <option key={group.key} value={group.key}>{group.label}</option>)}
+          </select>
+        </label>}
       </div>
 
-      <div className="relative">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full"
-          style={{ height: "160px" }}
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          <path d={areaPath} fill="url(#chartGrad)" />
-          <path
-            d={linePath}
-            fill="none"
-            stroke="#38bdf8"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-
-        <div className="flex justify-between mt-1 px-0">
-          {labels.filter(Boolean).map((label, i) => (
-            <span key={`${label}-${i}`} className="text-[9px] text-slate-600 font-medium">
-              {label}
-            </span>
-          ))}
-        </div>
+      <div className="mt-5 rounded-lg border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100">
+        {scopeHeading(view, activeGroup, selectedRecords.length, selectedCreativeCount)}
+        {activeGroup?.metadata && <span className="mt-1 block text-xs font-normal text-sky-200/80">{[activeGroup.metadata.status, activeGroup.metadata.objective, activeGroup.metadata.platform].filter(Boolean).join(" · ")}{activeGroup.metadata.budget != null ? ` · Budget $${Number(activeGroup.metadata.budget).toLocaleString()}` : ""}</span>}
       </div>
-    </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {cards.map(([key, label]) => <div key={key} className="rounded-lg border border-white/5 bg-white/[0.03] p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+          <p className="mt-2 text-lg font-bold text-slate-100">{formatMetric(key, key === "videoViews" && !summary.videoViews.imported ? summary.impressions : summary[key])}</p>
+        </div>)}
+      </div>
+
+      {summary.hasPublicEngagement && !summary.hasCommercialMetrics && <p className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">Revenue, spend, and conversion metrics require optional performance fields.</p>}
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white"><BarChart3 size={16} className="text-sky-300" />{view === "all" ? "Top imported ads/campaigns" : singleDate ? "Imported reporting summary" : "Performance trend"}</div>
+        <select aria-label="Graph metric" value={metric} onChange={(event) => setMetric(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-white">
+          {EFFECTIVENESS_METRICS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </div>
+
+      <div className="mt-4 h-64 rounded-xl border border-white/5 bg-slate-950/30 p-3">
+        {hasChart ? <ResponsiveContainer width="100%" height="100%">
+          {view === "all" || singleDate ? <BarChart data={chartRows} margin={{ top: 8, right: 8, left: 0, bottom: 28 }}>
+            <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" stroke="#64748b" fontSize={10} angle={-12} textAnchor="end" interval={0} /><YAxis stroke="#64748b" fontSize={10} width={45} /><Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8 }} /><Bar dataKey="value" fill="#38bdf8" radius={[5, 5, 0, 0]} />
+          </BarChart> : <LineChart data={chartRows} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+            <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" stroke="#64748b" fontSize={10} /><YAxis stroke="#64748b" fontSize={10} width={45} /><Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8 }} /><Line type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={2} dot={{ fill: "#38bdf8" }} />
+          </LineChart>}
+        </ResponsiveContainer> : <div className="flex h-full items-center justify-center text-center text-sm text-slate-500">This metric was not imported for the selected records.</div>}
+      </div>
+
+      <div className="mt-4 flex items-start gap-3 rounded-lg border border-violet-400/15 bg-violet-400/[0.07] px-4 py-3 text-sm text-violet-100"><Lightbulb size={16} className="mt-0.5 shrink-0" /><span>{performanceInsight(selectedRecords)}{view !== "all" && buildTrendRows(selectedRecords).length < 2 ? " Import more dated rows to unlock trend analysis." : ""}</span></div>
+      <p className="mt-4 text-[11px] leading-5 text-slate-500">Only imported ad, creative, and creator-campaign records are included. These figures are not total Shopify store revenue or total Shopify orders.</p>
+    </section>
   );
 }

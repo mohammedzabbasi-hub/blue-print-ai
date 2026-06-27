@@ -1,5 +1,7 @@
+import db from "../db.server.js";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server.js";
 import { CREATIVE_VIDEO_FILE_FIELD } from "../utils/selected-video-files.js";
+import { assignCampaignRecords } from "./campaign.server.js";
 
 export { CREATIVE_VIDEO_FILE_FIELD } from "../utils/selected-video-files.js";
 export const CREATIVE_VIDEO_FILENAME_COLUMNS = [
@@ -52,6 +54,7 @@ export function buildCreativeUploadPreview({
 }
 
 export async function importMatchedCreativeRows({
+  campaignId = "",
   preview,
   shop,
   uploadedVideos,
@@ -68,6 +71,7 @@ export async function importMatchedCreativeRows({
     warnings: 0,
   };
   const rows = [];
+  const importedKeys = [];
 
   if (!shop) {
     return {
@@ -127,6 +131,7 @@ export async function importMatchedCreativeRows({
       summary[result] += 1;
       summary.warnings += row.warnings.length ? 1 : 0;
       summary.performanceRows += 1;
+      importedKeys.push(record.importKey);
       rows.push({ ...row, record, status: "ready" });
     } catch (error) {
       summary.errors += 1;
@@ -139,11 +144,31 @@ export async function importMatchedCreativeRows({
     }
   }
 
+  if (campaignId && importedKeys.length) {
+    const sourceIds = importedKeys.map((importKey) => `${shop}:${importKey}`);
+    const [savedCreatives, performanceRecords] = await Promise.all([
+      db.savedCreative.findMany({
+        where: { shop, sourceId: { in: sourceIds } },
+        select: { id: true },
+      }),
+      db.creativePerformance.findMany({
+        where: { shop, importKey: { in: importedKeys } },
+        select: { id: true },
+      }),
+    ]);
+
+    await assignCampaignRecords(shop, campaignId, {
+      creativePerformanceIds: performanceRecords.map((record) => record.id),
+      savedCreativeIds: savedCreatives.map((record) => record.id),
+    });
+  }
+
   return {
     ...preview,
     ok: summary.created + summary.updated > 0,
     rows,
     summary,
+    assignedCampaignId: campaignId || null,
     topErrors: rows.flatMap((row) => row.errors || []).slice(0, 5),
   };
 }
@@ -216,10 +241,8 @@ function decorateCreativeUploadRow(row, fileIndex) {
   }
 
   if (!videoFilename && !hasPlayableUrl) {
-    errors.push(
-      `Add one of these filename columns: ${CREATIVE_VIDEO_FILENAME_COLUMNS.join(", ")}.`,
-    );
-    creativeUploadStatus = "Missing required fields";
+    warnings.push("No video was attached. This row will be imported as a performance-only creative record.");
+    creativeUploadStatus = "Performance only";
   } else if (hasUnsafePath) {
     addFileMatchIssue(
       "Video filename must be a base filename, not a path.",
@@ -236,11 +259,11 @@ function decorateCreativeUploadRow(row, fileIndex) {
       "Unsupported video type",
     );
   } else if (!uploadedMatch && !hasPlayableUrl) {
-    errors.push("Missing video file.");
-    creativeUploadStatus = "Missing video file";
+    warnings.push("No matching video file was selected. This row will be imported without a playable video.");
+    creativeUploadStatus = "Performance only";
   }
 
-  if (!errors.length && warnings.length) {
+  if (!errors.length && warnings.length && creativeUploadStatus === "Ready") {
     creativeUploadStatus = "Warning";
   }
 
@@ -255,7 +278,11 @@ function decorateCreativeUploadRow(row, fileIndex) {
     record: {
       ...record,
       importSource: "creative_upload_performance_import",
-      mediaState: useUploadedMatch ? "local_public_upload" : "direct_video_url",
+      mediaState: useUploadedMatch
+        ? "local_public_upload"
+        : hasPlayableUrl
+          ? "direct_video_url"
+          : "metadata_only",
       sourceRecordType: "creative_upload_performance_import",
       videoFilename,
     },
@@ -276,7 +303,7 @@ function summarizeCreativeUploadPreview(rows = [], fileIndex) {
   return {
     errors: rows.filter((row) => row.status === "error").length,
     missingVideos: rows.filter(
-      (row) => row.creativeUploadStatus === "Missing video file",
+      (row) => row.creativeUploadStatus === "Performance only",
     ).length,
     ready: rows.filter((row) => row.status !== "error").length,
     uploadedFilesMatched: usedIndexes.size,

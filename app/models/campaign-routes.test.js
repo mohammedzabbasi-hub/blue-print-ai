@@ -37,7 +37,7 @@ describe("Campaign Manager route UX", () => {
 
     assert.match(creativeSource, /Move to campaign/);
     assert.match(creativeSource, /assignCampaignRecords/);
-    assert.match(importSource, /Optional campaign assignment/);
+    assert.match(importSource, /Step 3 · Assign campaign/);
     assert.match(importSource, /newCampaignName/);
     assert.match(importSource, /name="videoFiles"/);
   });
