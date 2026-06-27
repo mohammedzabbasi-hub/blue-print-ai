@@ -35,6 +35,8 @@ export function removeSelectedVideoFile(selectedVideos = [], fileToRemove) {
 }
 
 export function buildCreativeImportFormData({
+  campaignId = "",
+  newCampaignName = "",
   intent,
   csvText = "",
   csvFile,
@@ -44,6 +46,8 @@ export function buildCreativeImportFormData({
 
   formData.set("intent", intent);
   formData.set("csvText", csvText);
+  formData.set("campaignId", campaignId);
+  formData.set("newCampaignName", newCampaignName);
 
   if (csvFile?.size > 0) {
     formData.set("csvFile", csvFile);

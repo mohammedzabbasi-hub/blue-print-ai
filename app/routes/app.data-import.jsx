@@ -90,13 +90,15 @@ export const loader = async ({ request }) => {
   const { listCreativePerformance } = await import(
     "../models/creative-performance.server"
   );
+  const { listCampaigns } = await import("../models/campaign.server");
   const { merchantData, session } = await loadShopifyRouteContext(request);
-  const [creatives, analyses, briefs, blueprints, performance] = await Promise.all([
+  const [creatives, analyses, briefs, blueprints, performance, campaigns] = await Promise.all([
     listSavedCreatives(session.shop, 1000),
     listVideoAnalyses(session.shop, 1000),
     listSavedBriefs(session.shop, 1000),
     listRevenueBlueprints(session.shop, 1000),
     listCreativePerformance({ merchantData, shop: session.shop, limit: 1000 }),
+    listCampaigns(session.shop),
   ]);
   const importedRecords = performance.records.filter(
     (record) =>
@@ -107,6 +109,7 @@ export const loader = async ({ request }) => {
   return {
     sampleCsv,
     shop: session.shop,
+    campaigns: campaigns.map(({ id, name }) => ({ id, name })),
     counts: {
       analyses: analyses.length,
       blueprints: blueprints.length,
@@ -167,7 +170,20 @@ export const action = async ({ request }) => {
       };
     }
 
+    let campaignId = String(formData.get("campaignId") || "");
+    const newCampaignName = String(formData.get("newCampaignName") || "").trim();
+    if (!campaignId && newCampaignName) {
+      const { createCampaign } = await import("../models/campaign.server");
+      const createdCampaign = await createCampaign(session.shop, {
+        name: newCampaignName,
+        objective: "testing",
+        platform: "other",
+        status: "draft",
+      });
+      campaignId = createdCampaign.id;
+    }
     const result = await importMatchedCreativeRows({
+      campaignId,
       preview,
       shop: session.shop,
       uploadedVideos,
@@ -236,7 +252,7 @@ export const action = async ({ request }) => {
 };
 
 export default function DataImportRoute() {
-  const { counts, sampleCsv: loaderSampleCsv, shop } = useLoaderData();
+  const { campaigns, counts, sampleCsv: loaderSampleCsv, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
@@ -247,6 +263,8 @@ export default function DataImportRoute() {
   const [clearMessage, setClearMessage] = useState("");
   const [csvDraft, setCsvDraft] = useState("");
   const [creativeUploadCsvDraft, setCreativeUploadCsvDraft] = useState("");
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [newCampaignName, setNewCampaignName] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
   const [videoInputKey, setVideoInputKey] = useState(0);
   const [selectedVideos, setSelectedVideos] = useState([]);
@@ -328,6 +346,8 @@ export default function DataImportRoute() {
     setFileInputKey((key) => key + 1);
     setVideoInputKey((key) => key + 1);
     setSelectedVideos([]);
+    setSelectedCampaignId("");
+    setNewCampaignName("");
   }
 
   function addSelectedVideoFiles(fileList) {
@@ -349,6 +369,8 @@ export default function DataImportRoute() {
   function submitCreativeImport(intent) {
     const csvFile = creativeCsvFileInputRef.current?.files?.[0];
     const formData = buildCreativeImportFormData({
+      campaignId: selectedCampaignId,
+      newCampaignName,
       csvFile,
       csvText: creativeUploadCsvDraft,
       intent,
@@ -600,6 +622,31 @@ export default function DataImportRoute() {
             </div>
           </div>
 
+          <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.04] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Optional campaign assignment</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">Add every matched creative to an existing campaign, create a new one, or leave both fields empty to skip.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
+              Select existing campaign
+              <select
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-white"
+                onChange={(event) => { setSelectedCampaignId(event.target.value); if (event.target.value) setNewCampaignName(""); }}
+                value={selectedCampaignId}
+              >
+                <option value="">Skip / use CSV campaign</option>
+                {campaigns.map((campaign) => (
+                  <option key={campaign.id} value={campaign.id}>
+                    {campaign.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
+              Or create a new campaign
+              <input className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-white placeholder:text-slate-600" onChange={(event) => { setNewCampaignName(event.target.value); if (event.target.value) setSelectedCampaignId(""); }} placeholder="Campaign name" value={newCampaignName} />
+            </label>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-3">
             <button
               className="bp-primary-cta"
