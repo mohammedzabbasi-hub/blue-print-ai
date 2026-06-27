@@ -857,42 +857,49 @@ export default function DataImportRoute() {
         </section>
       )}
 
-      <section className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
-        <h2 className="text-3xl font-black text-white">
-          How BluePrintAI uses this data
-        </h2>
-        <div className="mt-6 grid gap-5 md:grid-cols-3">
-          <UseCard
-            title="Dashboard and library"
-            text="Imported performance records populate Command Center charts and Creative Library cards with views, engagement, optional clicks, orders, spend, and revenue."
-          />
-          <UseCard
-            title="Creators and recommendations"
-            text="Creator comparisons aggregate imported rows by creator handle, and recommendations treat public engagement as a valid planning signal."
-          />
-          <UseCard
-            title="Revenue Blueprint"
-            text="Blueprints use imported engagement/performance records for planning guidance. Optional revenue, orders, and spend improve confidence, but outcomes are not guaranteed."
-          />
-        </div>
-      </section>
+      <details className="rounded-3xl border border-slate-800 bg-[#0b1220] p-6">
+        <summary className="cursor-pointer text-lg font-black text-cyan-100">
+          Import help
+        </summary>
+        <div className="mt-6 space-y-8 border-t border-slate-800 pt-6">
+          <div>
+            <h2 className="text-xl font-black text-white">
+              How BluePrintAI uses this data
+            </h2>
+            <div className="mt-4 grid gap-5 md:grid-cols-3">
+              <UseCard
+                title="Dashboard and library"
+                text="Imported performance records populate Command Center charts and Creative Library cards with views, engagement, optional clicks, orders, spend, and revenue."
+              />
+              <UseCard
+                title="Creators and recommendations"
+                text="Creator comparisons aggregate imported rows by creator handle, and recommendations treat public engagement as a valid planning signal."
+              />
+              <UseCard
+                title="Revenue Blueprint"
+                text="Blueprints use imported engagement/performance records for planning guidance. Optional revenue, orders, and spend improve confidence, but outcomes are not guaranteed."
+              />
+            </div>
+          </div>
 
-      <section className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
-        <h2 className="text-3xl font-black text-white">
-          Persisted workspace records
-        </h2>
-        <p className="mt-3 text-slate-400">
-          These counts are scoped to the current authenticated Shopify workspace.
-        </p>
-        <div className="mt-8 grid grid-cols-2 gap-5 md:grid-cols-6">
-          <Metric label="Imported" value={counts.importedPerformance} />
-          <Metric label="Performance" value={counts.performance} />
-          <Metric label="Creatives" value={counts.creatives} />
-          <Metric label="Analyses" value={counts.analyses} />
-          <Metric label="Briefs" value={counts.briefs} />
-          <Metric label="Blueprints" value={counts.blueprints} />
+          <div>
+            <h2 className="text-xl font-black text-white">
+              Persisted workspace records
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Counts are scoped to the current authenticated Shopify workspace.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-6">
+              <Metric label="Imported" value={counts.importedPerformance} />
+              <Metric label="Performance" value={counts.performance} />
+              <Metric label="Creatives" value={counts.creatives} />
+              <Metric label="Analyses" value={counts.analyses} />
+              <Metric label="Briefs" value={counts.briefs} />
+              <Metric label="Blueprints" value={counts.blueprints} />
+            </div>
+          </div>
         </div>
-      </section>
+      </details>
     </div>
   );
 }

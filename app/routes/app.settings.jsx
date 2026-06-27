@@ -4,13 +4,17 @@ import {
   redirect,
   useActionData,
   useLoaderData,
+  useLocation,
   useNavigation,
 } from "react-router";
+import { useEffect, useState } from "react";
 import BillingNotice from "../components/legal/BillingNotice";
 import {
   createActivityLogRecord,
   getWorkspaceProfile,
   getWorkspaceSettingsMap,
+  mergeWorkspaceProfileWithProduct,
+  resetDemoWorkspaceFromSettingsForm,
   saveWorkspaceProfile,
   upsertWorkspaceSettings,
 } from "../models/blueprint.server";
@@ -21,6 +25,7 @@ import {
   PRODUCT_CATEGORY_OPTIONS,
 } from "../models/workspace-profile-options";
 import { loadShopifyRouteContext } from "../models/route-context.server";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const meta = () => {
   return [{ title: "Settings | BluePrintAI" }];
@@ -29,10 +34,10 @@ export const meta = () => {
 const SETTINGS_DEFAULTS = {
   analysis_depth: "standard",
   auto_save_analyzed_videos: "true",
-  email_summaries: "false",
 };
 
 const ANALYSIS_DEPTH_OPTIONS = new Set(["standard", "deep", "fast"]);
+const RESET_DEMO_WORKSPACE_INTENT = "resetDemoWorkspace";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
@@ -43,16 +48,19 @@ export const loader = async ({ request }) => {
   }[url.searchParams.get("panel")];
 
   if (legacyPanelRoute) {
-    throw redirect(legacyPanelRoute);
+    throw redirect(withEmbeddedRouteParams(legacyPanelRoute, url.search));
   }
 
-  const { session } = await loadShopifyRouteContext(request);
+  const { merchantData, session } = await loadShopifyRouteContext(request);
   const [settings, profile] = await Promise.all([
     getWorkspaceSettingsMap(session.shop, SETTINGS_DEFAULTS),
     getWorkspaceProfile(session.shop),
   ]);
 
   return {
+    showDeveloperTools: process.env.ENABLE_DEVELOPER_TOOLS === "true",
+    productError: merchantData.errors?.[0] || "",
+    products: merchantData.products || [],
     profile,
     shop: session.shop,
     settings,
@@ -60,20 +68,50 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await loadShopifyRouteContext(request);
+  const { merchantData, session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
 
   if (intent === "saveProfile") {
     try {
-      const profile = await saveWorkspaceProfile(session.shop, {
-        brandTone: String(formData.get("brandTone") || ""),
-        category: String(formData.get("category") || ""),
-        creativeGoal: String(formData.get("creativeGoal") || ""),
-        creativeSource: String(formData.get("creativeSource") || ""),
-        mainProduct: String(formData.get("mainProduct") || ""),
-        targetCustomer: String(formData.get("targetCustomer") || ""),
-      });
+      const setupMode = String(formData.get("setupMode") || "entire_store");
+      const selectedProductId =
+        setupMode === "primary_product"
+          ? String(formData.get("selectedProductId") || "")
+          : "";
+      const selectedProduct =
+        merchantData.products.find((product) => product.id === selectedProductId) ||
+        null;
+
+      if (!["entire_store", "primary_product", "manual_product_context"].includes(setupMode)) {
+        return { profileError: "Choose how BluePrintAI should use your Shopify catalog." };
+      }
+
+      if (setupMode === "primary_product" && !selectedProduct) {
+        return { profileError: "Choose a primary Shopify product or use the entire store." };
+      }
+
+      const profileInput = mergeWorkspaceProfileWithProduct(
+        {
+          setupMode,
+          brandTone: String(formData.get("brandTone") || ""),
+          category: String(formData.get("category") || ""),
+          creativeGoal: String(formData.get("creativeGoal") || ""),
+          creativeSource: String(formData.get("creativeSource") || ""),
+          mainProduct:
+            setupMode === "manual_product_context"
+              ? String(formData.get("mainProduct") || "")
+              : "",
+          targetCustomer: String(formData.get("targetCustomer") || ""),
+        },
+        setupMode === "primary_product" ? selectedProduct : null,
+      );
+
+      if (!profileInput.category && selectedProduct?.productType) {
+        profileInput.category = "Other";
+      }
+
+      const profile = await saveWorkspaceProfile(session.shop, profileInput);
 
       await createActivityLogRecord(session.shop, {
         type: "settings",
@@ -95,6 +133,23 @@ export const action = async ({ request }) => {
     }
   }
 
+  if (intent === RESET_DEMO_WORKSPACE_INTENT) {
+    if (process.env.ENABLE_DEVELOPER_TOOLS !== "true") {
+      return { resetError: "Developer tools are not enabled." };
+    }
+    const result = await resetDemoWorkspaceFromSettingsForm(session.shop, formData);
+
+    if (result.resetSuccess) {
+      return {
+        ...result,
+        profile: await getWorkspaceProfile(session.shop),
+        settings: SETTINGS_DEFAULTS,
+      };
+    }
+
+    return result;
+  }
+
   if (intent !== "savePreferences") {
     return { error: "Unknown settings action." };
   }
@@ -111,13 +166,12 @@ export const action = async ({ request }) => {
       auto_save_analyzed_videos: formData.has("auto_save_analyzed_videos")
         ? "true"
         : "false",
-      email_summaries: formData.has("email_summaries") ? "true" : "false",
     });
 
     await createActivityLogRecord(session.shop, {
       type: "settings",
       title: "Settings updated",
-      description: "Video analysis and notification preferences were updated.",
+      description: "Video analysis preferences were updated.",
       relatedType: "WorkspaceSetting",
       relatedId: `preferences:${Date.now()}`,
       payload: settings,
@@ -125,8 +179,7 @@ export const action = async ({ request }) => {
 
     return {
       settings,
-      success:
-        "Settings saved. Email summaries are saved as a preference only; delivery is not active yet.",
+      success: "Video analysis preferences saved.",
     };
   } catch (error) {
     return { error: error.message || "Could not save settings." };
@@ -148,21 +201,29 @@ function formatShopName(shop = "") {
 }
 
 export default function SettingsRoute() {
-  const { profile, settings, shop } = useLoaderData();
+  const { productError, products, profile, settings, shop, showDeveloperTools } = useLoaderData();
   const actionData = useActionData();
+  const location = useLocation();
   const navigation = useNavigation();
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [resetModalOpen, setResetModalOpen] = useState(false);
   const savingPreferences =
     navigation.state === "submitting" &&
     navigation.formData?.get("intent") === "savePreferences";
+  const resettingWorkspace =
+    navigation.state === "submitting" &&
+    navigation.formData?.get("intent") === RESET_DEMO_WORKSPACE_INTENT;
   const currentSettings = actionData?.settings || settings;
   const currentProfile = actionData?.profile || profile;
+  const resetUiKey = actionData?.resetSuccess ? `reset-${actionData.reset?.shop || shop}` : "current";
   const shopName = formatShopName(shop);
 
-  const tiktokStatusLabel = "TikTok connection coming soon";
-  const tiktokStatusTone = "bg-slate-700/70 text-slate-300";
-  const tiktokStatusMessage =
-    "TikTok OAuth is not live in this Shopify app yet. BlueprintAI currently works with uploaded videos, saved creative records, generated briefs, and manual creative data.";
-  const tiktokBadgeLabel = "Coming Soon";
+  useEffect(() => {
+    if (actionData?.resetSuccess) {
+      setResetModalOpen(false);
+      setResetConfirmation("");
+    }
+  }, [actionData?.resetSuccess]);
 
   return (
     <div className="space-y-8">
@@ -212,111 +273,15 @@ export default function SettingsRoute() {
             )}
 
             <WorkspaceProfileForm
+              key={`profile-${resetUiKey}`}
               profile={currentProfile}
+              productError={productError}
+              products={products}
               saving={
                 navigation.state === "submitting" &&
                 navigation.formData?.get("intent") === "saveProfile"
               }
             />
-          </section>
-
-          <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
-            <div className="mb-8 flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
-                ↗
-              </div>
-
-              <div>
-                <h2 className="text-2xl font-black">TikTok Shop Connection</h2>
-                <p className="text-slate-400">
-                  TikTok OAuth/API sync is planned, but not live in this Shopify app yet.
-                </p>
-              </div>
-            </div>
-
-            <div className="mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 font-bold text-amber-100">
-              TikTok connection coming soon. No TikTok seller account is connected
-              to this Shopify app right now.
-            </div>
-
-            <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-5">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">
-                    Connection Status
-                  </p>
-
-                  <h3 className="mt-2 text-xl font-black">
-                    {tiktokStatusLabel}
-                  </h3>
-
-                  <p className="mt-1 max-w-2xl text-slate-400">
-                    {tiktokStatusMessage}
-                  </p>
-                </div>
-
-                <span
-                  className={`rounded-full px-4 py-2 text-sm font-black ${tiktokStatusTone}`}
-                >
-                  {tiktokBadgeLabel}
-                </span>
-              </div>
-
-              <p className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm leading-6 text-cyan-50/90">
-                Until TikTok OAuth is implemented end-to-end, use uploaded
-                videos, manual creative records, generated ad briefs, and saved
-                revenue blueprints inside this Shopify workspace.
-              </p>
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled
-                className="rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 font-black text-white transition hover:from-cyan-400 hover:to-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Connect TikTok Shop - Coming Soon
-              </button>
-
-              <button
-                type="button"
-                disabled
-                className="rounded-2xl border border-cyan-400/60 bg-cyan-500/10 px-6 py-3 font-black text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Demo TikTok Sync - Coming Soon
-              </button>
-
-              <button
-                type="button"
-                disabled
-                className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300 transition hover:border-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Disconnect Unavailable
-              </button>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-950/40 p-5">
-              <h3 className="text-lg font-black">
-                Current TikTok testing status
-              </h3>
-
-              <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
-                {[
-                  "TikTok OAuth is not wired in this Shopify app yet",
-                  "No TikTok access or refresh tokens are stored",
-                  "No TikTok seller account is connected",
-                  "Uploaded and manual creative workflows are available now",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3"
-                  >
-                    <span className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.8)]" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </section>
 
           <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
@@ -384,7 +349,7 @@ export default function SettingsRoute() {
               </div>
             )}
 
-            <Form method="post" className="space-y-6">
+            <Form key={`preferences-${resetUiKey}`} method="post" className="space-y-6">
               <input name="intent" type="hidden" value="savePreferences" />
 
               <label className="block">
@@ -414,19 +379,10 @@ export default function SettingsRoute() {
                 description="Save results to the Creative Library automatically."
               />
 
-              <PreferenceToggle
-                defaultChecked={currentSettings.email_summaries === "true"}
-                disabled={savingPreferences}
-                label="Email summaries"
-                name="email_summaries"
-                description="Save the preference for future weekly digests. Email delivery is not active yet."
-                last
-              />
-
               <button
                 type="submit"
                 disabled={savingPreferences}
-                className="rounded-2xl bg-cyan-500 px-6 py-3 font-black text-white transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="bp-primary-cta"
               >
                 {savingPreferences ? "Saving..." : "Save Preferences"}
               </button>
@@ -488,8 +444,50 @@ export default function SettingsRoute() {
             </div>
           </section>
 
+          {showDeveloperTools && <section className="rounded-3xl border border-red-500/40 bg-[#170b12] p-7 shadow-[0_0_32px_rgba(239,68,68,0.08)] xl:col-span-2">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-red-300">
+                  Danger Zone
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black">
+                  Reset Demo Workspace
+                </h2>
+
+                <p className="mt-3 max-w-4xl text-sm leading-6 text-red-50/80">
+                  Deletes saved creatives, imported performance data, briefs,
+                  blueprints, reviews, and demo records for this Shopify
+                  workspace. Shopify authentication and app installation remain
+                  connected.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="rounded-2xl border border-red-400/60 bg-red-500/15 px-6 py-3 font-black text-red-100 transition hover:border-red-300 hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={resettingWorkspace}
+                onClick={() => setResetModalOpen(true)}
+              >
+                Reset Demo Workspace
+              </button>
+            </div>
+
+            {actionData?.resetError && (
+              <div className="mt-5 rounded-2xl border border-red-500/50 bg-red-500/10 px-5 py-4 font-bold text-red-100">
+                {actionData.resetError}
+              </div>
+            )}
+
+            {actionData?.resetSuccess && (
+              <div className="mt-5 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 font-bold text-emerald-100">
+                {actionData.resetSuccess}
+              </div>
+            )}
+          </section>}
+
           <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7 xl:col-span-2">
-            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="mb-6">
               <div>
                 <h2 className="text-2xl font-black">Legal & Privacy</h2>
                 <p className="mt-2 max-w-3xl text-slate-400">
@@ -497,29 +495,32 @@ export default function SettingsRoute() {
                   for this Shopify workspace.
                 </p>
               </div>
-              <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-black text-cyan-200">
-                Review ready
-              </span>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Link
-                to="/app/privacy"
+                to={withEmbeddedRouteParams("/app/privacy", location.search)}
                 className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
               >
                 Privacy Policy
               </Link>
               <Link
-                to="/app/terms"
+                to={withEmbeddedRouteParams("/app/terms", location.search)}
                 className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
               >
                 Terms of Service
               </Link>
               <Link
-                to="/app/contact"
+                to={withEmbeddedRouteParams("/app/contact", location.search)}
                 className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
               >
                 Contact & Data Requests
+              </Link>
+              <Link
+                to={withEmbeddedRouteParams("/app/refund-policy", location.search)}
+                className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
+              >
+                Refund Policy
               </Link>
             </div>
 
@@ -537,14 +538,140 @@ export default function SettingsRoute() {
           </section>
         </div>
       </div>
+
+      {showDeveloperTools && resetModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 py-8 backdrop-blur-sm"
+          role="presentation"
+        >
+          <div
+            aria-modal="true"
+            className="w-full max-w-2xl rounded-3xl border border-red-500/50 bg-[#100915] p-7 shadow-2xl"
+            role="dialog"
+          >
+            <div className="flex items-start justify-between gap-5">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-red-300">
+                  Dangerous action
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black">
+                  Reset this demo workspace?
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 px-3 py-1 text-lg font-black text-slate-300 transition hover:border-slate-500"
+                onClick={() => setResetModalOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-4 text-sm leading-6 text-slate-200">
+              <p>
+                This deletes saved creatives, imported creative performance
+                rows, generated ad briefs, revenue blueprints, video analysis
+                reviews, workspace requests, activity history, and demo or test
+                records scoped to {shop}.
+              </p>
+
+              <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-50">
+                Shopify sessions, app installation/auth records, legal pages,
+                billing configuration, route structure, and Shopify product
+                pulls remain connected. Workspace profile and preference rows
+                are cleared.
+              </p>
+            </div>
+
+            <Form method="post" className="mt-6 space-y-5">
+              <input
+                name="intent"
+                type="hidden"
+                value={RESET_DEMO_WORKSPACE_INTENT}
+              />
+              <input
+                name="confirmation"
+                type="hidden"
+                value={resetConfirmation}
+              />
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-black text-red-100">
+                  Type RESET to confirm
+                </span>
+
+                <input
+                  autoComplete="off"
+                  className="w-full rounded-2xl border border-red-500/40 bg-slate-950 px-4 py-4 font-black text-red-50 outline-none focus:border-red-300"
+                  disabled={resettingWorkspace}
+                  onChange={(event) => setResetConfirmation(event.target.value)}
+                  value={resetConfirmation}
+                />
+              </label>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300 transition hover:border-slate-500"
+                  disabled={resettingWorkspace}
+                  onClick={() => setResetModalOpen(false)}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="rounded-2xl border border-red-400/70 bg-red-500/20 px-6 py-3 font-black text-red-50 transition hover:border-red-300 hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={resetConfirmation !== "RESET" || resettingWorkspace}
+                >
+                  {resettingWorkspace
+                    ? "Resetting..."
+                    : "Reset workspace data"}
+                </button>
+              </div>
+            </Form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function WorkspaceProfileForm({ profile = {}, saving = false }) {
+function WorkspaceProfileForm({
+  productError = "",
+  products = [],
+  profile = {},
+  saving = false,
+}) {
+  const [setupMode, setSetupMode] = useState(profile.setupMode || "entire_store");
+
   return (
     <Form method="post" className="space-y-5">
       <input name="intent" type="hidden" value="saveProfile" />
+
+      {productError && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm font-bold text-amber-100">
+          Shopify products could not be loaded right now. Manual product
+          context still works.
+        </div>
+      )}
+
+      {!productError && products.length === 0 && (
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 px-5 py-4 text-sm font-bold text-slate-200">
+          No Shopify products found yet. Add products in Shopify or enter
+          product context manually.
+        </div>
+      )}
+
+      <SettingsCatalogSetup
+        defaultValue={profile.selectedProductId}
+        disabled={saving}
+        mode={setupMode}
+        onModeChange={setSetupMode}
+        products={products}
+      />
 
       <SettingsSelect
         defaultValue={profile.category}
@@ -554,21 +681,25 @@ function WorkspaceProfileForm({ profile = {}, saving = false }) {
         options={PRODUCT_CATEGORY_OPTIONS}
       />
 
-      <SettingsText
-        defaultValue={profile.mainProduct}
-        disabled={saving}
-        label="Main product or product line"
-        name="mainProduct"
-        placeholder="Flagship product, resistance bands, coffee bundle"
-      />
+      {setupMode === "manual_product_context" && (
+        <>
+          <SettingsText
+            defaultValue={profile.mainProduct}
+            disabled={saving}
+            label="Main product or product line"
+            name="mainProduct"
+            placeholder="Flagship product, resistance bands, coffee bundle"
+          />
 
-      <SettingsText
-        defaultValue={profile.targetCustomer}
-        disabled={saving}
-        label="Target customer"
-        name="targetCustomer"
-        placeholder="Busy parents, first-time runners, gift buyers"
-      />
+          <SettingsText
+            defaultValue={profile.targetCustomer}
+            disabled={saving}
+            label="Target customer"
+            name="targetCustomer"
+            placeholder="Busy parents, first-time runners, gift buyers"
+          />
+        </>
+      )}
 
       <SettingsSelect
         defaultValue={profile.creativeGoal}
@@ -597,11 +728,93 @@ function WorkspaceProfileForm({ profile = {}, saving = false }) {
       <button
         type="submit"
         disabled={saving}
-        className="rounded-2xl bg-cyan-500 px-6 py-3 font-black text-white transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+        className="bp-primary-cta"
       >
         {saving ? "Saving profile..." : "Save Workspace Profile"}
       </button>
     </Form>
+  );
+}
+
+function SettingsCatalogSetup({
+  defaultValue = "",
+  disabled = false,
+  mode = "entire_store",
+  onModeChange,
+  products = [],
+}) {
+  return (
+    <div className="block">
+      <label className="mb-2 block text-slate-400" htmlFor="settingsSetupMode">
+        Shopify product
+      </label>
+      <select
+        id="settingsSetupMode"
+        className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 font-bold outline-none"
+        defaultValue={mode || "entire_store"}
+        disabled={disabled}
+        name="setupMode"
+        onChange={(event) => onModeChange?.(event.target.value)}
+      >
+        <option value="entire_store">Use entire store</option>
+        <option value="primary_product">Choose a primary product</option>
+        <option value="manual_product_context">Enter product context manually</option>
+      </select>
+      <span className="mt-2 block text-xs leading-5 text-slate-500">
+        BluePrintAI analyzes your full Shopify store. Choosing a primary
+        product only gives the app a starting point for product-specific ad
+        briefs, creator matching, and recommendations.
+      </span>
+
+      {mode === "entire_store" && (
+        <span className="mt-3 block rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-xs leading-5 text-cyan-50">
+          Recommended. BluePrintAI will use your connected Shopify catalog as
+          the main store context.
+        </span>
+      )}
+
+      {mode === "primary_product" && (
+        <label className="mt-4 block">
+          <span className="mb-2 block text-slate-400">Primary Shopify product</span>
+          <select
+            className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 font-bold outline-none"
+            defaultValue={defaultValue || ""}
+            disabled={disabled || products.length === 0}
+            name="selectedProductId"
+            required={mode === "primary_product" && products.length > 0}
+          >
+            <option value="">
+              {products.length ? "Choose a product" : "No Shopify products available"}
+            </option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.title}
+                {product.productType ? ` · ${product.productType}` : ""}
+                {product.vendor ? ` · ${product.vendor}` : ""}
+              </option>
+            ))}
+          </select>
+          <span className="mt-2 block text-xs leading-5 text-slate-500">
+            Optional. Pick one product as the first product BluePrintAI should
+            focus on. The rest of the store will still remain available.
+          </span>
+        </label>
+      )}
+
+      {mode === "manual_product_context" && (
+        <span className="mt-3 block rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-50">
+          Use this if Shopify products are not available yet or you want to
+          describe a product manually.
+        </span>
+      )}
+
+      {mode === "primary_product" && products.length === 0 && (
+        <span className="mt-3 block rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-50">
+          Shopify products could not be loaded or this store has no products
+          yet. Use entire store or enter product context manually.
+        </span>
+      )}
+    </div>
   );
 }
 

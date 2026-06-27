@@ -1,4 +1,11 @@
-import { Eye, Lightbulb, MousePointer2, ShoppingBag, TrendingUp, Video } from "lucide-react";
+import {
+  Activity,
+  FileText,
+  Gauge,
+  Library,
+  Lightbulb,
+  Video,
+} from "lucide-react";
 
 function compactNumber(value) {
   const num = Number(value || 0);
@@ -7,59 +14,49 @@ function compactNumber(value) {
   return num.toLocaleString();
 }
 
-function pct(value) {
-  const num = Number(value || 0);
-  return `${num.toFixed(2)}%`;
-}
-
-function roas(value) {
-  const num = Number(value || 0);
-  return `${num.toFixed(2)}x`;
-}
-
 export default function StatCards({ data }) {
   const totals = data?.totals || data || {};
 
   const stats = [
     {
-      label: "Total Creatives",
-      value: compactNumber(totals.creatives || totals.total_creatives),
-      icon: Video,
+      label: "Saved Creatives",
+      value: compactNumber(totals.creatives),
+      icon: Library,
       accent: "text-sky-400",
       iconBg: "bg-sky-500/15",
     },
     {
-      label: "Total Views",
-      value: compactNumber(totals.views || totals.total_views),
-      icon: Eye,
+      label: "Video Analyses",
+      value: compactNumber(totals.analyses),
+      icon: Video,
       accent: "text-emerald-400",
       iconBg: "bg-emerald-500/15",
     },
     {
-      label: "Orders Generated",
-      value: compactNumber(totals.orders || totals.total_orders),
-      icon: ShoppingBag,
+      label: "Saved Briefs",
+      value: compactNumber(totals.briefs),
+      icon: FileText,
       accent: "text-amber-400",
       iconBg: "bg-amber-500/15",
     },
     {
-      label: "Avg. CTR",
-      value: pct(totals.ctr || totals.avg_ctr),
-      icon: MousePointer2,
+      label: "Blueprints",
+      value: compactNumber(totals.blueprints),
+      icon: Lightbulb,
       accent: "text-blue-400",
       iconBg: "bg-blue-500/15",
     },
     {
-      label: "Avg. ROAS",
-      value: roas(totals.roas || totals.avg_roas),
-      icon: TrendingUp,
+      label: "Readiness",
+      value: `${Number(totals.readiness || 0)}%`,
+      icon: Gauge,
       accent: "text-rose-400",
       iconBg: "bg-rose-500/15",
     },
     {
-      label: "Recommendations",
-      value: compactNumber(totals.recommendations || totals.total_recommendations),
-      icon: Lightbulb,
+      label: "Recent Activity",
+      value: compactNumber(totals.activities),
+      icon: Activity,
       accent: "text-violet-400",
       iconBg: "bg-violet-500/15",
     },
@@ -80,9 +77,6 @@ export default function StatCards({ data }) {
                 <Icon size={15} className={stat.accent} />
               </div>
 
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400">
-                Live
-              </span>
             </div>
 
             <p className="text-[22px] font-bold text-white leading-none mb-1 group-hover:text-sky-50 transition-colors">

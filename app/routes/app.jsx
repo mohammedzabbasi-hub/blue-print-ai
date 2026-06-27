@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   Link,
   Outlet,
+  redirect,
   useLoaderData,
   useLocation,
   useNavigate,
@@ -11,54 +12,37 @@ import {
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
-import {
-  listRevenueBlueprints,
-  listSavedBriefs,
-  listSavedCreatives,
-  listVideoAnalyses,
-  listWorkspaceRequests,
-  loadTikTokConnection,
-} from "../models/blueprint.server";
+import { isWorkspaceOnboarded } from "../models/blueprint.server";
 import {
   billingBypassed,
   billingRequired,
   getAppHandleFromConfig,
   getPlanSelectionUrl,
 } from "../utils/billing.server";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const isLocalDemoHost = ["localhost", "127.0.0.1", "::1"].includes(
     url.hostname,
   );
+  const hasShopifyEmbeddedParams =
+    url.searchParams.has("shop") || url.searchParams.has("host");
 
   const shouldUseDemoBypass =
-    isLocalDemoHost ||
-    process.env.NODE_ENV !== "production" ||
+    (isLocalDemoHost && !hasShopifyEmbeddedParams) ||
     process.env.DEV_BYPASS_SHOPIFY_AUTH === "true" ||
     url.searchParams.get("demo") === "1";
+  const explicitDemoMode = url.searchParams.get("demo") === "1";
 
   if (shouldUseDemoBypass) {
     const demoShop = "blueprintai-test-store.myshopify.com";
     const appHandle = getAppHandleFromConfig();
-
-    const [briefs, creatives, analyses, blueprints, requests, tiktokConnection] =
-      await Promise.all([
-        listSavedBriefs(demoShop, 4),
-        listSavedCreatives(demoShop, 4),
-        listVideoAnalyses(demoShop, 4),
-        listRevenueBlueprints(demoShop, 4),
-        listWorkspaceRequests(demoShop, 4),
-        loadTikTokConnection(demoShop),
-      ]);
-
-    const notifications = buildNotifications({
-      briefs,
-      creatives,
-      analyses,
-      blueprints,
-      requests,
-      tiktokConnection,
+    await redirectToOnboardingIfNeeded({
+      pathname: url.pathname,
+      search: url.search,
+      shop: demoShop,
+      skipOnboarding: explicitDemoMode,
     });
 
     return {
@@ -67,10 +51,10 @@ export const loader = async ({ request }) => {
       billingStatus: {
         appHandle,
         bypassed: true,
+        demoMode: explicitDemoMode,
         hasActivePayment: true,
         required: false,
       },
-      notifications,
     };
   }
 
@@ -98,23 +82,11 @@ export const loader = async ({ request }) => {
     return redirect(planSelectionUrl, { target: "_parent" });
   }
 
-  const [briefs, creatives, analyses, blueprints, requests, tiktokConnection] =
-    await Promise.all([
-      listSavedBriefs(session.shop, 4),
-      listSavedCreatives(session.shop, 4),
-      listVideoAnalyses(session.shop, 4),
-      listRevenueBlueprints(session.shop, 4),
-      listWorkspaceRequests(session.shop, 4),
-      loadTikTokConnection(session.shop),
-    ]);
-
-  const notifications = buildNotifications({
-    briefs,
-    creatives,
-    analyses,
-    blueprints,
-    requests,
-    tiktokConnection,
+  await redirectToOnboardingIfNeeded({
+    pathname: url.pathname,
+    search: url.search,
+    shop: session.shop,
+    skipOnboarding: false,
   });
 
   return {
@@ -123,15 +95,16 @@ export const loader = async ({ request }) => {
     billingStatus: {
       appHandle,
       bypassed: shouldBypassBilling,
+      demoMode: false,
       hasActivePayment,
       required: shouldRequireBilling,
     },
-    notifications,
   };
 };
 
 const navItems = [
   { to: "/app", label: "Command Center", icon: "grid" },
+  { to: "/app/campaigns", label: "Campaigns", icon: "activity" },
   { to: "/app/creative-library", label: "Creative Library", icon: "layers" },
   { to: "/app/video-analysis", label: "AI Review Studio", icon: "video" },
   { to: "/app/ad-briefs", label: "Ad Briefs", icon: "brief" },
@@ -147,163 +120,31 @@ const navItems = [
 ];
 
 export default function App() {
-  const { apiKey, shop, billingStatus, notifications } = useLoaderData();
+  const { apiKey, billingStatus } = useLoaderData();
   const location = useLocation();
   const navigate = useNavigate();
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const closeMobileNav = () => setMobileNavOpen(false);
-  const handleLogout = () => {
-    if (typeof window !== "undefined") {
-      [
-        "token",
-        "access_token",
-        "authToken",
-        "user",
-        "selectedShop",
-        "selectedShopId",
-        "shop_id",
-        "connected_shop_id",
-        "selectedShopName",
-        "connected_shop_name",
-        "onboardingComplete",
-      ].forEach((key) => window.localStorage.removeItem(key));
-    }
-
-    navigate(billingStatus.bypassed ? "/" : "/auth/login", { replace: true });
-  };
+  const [isSidebarPinnedOpen, setIsSidebarPinnedOpen] = useState(false);
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const isSidebarExpanded = isSidebarPinnedOpen || isSidebarHovered;
 
   const shell = (
-    <div className="bp-app-frame">
-        <ShellSidebar location={location} onLogout={handleLogout} />
+    <div
+      className={
+        isSidebarExpanded
+          ? "bp-app-frame bp-sidebar-expanded"
+          : "bp-app-frame bp-sidebar-collapsed"
+      }
+    >
+        <ShellSidebar
+          expanded={isSidebarExpanded}
+          location={location}
+          navigate={navigate}
+          onHoverChange={setIsSidebarHovered}
+          onTogglePinned={() => setIsSidebarPinnedOpen((value) => !value)}
+          pinned={isSidebarPinnedOpen}
+        />
 
         <div className="bp-main-frame">
-          <header className="bp-topbar">
-            <button
-              className="bp-topbar-menu"
-              type="button"
-              aria-label="Open navigation"
-              aria-expanded={mobileNavOpen}
-              onClick={() => setMobileNavOpen(true)}
-            >
-              <ShellIcon name="menu" />
-            </button>
-
-            <div className="bp-topbar-store">
-              <ShellIcon className="bp-topbar-store-icon" name="bag" />
-              <div>
-                <span>Active shop</span>
-                <strong>{formatShopName(shop)}</strong>
-              </div>
-            </div>
-
-            <form
-              className="bp-topbar-search"
-              method="get"
-              action="/app/search"
-              role="search"
-              onSubmit={(event) => {
-                if (!searchQuery.trim()) event.preventDefault();
-              }}
-            >
-              <span aria-hidden="true">⌕</span>
-              <input
-                aria-label="Search products, creatives, briefs, and recommendations"
-                name="q"
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search products, creatives, briefs..."
-                type="search"
-                value={searchQuery}
-              />
-            </form>
-
-            <span className="bp-status-pill">
-              <ShellIcon name={billingStatus.bypassed ? "sparkles" : "check"} />
-              {billingStatus.bypassed ? "Demo" : "Live"}
-            </span>
-
-            <button
-              className="bp-topbar-bell"
-              type="button"
-              aria-label={`${notifications.length} recent activity items`}
-              aria-expanded={notificationsOpen}
-              onClick={() => setNotificationsOpen((value) => !value)}
-            >
-              <ShellIcon name="bell" />
-              {notifications.length > 0 && (
-                <span className="bp-notification-count">
-                  {notifications.length}
-                </span>
-              )}
-            </button>
-          </header>
-
-          {mobileNavOpen && (
-            <div
-              className="bp-mobile-nav-panel"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Mobile navigation"
-            >
-              <button
-                className="bp-mobile-nav-backdrop"
-                type="button"
-                aria-label="Close navigation"
-                onClick={closeMobileNav}
-              />
-
-              <div className="bp-mobile-sidebar-wrap">
-                <button
-                  className="bp-mobile-nav-close"
-                  type="button"
-                  aria-label="Close navigation"
-                  onClick={closeMobileNav}
-                >
-                  <ShellIcon name="close" />
-                </button>
-
-                <ShellSidebar
-                  location={location}
-                  onNavigate={closeMobileNav}
-                  onLogout={handleLogout}
-                  mobile
-                />
-              </div>
-            </div>
-          )}
-
-          {notificationsOpen && (
-            <div className="bp-notification-panel">
-              <header>
-                <span>Recent activity</span>
-                <strong>Workspace updates</strong>
-              </header>
-
-              {notifications.length === 0 ? (
-                <p>
-                  No recent briefs, analyses, blueprints, exports, or
-                  integration updates.
-                </p>
-              ) : (
-                <ul>
-                  {notifications.map((item) => (
-                    <li key={item.id}>
-                      <Link
-                        to={item.href}
-                        onClick={() => setNotificationsOpen(false)}
-                      >
-                        <span>{item.label}</span>
-                        <strong>{item.title}</strong>
-                        <small>{formatNotificationTime(item.createdAt)}</small>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
           <main className="bp-shell">
             <Outlet />
           </main>
@@ -322,34 +163,78 @@ export default function App() {
   );
 }
 
-function ShellSidebar({ location, onNavigate, onLogout, mobile = false }) {
+function ShellSidebar({
+  expanded,
+  location,
+  navigate,
+  onHoverChange,
+  onNavigate,
+  onTogglePinned,
+  pinned,
+  mobile = false,
+}) {
   return (
     <aside
       className={mobile ? "bp-sidebar bp-sidebar-mobile" : "bp-sidebar"}
       aria-label="BluePrintAI navigation"
+      data-expanded={expanded ? "true" : "false"}
+      data-pinned={pinned ? "true" : "false"}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          onHoverChange?.(false);
+        }
+      }}
+      onFocusCapture={() => onHoverChange?.(true)}
+      onMouseEnter={() => onHoverChange?.(true)}
+      onMouseLeave={() => onHoverChange?.(false)}
     >
-      <Link to="/app" onClick={onNavigate} className="bp-brand">
+      <button
+        type="button"
+        className="bp-brand"
+        aria-expanded={expanded}
+        aria-label={pinned ? "Collapse sidebar" : "Expand sidebar"}
+        onClick={onTogglePinned}
+      >
         <span className="bp-brand-mark">
           <ShellIcon name="sparkles" />
         </span>
-        <span>
+        <span className="bp-brand-copy">
           <strong>BluePrintAI</strong>
           <small>Creative OS</small>
         </span>
-      </Link>
+      </button>
 
       <nav className="bp-side-nav">
         {navItems.map((item) => {
           const active =
             location.pathname === item.to ||
             (item.to !== "/app" && location.pathname.startsWith(`${item.to}/`));
+          const href = withEmbeddedRouteParams(item.to, location.search);
 
           return (
             <Link
               key={item.to}
-              to={item.to}
-              onClick={onNavigate}
+              to={href}
+              onClick={(event) => {
+                if (
+                  event.defaultPrevented ||
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.shiftKey
+                ) {
+                  return;
+                }
+
+                event.preventDefault();
+                onNavigate?.();
+                navigate?.(href);
+              }}
               aria-current={active ? "page" : undefined}
+              aria-label={`Open ${item.label}`}
+              data-sidebar-route={item.to}
+              title={expanded ? undefined : item.label}
               className={
                 active ? "bp-side-link bp-side-link-active" : "bp-side-link"
               }
@@ -361,43 +246,43 @@ function ShellSidebar({ location, onNavigate, onLogout, mobile = false }) {
         })}
       </nav>
 
-      <div className="bp-sidebar-note">
-        <span>
-          <ShellIcon name="sparkles" />
-          Workspace
-        </span>
-        <p>
-          Connected to Shopify as the system of record for routing, auth,
-          billing, and store context.
-        </p>
-      </div>
-
-      <div className="bp-sidebar-footer-links">
-        <Link to="/app/settings?panel=support" onClick={onNavigate}>
-          Support
-        </Link>
-        <Link to="/app/settings?panel=privacy" onClick={onNavigate}>
-          Privacy
-        </Link>
-        <Link to="/app/settings?panel=terms" onClick={onNavigate}>
-          Terms
-        </Link>
-      </div>
-
-      <div className="bp-sidebar-logout-form">
-        <button
-          className="bp-sidebar-logout"
-          type="button"
-          onClick={() => {
-            onNavigate?.();
-            onLogout?.();
-          }}
-        >
-          <ShellIcon name="logout" />
-          Logout
-        </button>
-      </div>
     </aside>
+  );
+}
+
+async function redirectToOnboardingIfNeeded({
+  pathname,
+  search = "",
+  shop,
+  skipOnboarding = false,
+}) {
+  if (skipOnboarding || isOnboardingAllowedPath(pathname)) return;
+
+  const onboarded = await isWorkspaceOnboarded(shop);
+
+  if (!onboarded) {
+    const next = `${pathname}${search || ""}`;
+    throw redirect(
+      withEmbeddedRouteParams(
+        `/app/onboarding?next=${encodeURIComponent(next)}`,
+        search,
+      ),
+    );
+  }
+}
+
+function isOnboardingAllowedPath(pathname) {
+  return (
+    pathname === "/app/onboarding" ||
+    pathname === "/app/support" ||
+    pathname === "/app/privacy" ||
+    pathname === "/app/terms" ||
+    pathname === "/app/cookies" ||
+    pathname === "/app/acceptable-use" ||
+    pathname === "/app/refund-policy" ||
+    pathname === "/app/ai-disclaimer" ||
+    pathname === "/app/copyright" ||
+    pathname === "/app/contact"
   );
 }
 
@@ -411,100 +296,20 @@ export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
 
-function buildNotifications({
-  briefs = [],
-  creatives = [],
-  analyses = [],
-  blueprints = [],
-  requests = [],
-  tiktokConnection,
-}) {
-  const items = [
-    ...briefs.map((brief) => ({
-      id: `brief-${brief.id}`,
-      label: "Brief saved",
-      title: `${brief.productTitle} · ${brief.angle}`,
-      href: `/app/ad-briefs?productId=${encodeURIComponent(
-        brief.productId,
-      )}&briefId=${encodeURIComponent(brief.id)}`,
-      createdAt: brief.createdAt,
-    })),
-    ...creatives.map((creative) => ({
-      id: `creative-${creative.id}`,
-      label: creative.payload?.mediaUrl ? "Creative saved" : "Analysis saved",
-      title: creative.title,
-      href: `/app/creative-library?creativeId=${encodeURIComponent(
-        creative.id,
-      )}`,
-      createdAt: creative.createdAt,
-    })),
-    ...analyses.map((analysis) => ({
-      id: `analysis-${analysis.id}`,
-      label: analysis.savedToLibrary
-        ? "Analysis added to library"
-        : "Analysis saved",
-      title: analysis.productTitle,
-      href: "/app/video-analysis",
-      createdAt: analysis.createdAt,
-    })),
-    ...blueprints.map((blueprint) => ({
-      id: `blueprint-${blueprint.id}`,
-      label: "Revenue blueprint generated",
-      title: blueprint.payload?.context?.generatedFor || "7-day growth plan",
-      href: `/app/revenue-blueprint?blueprintId=${encodeURIComponent(
-        blueprint.id,
-      )}`,
-      createdAt: blueprint.createdAt,
-    })),
-    ...requests.map((request) => ({
-      id: `request-${request.id}`,
-      label:
-        request.type === "data_export"
-          ? "Data export requested"
-          : "Workspace request",
-      title: requestLabel(request.type),
-      href: "/app/settings",
-      createdAt: request.createdAt,
-    })),
-  ];
-
-  if (tiktokConnection?.connectedAt || tiktokConnection?.disconnectedAt) {
-    items.push({
-      id: `tiktok-${tiktokConnection.connected ? "connected" : "disconnected"}-${
-        tiktokConnection.connectedAt || tiktokConnection.disconnectedAt
-      }`,
-      label: tiktokConnection.connected
-        ? "TikTok connected"
-        : "TikTok disconnected",
-      title: tiktokConnection.connected
-        ? tiktokConnection.sellerName ||
-          tiktokConnection.sellerId ||
-          "TikTok account connected"
-        : "TikTok connection metadata cleared",
-      href: "/app/settings",
-      createdAt: tiktokConnection.connectedAt || tiktokConnection.disconnectedAt,
-    });
+function ShellIcon({ name, className = "" }) {
+  if (name === "sparkles") {
+    return (
+      <span className={`bp-shell-icon ${className}`} aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M10 3.5 12.2 8.8 17.5 11l-5.3 2.2L10 18.5l-2.2-5.3L2.5 11l5.3-2.2L10 3.5Z" />
+          <path d="M18.5 4.5v4" />
+          <path d="M16.5 6.5h4" />
+          <circle cx="5.2" cy="18.1" r="1.4" />
+        </svg>
+      </span>
+    );
   }
 
-  return items
-    .filter((item) => item.createdAt)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 8);
-}
-
-function formatShopName(shop = "") {
-  const base = shop.replace(".myshopify.com", "").replace(/[-_]+/g, " ");
-
-  return (
-    base
-      .split(" ")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ") || shop
-  );
-}
-
-function ShellIcon({ name, className = "" }) {
   const glyphs = {
     activity: "〽",
     bag: "▢",
@@ -516,11 +321,9 @@ function ShellIcon({ name, className = "" }) {
     grid: "▦",
     layers: "▱",
     list: "☷",
-    logout: "↪",
     menu: "☰",
     search: "⌕",
     settings: "⚙",
-    sparkles: "✣",
     users: "♙",
     video: "▻",
   };
@@ -530,17 +333,4 @@ function ShellIcon({ name, className = "" }) {
       {glyphs[name] || glyphs.sparkles}
     </span>
   );
-}
-
-function formatNotificationTime(value) {
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function requestLabel(type) {
-  return String(type)
-    .replace(/_/g, " ")
-    .replace(/^\w/, (letter) => letter.toUpperCase());
 }

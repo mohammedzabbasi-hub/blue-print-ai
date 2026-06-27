@@ -8,9 +8,6 @@ import {
   useLocation,
 } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
-import IntegrationStatusCards, {
-  PerformanceDataNotice,
-} from "../components/IntegrationStatusCards";
 import {
   deleteVideoAnalysisRecord,
   deleteSavedCreative,
@@ -399,9 +396,6 @@ export default function CreativeLibraryRoute() {
     campaigns,
     creatives: loaderCreatives,
     deleted,
-    hasDemoPerformanceData,
-    hasMeasuredPerformanceData,
-    integrationStatuses,
     productError,
     products,
     selectedProductId,
@@ -505,14 +499,6 @@ export default function CreativeLibraryRoute() {
           </button>
         </div>
       </div>
-
-      <IntegrationStatusCards statuses={integrationStatuses} />
-
-      <PerformanceDataNotice
-        hasDemoPerformanceData={hasDemoPerformanceData}
-        hasMeasuredPerformanceData={hasMeasuredPerformanceData}
-        productsConnected={products.length > 0}
-      />
 
       {(uploadSuccess || uploadError || actionSuccess || actionError) && (
         <div

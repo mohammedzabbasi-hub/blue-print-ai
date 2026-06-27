@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { useMemo, useState } from "react";
+import { Link, useLoaderData, useLocation, useNavigation } from "react-router";
 
 import TopBar from "../components/dashboard/TopBar";
 import StatCards from "../components/dashboard/StatCards";
@@ -7,92 +7,98 @@ import PerformanceChart from "../components/dashboard/PerformanceChart";
 import TopCreatives from "../components/dashboard/TopCreatives";
 import PatternInsights from "../components/dashboard/PatternInsights";
 import NextActions from "../components/dashboard/NextActions";
+import IntegrationStatusCards, {
+  PerformanceDataNotice,
+} from "../components/IntegrationStatusCards";
 
-import { getEngineAnalysis } from "../services/engineApi";
-import { getSelectedShopId } from "../lib/accountContext";
+import {
+  getWorkspaceProfile,
+  getWorkspaceSettingsMap,
+  listActivityLogs,
+  listRevenueBlueprints,
+  listSavedBriefs,
+  listSavedCreatives,
+  listVideoAnalyses,
+  resolveProductContext,
+} from "../models/blueprint.server";
+import { listCreativePerformance } from "../models/creative-performance.server";
+import { loadShopifyRouteContext } from "../models/route-context.server";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { listCampaigns } from "../models/campaign.server";
 
 export const meta = () => {
   return [{ title: "Dashboard | BluePrintAI" }];
 };
 
-function safeJsonParse(value, fallback = {}) {
+export const loader = async ({ request }) => {
+  const { merchantData, session } = await loadShopifyRouteContext(request);
+
   try {
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
+    const [
+      analyses,
+      creatives,
+      briefs,
+      blueprints,
+      activities,
+      settings,
+      performanceData,
+      profile,
+      campaigns,
+    ] =
+      await Promise.all([
+        listVideoAnalyses(session.shop, 50),
+        listSavedCreatives(session.shop, 50),
+        listSavedBriefs(session.shop, 50),
+        listRevenueBlueprints(session.shop, 20),
+        listActivityLogs(session.shop, { limit: 20 }),
+        getWorkspaceSettingsMap(session.shop, {
+          analysis_depth: "standard",
+          auto_save_analyzed_videos: "true",
+        }),
+        listCreativePerformance({ merchantData, shop: session.shop }),
+        getWorkspaceProfile(session.shop),
+        listCampaigns(session.shop),
+      ]);
+
+    return {
+      dashboardData: buildCommandCenterData({
+        activities,
+        analyses,
+        blueprints,
+        briefs,
+        creatives,
+        merchantData,
+        performanceData,
+        profile,
+        settings,
+        campaigns,
+        shop: session.shop,
+      }),
+      error: "",
+      shop: session.shop,
+    };
+  } catch (error) {
+    return {
+      dashboardData: buildCommandCenterData({
+        activities: [],
+        analyses: [],
+        blueprints: [],
+        briefs: [],
+        creatives: [],
+        merchantData: { errors: [], products: [] },
+        performanceData: [],
+        profile: {},
+        settings: {},
+        campaigns: [],
+        shop: session.shop,
+      }),
+      error:
+        error.message ||
+        "Could not load saved Command Center records for this shop.",
+      shop: session.shop,
+    };
   }
-}
-
-function getStoredUser() {
-  if (typeof window === "undefined") return {};
-  return safeJsonParse(localStorage.getItem("user"), {});
-}
-
-function getStoredSelectedShop() {
-  if (typeof window === "undefined") return {};
-  return safeJsonParse(localStorage.getItem("selectedShop"), {});
-}
-
-function isDemoUser(user = getStoredUser()) {
-  return user?.is_demo === true;
-}
-
-function toShopId(value) {
-  const id = Number(value);
-  return Number.isFinite(id) && id > 0 ? id : null;
-}
-
-function getAllowedDemoShopIds(user = getStoredUser()) {
-  const ids = Array.isArray(user?.shop_ids) ? user.shop_ids : [];
-  return ids.map(toShopId).filter(Boolean);
-}
-
-function getLocalStorageItem(key) {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(key);
-}
-
-function getSafeSelectedShopId() {
-  if (typeof window === "undefined") return null;
-  return getSelectedShopId();
-}
-
-function getDashboardShopId(
-  user = getStoredUser(),
-  selectedShop = getStoredSelectedShop()
-) {
-  if (isDemoUser(user)) {
-    const allowedIds = getAllowedDemoShopIds(user);
-
-    const demoCandidates = [
-      getSafeSelectedShopId(),
-      selectedShop?.id,
-      selectedShop?.shop_id,
-      getLocalStorageItem("selectedShopId"),
-      getLocalStorageItem("demoShopId"),
-      getLocalStorageItem("shop_id"),
-      getLocalStorageItem("connected_shop_id"),
-    ];
-
-    const selectedAllowedId = demoCandidates
-      .map(toShopId)
-      .find((id) => id && allowedIds.includes(id));
-
-    return selectedAllowedId || allowedIds[0] || null;
-  }
-
-  const realCandidates = [
-    getSafeSelectedShopId(),
-    selectedShop?.id,
-    selectedShop?.shop_id,
-    getLocalStorageItem("connected_shop_id"),
-    getLocalStorageItem("shop_id"),
-    user?.shop_id,
-    user?.shopId,
-  ];
-
-  return realCandidates.map(toShopId).find(Boolean) || null;
-}
+};
 
 function itemMatchesSearch(item, query) {
   if (!query) return true;
@@ -149,169 +155,18 @@ function filterDashboardData(data, search) {
   return filterArrays(clone);
 }
 
-function buildEmptyDashboardData(user, selectedShop) {
-  const shopName =
-    selectedShop?.shop_name ||
-    selectedShop?.name ||
-    user?.shop_name ||
-    user?.business_name ||
-    "Your Shop";
-
-  return {
-    isEmptyState: true,
-    shop: {
-      id: selectedShop?.id || selectedShop?.shop_id || user?.shop_id || null,
-      shop_name: shopName,
-      name: shopName,
-    },
-    totals: {
-      creatives: 0,
-      analyses: 0,
-      briefs: 0,
-      recommendations: 0,
-      views: 0,
-      clicks: 0,
-      orders: 0,
-      revenue: 0,
-      total_revenue: 0,
-      avg_ctr: 0,
-      ctr: 0,
-      avg_roas: 0,
-      roas: 0,
-      conversion_rate: 0,
-    },
-    patterns: {
-      hooks: {},
-      creator_types: {},
-      humor_styles: {},
-      delivery_styles: {},
-    },
-    recommendations: [],
-    next_actions: [],
-    top_creatives: [],
-    leaderboard: [],
-    issues: [],
-    strategy: {},
-  };
-}
-
-function dashboardHasData(data) {
-  const totals = data?.totals || {};
-
-  const numericFields = [
-    "creatives",
-    "total_creatives",
-    "views",
-    "total_views",
-    "clicks",
-    "orders",
-    "total_orders",
-    "revenue",
-    "total_revenue",
-    "briefs",
-    "recommendations",
-  ];
-
-  return (
-    numericFields.some((field) => Number(totals[field] || 0) > 0) ||
-    (data?.leaderboard || []).length > 0 ||
-    (data?.top_creatives || []).length > 0 ||
-    (data?.recommendations || []).length > 0 ||
-    (data?.next_actions || []).length > 0
-  );
-}
-
 export default function DashboardRoute() {
+  const { dashboardData, error, shop } = useLoaderData();
+  const location = useLocation();
+  const navigation = useNavigation();
   const [dateRange, setDateRange] = useState("30d");
   const [search, setSearch] = useState("");
-  const [dashboardData, setDashboardData] = useState(null);
-  const [shopId, setShopId] = useState(null);
-  const [demoAccount, setDemoAccount] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
+  const loading = navigation.state === "loading";
   const isEmptyDashboard = dashboardData?.isEmptyState === true;
 
   const filteredDashboardData = useMemo(() => {
     return filterDashboardData(dashboardData, search);
   }, [dashboardData, search]);
-
-  useEffect(() => {
-    const currentUser = getStoredUser();
-    const currentSelectedShop = getStoredSelectedShop();
-
-    setDemoAccount(isDemoUser(currentUser));
-    setShopId(getDashboardShopId(currentUser, currentSelectedShop));
-  }, []);
-
-  useEffect(() => {
-    async function loadDashboard() {
-      try {
-        setLoading(true);
-        setError("");
-
-        const currentUser = getStoredUser();
-        const currentSelectedShop = getStoredSelectedShop();
-        const currentDemoAccount = isDemoUser(currentUser);
-
-        let nextDashboardData = null;
-
-        if (!shopId) {
-          if (currentDemoAccount) {
-            setError("No allowed demo shop is available for this account.");
-            return;
-          }
-
-          nextDashboardData = buildEmptyDashboardData(
-            currentUser,
-            currentSelectedShop
-          );
-        } else {
-          const engineData = await getEngineAnalysis(shopId);
-
-          const data = {
-            ...engineData,
-            shop: {
-              id: engineData.shop_id,
-              shop_name: engineData.shop_name,
-              name: engineData.shop_name,
-            },
-            totals: engineData.totals || {},
-            patterns: engineData.patterns || {},
-            recommendations: engineData.strategy?.recommendations || [],
-            next_actions: engineData.strategy?.recommendations || [],
-            top_creatives: engineData.scored_creatives || [],
-            leaderboard: engineData.scored_creatives || [],
-            issues: engineData.issues || [],
-            strategy: engineData.strategy || {},
-          };
-
-          nextDashboardData =
-            !currentDemoAccount && !dashboardHasData(data)
-              ? {
-                  ...buildEmptyDashboardData(
-                    currentUser,
-                    currentSelectedShop
-                  ),
-                  ...data,
-                  isEmptyState: true,
-                }
-              : data;
-        }
-
-        setDashboardData(nextDashboardData);
-      } catch (err) {
-        console.error("Dashboard load error:", err);
-        setError(
-          "Could not load dashboard data. Make sure the backend is running."
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadDashboard();
-  }, [demoAccount, shopId]);
 
   return (
     <div className="space-y-6">
@@ -321,25 +176,23 @@ export default function DashboardRoute() {
           onDateRangeChange={setDateRange}
           search={search}
           onSearchChange={setSearch}
+          showDateFilter={dashboardData.hasTimeSeriesData}
         />
 
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            {dashboardData?.shop?.shop_name ||
-              dashboardData?.shop?.name ||
-              "BluePrintAI"}{" "}
-            Dashboard
+            {formatShopName(shop)} Command Center
           </h1>
 
           <p className="text-sm text-muted-foreground mt-1">
-            TikTok Shop creative intelligence, performance patterns, and next
-            actions for this connected shop.
+            Saved creative activity, estimated readiness, and planning progress
+            for this Shopify app workspace.
           </p>
         </div>
 
         {loading && (
           <div className="glass rounded-xl p-5 text-sm text-muted-foreground">
-            Loading dashboard data...
+            Loading saved Command Center records...
           </div>
         )}
 
@@ -349,33 +202,60 @@ export default function DashboardRoute() {
           </div>
         )}
 
-        {!loading && !error && (
+        <ShopifyProductContextCard context={dashboardData.productContext} />
+
+        <IntegrationStatusCards statuses={dashboardData.integrationStatuses} />
+
+        <PerformanceDataNotice
+          hasDemoPerformanceData={dashboardData.hasDemoPerformanceData}
+          hasMeasuredPerformanceData={dashboardData.hasMeasuredPerformanceData}
+          productsConnected={dashboardData.productContext.productCount > 0}
+        />
+
+        {!loading && (
           <>
-            <StatCards data={dashboardData} />
+            {!isEmptyDashboard && <StatCards data={dashboardData} />}
 
             {isEmptyDashboard && (
               <div className="glass rounded-xl p-6">
                 <h2 className="text-[16px] font-semibold text-foreground mb-1">
-                  No shop data yet
+                  No saved creative activity yet
                 </h2>
 
                 <p className="text-sm text-muted-foreground">
-                  Import data or upload creatives to populate your dashboard.
+                  Start with one of these core workflows. Your metrics and
+                  performance trends will appear here as workspace data grows.
                 </p>
 
                 <div className="mt-5 flex flex-wrap gap-3">
                   <Link
-                    to="/app/data-import"
-                    className="px-4 py-2 rounded-lg bg-sky-500 text-white text-sm font-semibold hover:bg-sky-400 transition-colors"
+                    to={withEmbeddedRouteParams(
+                      "/app/video-analysis",
+                      location.search,
+                    )}
+                    className="bp-primary-cta"
                   >
-                    Import Data
+                    Upload Creative
                   </Link>
 
                   <Link
-                    to="/app/video-analysis"
-                    className="px-4 py-2 rounded-lg border border-white/10 text-slate-200 text-sm font-semibold hover:border-white/20 hover:text-white transition-colors"
+                    to={withEmbeddedRouteParams(
+                      "/app/data-import",
+                      location.search,
+                    )}
+                    className="bp-primary-cta"
                   >
-                    Upload Creative
+                    Import Performance Data
+                  </Link>
+
+                  <Link
+                    to={withEmbeddedRouteParams(
+                      "/app/campaigns",
+                      location.search,
+                    )}
+                    className="bp-primary-cta"
+                  >
+                    Create Campaign
                   </Link>
                 </div>
               </div>
@@ -383,7 +263,7 @@ export default function DashboardRoute() {
 
             {!isEmptyDashboard && search.trim() && (
               <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-4 text-sm text-sky-200">
-                Showing dashboard matches for &quot;{search}&quot;.
+                Showing saved workspace matches for &quot;{search}&quot;.
               </div>
             )}
 
@@ -417,5 +297,569 @@ export default function DashboardRoute() {
         )}
       </div>
     </div>
+  );
+}
+
+function ShopifyProductContextCard({ context = {} }) {
+  const product = context.selectedProduct;
+
+  return (
+    <div className="glass rounded-xl p-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+            Shopify product context
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-foreground">
+            {product?.title || "No main product selected"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {context.productCount
+              ? `${context.productCount} Shopify products available from read_products.`
+              : "No Shopify products found yet. Add products in Shopify or enter product context manually."}
+          </p>
+          {context.error && (
+            <p className="mt-2 text-sm font-semibold text-amber-200">
+              Shopify products could not be loaded right now. Manual product
+              context still works.
+            </p>
+          )}
+        </div>
+
+        {product && (
+          <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
+            {[product.productType, product.vendor, product.status]
+              .filter(Boolean)
+              .join(" · ") || "Workspace profile"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function buildCommandCenterData({
+  activities,
+  analyses,
+  blueprints,
+  briefs,
+  creatives,
+  performanceData = [],
+  profile = {},
+  merchantData = { errors: [], products: [] },
+  settings,
+  campaigns = [],
+  shop,
+}) {
+  const effectivenessRecords = (performanceData.records || []).filter(
+    (record) => !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType),
+  );
+  const selectedProduct = resolveProductContext(
+    merchantData.products || [],
+    profile,
+  );
+  const analysisScores = analyses.map(getAnalysisScore).filter((score) => score > 0);
+  const averageAnalysisScore = analysisScores.length
+    ? Math.round(
+        analysisScores.reduce((sum, score) => sum + score, 0) /
+          analysisScores.length,
+      )
+    : 0;
+  const readinessScore = calculateReadinessScore({
+    analyses,
+    blueprints,
+    briefs,
+    creatives,
+    averageAnalysisScore,
+  });
+  const hasSavedRecords =
+    analyses.length > 0 ||
+    creatives.length > 0 ||
+    briefs.length > 0 ||
+    blueprints.length > 0 ||
+    campaigns.length > 0 ||
+    effectivenessRecords.length > 0;
+
+  return {
+    hasDemoPerformanceData: Boolean(performanceData.hasDemoPerformanceData),
+    hasMeasuredPerformanceData: Boolean(performanceData.hasMeasuredPerformanceData),
+    hasTimeSeriesData: (performanceData.dailyRecords || []).length > 0,
+    integrationStatuses: performanceData.integrationStatuses || [],
+    isEmptyState: !hasSavedRecords,
+    mode: "saved_app_records",
+    shop: {
+      id: shop,
+      name: shop,
+      category: profile.category || "",
+      mainProduct: profile.mainProduct || "",
+      shop_name: formatShopName(shop),
+    },
+    productContext: {
+      error: merchantData.errors?.[0] || "",
+      productCount: merchantData.products?.length || 0,
+      selectedProduct,
+    },
+    totals: {
+      activities: activities.length,
+      analyses: analyses.length,
+      avg_analysis_score: averageAnalysisScore,
+      blueprints: blueprints.length,
+      briefs: briefs.length,
+      creatives: creatives.length,
+      readiness: readinessScore,
+      recommendations: buildNextActions({
+        analyses,
+        blueprints,
+        briefs,
+        creatives,
+        profile,
+        settings,
+      }).length,
+    },
+    patterns: buildPatterns({ analyses, creatives, briefs }),
+    adPerformance: buildAdPerformanceTrackingData(
+      performanceData.dailyRecords?.length
+        ? performanceData.dailyRecords
+        : performanceData.records || [],
+    ),
+    effectivenessRecords,
+    campaigns: campaigns.map((campaign) => ({
+      id: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      objective: campaign.objective,
+      platform: campaign.platform,
+      startDate: campaign.startDate,
+      endDate: campaign.endDate,
+      budget: campaign.budget,
+      creativeCount: campaign.creativeCount,
+    })),
+    top_creatives: buildCreativeRows({
+      analyses,
+      creatives,
+      performanceRecords: performanceData.records || [],
+    }),
+    leaderboard: buildCreativeRows({
+      analyses,
+      creatives,
+      performanceRecords: performanceData.records || [],
+    }),
+    next_actions: buildNextActions({
+      analyses,
+      blueprints,
+      briefs,
+      creatives,
+      profile,
+      settings,
+    }),
+    recent_activity: activities.map(toActivityRow),
+  };
+}
+
+function buildAdPerformanceTrackingData(records = []) {
+  const realRecords = records
+    .map(normalizePerformanceRecord)
+    .filter(Boolean)
+    .sort((left, right) => new Date(left.date) - new Date(right.date));
+
+  const totals = realRecords.reduce(
+    (summary, record) => {
+      summary.views += record.views;
+      summary.videoViews += record.videoViews;
+      summary.videoCompletions += record.videoCompletions;
+      summary.impressions += record.impressions;
+      summary.clicks += record.clicks;
+      summary.spend += record.spend;
+      summary.engagements += record.engagements;
+      summary.conversions += record.conversions;
+      summary.revenue += record.revenue;
+      return summary;
+    },
+    {
+      clicks: 0,
+      conversions: 0,
+      engagements: 0,
+      impressions: 0,
+      revenue: 0,
+      spend: 0,
+      videoCompletions: 0,
+      videoViews: 0,
+      views: 0,
+    },
+  );
+
+  return {
+    hasData: realRecords.length > 0,
+    records: realRecords,
+    totals: {
+      ...totals,
+      averageEngagementRate: totals.views
+        ? Number(((totals.engagements / totals.views) * 100).toFixed(2))
+        : null,
+      completionRate: totals.videoViews
+        ? Number(((totals.videoCompletions / totals.videoViews) * 100).toFixed(2))
+        : null,
+      conversionRate: totals.clicks
+        ? Number(((totals.conversions / totals.clicks) * 100).toFixed(2))
+        : null,
+      cpc: totals.clicks && totals.spend
+        ? Number((totals.spend / totals.clicks).toFixed(2))
+        : null,
+      cpm: totals.impressions && totals.spend
+        ? Number(((totals.spend / totals.impressions) * 1000).toFixed(2))
+        : null,
+      ctr: totals.impressions
+        ? Number(((totals.clicks / totals.impressions) * 100).toFixed(2))
+        : null,
+      roas: totals.spend ? Number((totals.revenue / totals.spend).toFixed(2)) : null,
+    },
+  };
+}
+
+function normalizePerformanceRecord(record = {}) {
+  const creativeId =
+    record.creativeId || record.creative_id || record.sourceCreativeId || record.id || null;
+  const adId = record.adId || record.ad_id || null;
+  const date =
+    record.date || record.recordedAt || record.firstSeenAt || record.createdAt || null;
+
+  if ((!creativeId && !adId) || !date) return null;
+
+  const impressions = positiveNumber(record.impressions);
+  const views = positiveNumber(record.views ?? record.videoViews ?? record.impressions);
+  const videoViews = positiveNumber(record.videoViews ?? record.views);
+  const videoCompletions = positiveNumber(record.video100PercentWatched);
+  const clicks = positiveNumber(record.clicks);
+  const spend = positiveNumber(record.spend);
+  const likes = positiveNumber(record.likes);
+  const comments = positiveNumber(record.comments);
+  const shares = positiveNumber(record.shares);
+  const saves = positiveNumber(record.saves);
+  const reposts = positiveNumber(record.reposts);
+  const conversions = positiveNumber(record.orders ?? record.conversions);
+  const revenue = positiveNumber(record.revenue ?? record.sales);
+  const engagements =
+    positiveNumber(record.engagementCount) || likes + comments + shares + saves + reposts;
+  const hasMeasuredMetric =
+    views > 0 ||
+    clicks > 0 ||
+    likes > 0 ||
+    comments > 0 ||
+    shares > 0 ||
+    saves > 0 ||
+    reposts > 0 ||
+    impressions > 0 ||
+    spend > 0 ||
+    conversions > 0 ||
+    revenue > 0 ||
+    videoViews > 0;
+
+  if (!hasMeasuredMetric) return null;
+
+  return {
+    adId,
+    clicks,
+    comments,
+    conversions,
+    creativeId,
+    date: new Date(date).toISOString().slice(0, 10),
+    impressions,
+    likes,
+    platform: record.platform || record.sourcePlatform || record.source || "Imported performance",
+    revenue,
+    reposts,
+    saves,
+    shares,
+    spend,
+    engagements,
+    videoCompletions,
+    videoViews,
+    views,
+  };
+}
+
+function positiveNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function buildCreativeRows({ analyses, creatives, performanceRecords = [] }) {
+  const creativeRows = creatives.map((creative) => {
+    const payload = creative.payload || {};
+    const score =
+      Number(payload.score || 0) ||
+      getAnalysisScore({ payload: payload.fullResult || payload.analysis || payload });
+
+    return {
+      id: creative.id,
+      title: creative.title || "Saved creative",
+      product: creative.productTitle || "Manual product",
+      creator: payload.creator || payload.analysis?.creator_style || "Manual/uploaded",
+      source: creative.sourceType || "saved creative",
+      score,
+      readiness: score || 0,
+      savedAt: creative.createdAt,
+      nextStep:
+        score && score < 70
+          ? "Improve hook, clarity, or CTA"
+          : "Generate a brief or blueprint",
+    };
+  });
+
+  const analysisRows = analyses.map((analysis) => ({
+    id: analysis.id,
+    title: analysis.fileName || `${analysis.productTitle} analysis`,
+    product: analysis.productTitle || "Uploaded product",
+    creator:
+      getAnalysisPayload(analysis)?.creator_style ||
+      "Uploaded/manual creative",
+    source: "video analysis",
+    score: getAnalysisScore(analysis),
+    readiness: getAnalysisScore(analysis),
+    savedAt: analysis.createdAt,
+    nextStep: getAnalysisScore(analysis) < 70
+      ? "Improve the weakest score"
+      : "Use as a planning reference",
+  }));
+
+  const performanceRows = performanceRecords.map((record) => {
+    const engagementRate = Number(record.engagementRate || 0);
+    const score = Math.min(
+      100,
+      Math.round(
+        Math.max(45, engagementRate * 8) +
+          Math.min(Number(record.orders || 0), 20) +
+          Math.min(Number(record.revenue || 0) / 100, 20),
+      ),
+    );
+
+    return {
+      id: record.id,
+      title: record.creativeTitle || "Imported creative",
+      product: record.productTitle || record.productLabel || "Imported product",
+      creator: record.creatorHandle || record.creatorName || "Imported creator",
+      source:
+        record.importSource === "public_engagement_import"
+          ? "Public Engagement Import"
+          : record.sourcePlatform || "Performance record",
+      score,
+      readiness: score,
+      savedAt: record.firstSeenAt,
+      nextStep:
+        record.revenue || record.orders
+          ? "Use as a stronger planning signal"
+          : "Add clicks, orders, or revenue when available",
+    };
+  });
+
+  return [...creativeRows, ...analysisRows, ...performanceRows]
+    .sort((left, right) => {
+      const scoreDifference = Number(right.score || 0) - Number(left.score || 0);
+      if (scoreDifference !== 0) return scoreDifference;
+      return new Date(right.savedAt || 0) - new Date(left.savedAt || 0);
+    })
+    .slice(0, 8);
+}
+
+function buildPatterns({ analyses, creatives, briefs }) {
+  const hooks = {};
+  const creatorTypes = {};
+  const deliveryStyles = {};
+  const sources = {};
+
+  analyses.forEach((record) => {
+    const analysis = getAnalysisPayload(record);
+    addPattern(hooks, analysis.hook_type || "Saved analysis");
+    addPattern(creatorTypes, analysis.creator_style || analysis.creator_type);
+    addPattern(deliveryStyles, analysis.delivery_style || "Manual review");
+  });
+
+  creatives.forEach((creative) => {
+    addPattern(sources, formatSourceLabel(creative.sourceType));
+    addPattern(hooks, creative.angle || creative.payload?.insight);
+  });
+
+  briefs.forEach((brief) => {
+    addPattern(hooks, brief.angle || brief.payload?.angle);
+    addPattern(deliveryStyles, "Saved brief");
+  });
+
+  return {
+    creator_types: creatorTypes,
+    delivery_styles: deliveryStyles,
+    hooks,
+    source_types: sources,
+  };
+}
+
+function buildNextActions({
+  analyses,
+  blueprints,
+  briefs,
+  creatives,
+  profile = {},
+  settings,
+}) {
+  const actions = [];
+  const productContext = profile.mainProduct || "";
+
+  if (analyses.length === 0) {
+    actions.push({
+      type: "analysis",
+      title: productContext
+        ? `Analyze a ${productContext} creative`
+        : "Analyze a saved or new creative",
+      description:
+        profile.category
+          ? `Run the first video analysis against the ${profile.category} workspace profile.`
+          : "Run the first video analysis so the Command Center can calculate estimated creative readiness.",
+      priority: "High",
+      actionLabel: "Analyze Video",
+      href: "/app/video-analysis",
+    });
+  }
+
+  if (creatives.length === 0) {
+    actions.push({
+      type: "creative",
+      title: "Save the first creative record",
+      description:
+        "Add a creative URL or save an analysis result to start building a durable Creative Library.",
+      priority: analyses.length ? "High" : "Medium",
+      actionLabel: "Open Creative Library",
+      href: "/app/creative-library",
+    });
+  }
+
+  if (briefs.length === 0 && (analyses.length > 0 || creatives.length > 0)) {
+    actions.push({
+      type: "brief",
+      title: "Generate a saved ad brief",
+      description:
+        "Turn saved creative context into a planning brief with grounded hooks, script notes, and CTAs.",
+      priority: "Medium",
+      actionLabel: "Open Ad Briefs",
+      href: "/app/ad-briefs",
+    });
+  }
+
+  if (blueprints.length === 0 && (briefs.length > 0 || creatives.length > 0)) {
+    actions.push({
+      type: "blueprint",
+      title: "Create a planning blueprint",
+      description:
+        "Use saved app records to outline the next creative and product-page experiment.",
+      priority: "Medium",
+      actionLabel: "Open Blueprint",
+      href: "/app/revenue-blueprint",
+    });
+  }
+
+  if (settings.auto_save_analyzed_videos === "false") {
+    actions.push({
+      type: "settings",
+      title: "Review auto-save preference",
+      description:
+        "Auto-save is off, so future analyses need to be saved manually before they can power this dashboard.",
+      priority: "Low",
+      actionLabel: "Open Settings",
+      href: "/app/settings",
+    });
+  }
+
+  if (actions.length === 0) {
+    actions.push({
+      type: "review",
+      title: "Review recent app activity",
+      description:
+        "You have saved records across the workspace. Review recent analyses, briefs, and blueprints to choose the next manual test.",
+      priority: "Low",
+      actionLabel: "Open Activity Log",
+      href: "/app/activity-log",
+    });
+  }
+
+  return actions.slice(0, 4);
+}
+
+function getAnalysisPayload(record) {
+  return (
+    record.payload?.result?.analysis ||
+    record.payload?.analysis ||
+    record.payload?.result ||
+    {}
+  );
+}
+
+function getAnalysisScore(record) {
+  const analysis = getAnalysisPayload(record);
+  const scores = [
+    analysis.hook_score,
+    analysis.clarity_score,
+    analysis.cta_score,
+  ]
+    .map((value) => Number(value || 0))
+    .filter((value) => value > 0);
+
+  if (!scores.length) return 0;
+
+  return Math.round(
+    (scores.reduce((sum, value) => sum + value, 0) / scores.length) * 10,
+  );
+}
+
+function calculateReadinessScore({
+  analyses,
+  averageAnalysisScore,
+  blueprints,
+  briefs,
+  creatives,
+}) {
+  const completionScore =
+    Math.min(creatives.length, 3) * 8 +
+    Math.min(analyses.length, 3) * 10 +
+    Math.min(briefs.length, 2) * 8 +
+    Math.min(blueprints.length, 2) * 8;
+  const qualityScore = averageAnalysisScore
+    ? Math.round(averageAnalysisScore * 0.35)
+    : 0;
+
+  return Math.max(0, Math.min(100, completionScore + qualityScore));
+}
+
+function toActivityRow(activity) {
+  return {
+    id: activity.id,
+    title: activity.title,
+    description: activity.description || "",
+    type: activity.type,
+    createdAt: activity.createdAt,
+  };
+}
+
+function addPattern(target, label) {
+  const normalized = String(label || "").trim();
+  if (!normalized) return;
+
+  target[normalized] = (target[normalized] || 0) + 1;
+}
+
+function formatShopName(shop = "") {
+  const base = shop.replace(".myshopify.com", "").replace(/[-_]+/g, " ");
+
+  return (
+    base
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || shop
+  );
+}
+
+function formatSourceLabel(source = "") {
+  return (
+    String(source || "Saved record")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Saved record"
   );
 }
