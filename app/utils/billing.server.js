@@ -1,12 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const appDirectory = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../..",
-);
-const shopifyAppConfigPath = path.join(appDirectory, "shopify.app.toml");
+const shopifyAppConfigPath = path.join(process.cwd(), "shopify.app.toml");
 
 export function getShopHandle(shop) {
   return String(shop || "").replace(/\.myshopify\.com$/i, "");
