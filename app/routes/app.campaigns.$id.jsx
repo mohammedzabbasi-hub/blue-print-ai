@@ -17,7 +17,9 @@ export const loader = async ({ request, params }) => {
     listSavedCreatives(session.shop, 1000),
     listCreativePerformance({ shop: session.shop, merchantData, limit: 1000 }),
   ]);
-  if (!campaign) throw new Response("Campaign not found", { status: 404 });
+  if (!campaign) {
+    return { campaign: null, availableSaved: [], availablePerformance: [] };
+  }
   const assignedSaved = new Set(campaign.assignments.map((item) => item.savedCreativeId).filter(Boolean));
   const assignedPerformance = new Set(campaign.assignments.map((item) => item.creativePerformanceId).filter(Boolean));
   const performanceSourceIds = new Set(performance.records.filter((item) => item.sourceRecordType !== "saved_creative").map((item) => item.sourceRecordId).filter(Boolean));
@@ -63,6 +65,14 @@ export default function CampaignDetailRoute() {
   const [tab, setTab] = useState(location.hash === "#creatives" || new URLSearchParams(location.search).get("created") === "1" ? "creatives" : "overview");
   const [addOpen, setAddOpen] = useState(new URLSearchParams(location.search).get("created") === "1");
   const [editOpen, setEditOpen] = useState(false);
+  if (!campaign) {
+    return <section className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-7 text-amber-100">
+      <p className="text-xs font-black uppercase tracking-[0.16em]">Campaign unavailable</p>
+      <h1 className="mt-3 font-display text-3xl font-semibold">Campaign not found</h1>
+      <p className="mt-3 max-w-2xl text-sm leading-6">This campaign does not exist in this shop, or it was removed. Your other campaigns and creative records are unchanged.</p>
+      <Link className="bp-primary-cta mt-5" to={withEmbeddedRouteParams("/app/campaigns", location.search)}>Back to Campaign Manager</Link>
+    </section>;
+  }
   const performance = campaign.assignments.map((item) => item.creativePerformance).filter(Boolean);
   const comparison = performance.filter((item) => item.revenue != null || item.conversionValue != null).map((item) => ({ name: item.adName || item.creativeId || "Creative", revenue: Number(item.revenue ?? item.conversionValue) })).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
   const trend = [...performance].filter((item) => item.reportingDate && (item.revenue != null || item.conversionValue != null)).sort((a, b) => new Date(a.reportingDate) - new Date(b.reportingDate)).map((item) => ({ date: new Date(item.reportingDate).toLocaleDateString(undefined, { month: "short", day: "numeric" }), revenue: Number(item.revenue ?? item.conversionValue) }));

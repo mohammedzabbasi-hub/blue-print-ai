@@ -1,94 +1,98 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { spawn } from "node:child_process";
+const DEFAULT_ANALYZER_TIMEOUT_MS = 60_000;
+const MAX_ANALYZER_TIMEOUT_MS = 10 * 60_000;
 
-const ANALYZER_SCRIPT = path.resolve("app/services/media_analyzer_bridge.py");
-const MAX_ANALYZER_BYTES = 250 * 1024 * 1024;
-
-export async function analyzeUploadedVideoFile(videoFile) {
-  if (!videoFile || typeof videoFile.arrayBuffer !== "function" || !videoFile.size) {
-    return {
-      available: false,
-      message: "No uploaded media file was available for frame, audio, and OCR analysis.",
-    };
+export function getAnalyzerRuntimeStatus(env = process.env) {
+  if (String(env.ANALYZER_ENABLED || "").toLowerCase() !== "true") {
+    return unavailableStatus("disabled");
   }
 
-  if (!String(videoFile.type || "").startsWith("video/")) {
-    return {
-      available: false,
-      message: "Frame, audio, and OCR analysis only runs for uploaded video files.",
-    };
-  }
-
-  if (videoFile.size > MAX_ANALYZER_BYTES) {
-    return {
-      available: false,
-      message: "The uploaded video is too large for local frame, audio, and OCR analysis.",
-    };
-  }
-
-  const tempDir = await mkdtemp(path.join(tmpdir(), "blueprintai-video-"));
-  const safeName = sanitizeFileName(videoFile.name || "upload.mp4");
-  const videoPath = path.join(tempDir, safeName);
+  const serviceUrl = String(env.ANALYZER_SERVICE_URL || "").trim();
+  const apiKey = String(env.ANALYZER_API_KEY || "").trim();
+  if (!serviceUrl || !apiKey) return unavailableStatus("missing_config");
 
   try {
-    await writeFile(videoPath, Buffer.from(await videoFile.arrayBuffer()));
-    const result = await runPythonAnalyzer(videoPath, tempDir);
+    const parsedUrl = new URL(serviceUrl);
+    if (!/^https?:$/.test(parsedUrl.protocol)) return unavailableStatus("invalid_config");
+  } catch {
+    return unavailableStatus("invalid_config");
+  }
 
-    return {
-      available: true,
-      ...result,
-    };
+  return {
+    configured: true,
+    message: "Analyzer runtime configured.",
+    serviceUrl,
+    timeoutMs: analyzerTimeoutMs(env),
+  };
+}
+
+export async function analyzeUploadedVideoFile(
+  videoFile,
+  { env = process.env, fetchImpl = fetch } = {},
+) {
+  const runtime = getAnalyzerRuntimeStatus(env);
+  if (!runtime.configured) {
+    return { available: false, reason: runtime.reason, message: runtime.message };
+  }
+  if (!videoFile || typeof videoFile.arrayBuffer !== "function" || !videoFile.size) {
+    return failure("invalid_upload", "No valid uploaded video was available for analysis.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), runtime.timeoutMs);
+
+  try {
+    const formData = new FormData();
+    formData.set("file", videoFile, videoFile.name || "upload.mp4");
+    const response = await fetchImpl(runtime.serviceUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${String(env.ANALYZER_API_KEY).trim()}` },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return failure("service_error", `Analyzer service returned HTTP ${response.status}.`);
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      return failure("malformed_response", "Analyzer service returned an invalid response.");
+    }
+
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return failure("malformed_response", "Analyzer service returned an invalid response.");
+    }
+    if (payload.error || payload.fallback === true) {
+      return failure("service_error", "Analyzer service could not analyze this video.");
+    }
+
+    return { available: true, ...payload };
   } catch (error) {
-    return {
-      available: false,
-      message: `Frame, audio, and OCR analysis was unavailable: ${error.message}`,
-    };
+    if (error?.name === "AbortError" || controller.signal.aborted) {
+      return failure("timeout", `Analyzer request timed out after ${runtime.timeoutMs} ms.`);
+    }
+    return failure("network_error", "Analyzer service is temporarily unavailable.");
   } finally {
-    await rm(tempDir, { force: true, recursive: true });
+    clearTimeout(timeout);
   }
 }
 
-function runPythonAnalyzer(videoPath, workDir) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("python3", [ANALYZER_SCRIPT, videoPath, workDir], {
-      cwd: path.resolve("."),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `Analyzer exited with code ${code}`));
-        return;
-      }
-
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (error) {
-        reject(new Error(`Analyzer returned invalid JSON: ${error.message}`));
-      }
-    });
-  });
+function analyzerTimeoutMs(env) {
+  const configured = Number(env.ANALYZER_TIMEOUT_MS);
+  if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_ANALYZER_TIMEOUT_MS;
+  return Math.min(Math.round(configured), MAX_ANALYZER_TIMEOUT_MS);
 }
 
-function sanitizeFileName(value) {
-  const fallback = "upload.mp4";
-  const cleaned = String(value || fallback)
-    .replace(/[/\\]/g, "_")
-    .replace(/[^a-zA-Z0-9._-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+function unavailableStatus(reason) {
+  return {
+    configured: false,
+    reason,
+    message: "Analyzer unavailable in this environment.",
+  };
+}
 
-  return cleaned || fallback;
+function failure(reason, message) {
+  return { available: false, reason, message };
 }

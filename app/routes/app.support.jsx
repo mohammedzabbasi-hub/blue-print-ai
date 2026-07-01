@@ -59,7 +59,7 @@ export default function AppSupportRoute() {
         <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
           <h2 className="text-2xl font-black">Contact Guidance</h2>
           <p className="mt-4 leading-7 text-slate-400">
-            Contact mohammedzabbasi@gmail.com. Include your store domain, the
+            Contact [[OWNER ACTION REQUIRED: confirm support email]]. Include your store domain, the
             page or workflow, what you expected, and what happened. Do not send
             passwords, API keys, private tokens, or other secrets.
           </p>

@@ -6,25 +6,29 @@ import StatCards from "../components/dashboard/StatCards";
 import PerformanceChart from "../components/dashboard/PerformanceChart";
 import TopCreatives from "../components/dashboard/TopCreatives";
 import PatternInsights from "../components/dashboard/PatternInsights";
-import NextActions from "../components/dashboard/NextActions";
 import IntegrationStatusCards, {
+  ConnectMoreDataSources,
   PerformanceDataNotice,
 } from "../components/IntegrationStatusCards";
 
 import {
-  getWorkspaceProfile,
-  getWorkspaceSettingsMap,
-  listActivityLogs,
   listRevenueBlueprints,
   listSavedBriefs,
   listSavedCreatives,
   listVideoAnalyses,
-  resolveProductContext,
 } from "../models/blueprint.server";
-import { listCreativePerformance } from "../models/creative-performance.server";
+import {
+  buildIntegrationStatuses,
+  listCreativePerformance,
+} from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { listCampaigns } from "../models/campaign.server";
+import { buildProductContext } from "../models/product-context";
+import {
+  hasReportingDate,
+  partitionDashboardPerformanceRecords,
+} from "../utils/ad-effectiveness";
 
 export const meta = () => {
   return [{ title: "Dashboard | BluePrintAI" }];
@@ -39,10 +43,7 @@ export const loader = async ({ request }) => {
       creatives,
       briefs,
       blueprints,
-      activities,
-      settings,
       performanceData,
-      profile,
       campaigns,
     ] =
       await Promise.all([
@@ -50,29 +51,19 @@ export const loader = async ({ request }) => {
         listSavedCreatives(session.shop, 50),
         listSavedBriefs(session.shop, 50),
         listRevenueBlueprints(session.shop, 20),
-        listActivityLogs(session.shop, { limit: 20 }),
-        getWorkspaceSettingsMap(session.shop, {
-          analysis_depth: "standard",
-          auto_save_analyzed_videos: "true",
-        }),
         listCreativePerformance({ merchantData, shop: session.shop }),
-        getWorkspaceProfile(session.shop),
         listCampaigns(session.shop),
       ]);
 
     return {
       dashboardData: buildCommandCenterData({
-        activities,
         analyses,
         blueprints,
         briefs,
         creatives,
         merchantData,
         performanceData,
-        profile,
-        settings,
         campaigns,
-        shop: session.shop,
       }),
       error: "",
       shop: session.shop,
@@ -80,17 +71,13 @@ export const loader = async ({ request }) => {
   } catch (error) {
     return {
       dashboardData: buildCommandCenterData({
-        activities: [],
         analyses: [],
         blueprints: [],
         briefs: [],
         creatives: [],
         merchantData: { errors: [], products: [] },
         performanceData: [],
-        profile: {},
-        settings: {},
         campaigns: [],
-        shop: session.shop,
       }),
       error:
         error.message ||
@@ -202,14 +189,17 @@ export default function DashboardRoute() {
           </div>
         )}
 
-        <ShopifyProductContextCard context={dashboardData.productContext} />
-
-        <IntegrationStatusCards statuses={dashboardData.integrationStatuses} />
+        <IntegrationStatusCards
+          hasUploadedData={dashboardData.hasUploadedData}
+          productContext={dashboardData.productContext}
+          search={location.search}
+        />
 
         <PerformanceDataNotice
           hasDemoPerformanceData={dashboardData.hasDemoPerformanceData}
+          hasImportedPerformanceData={dashboardData.hasImportedPerformanceData}
           hasMeasuredPerformanceData={dashboardData.hasMeasuredPerformanceData}
-          productsConnected={dashboardData.productContext.productCount > 0}
+          productContext={dashboardData.productContext}
         />
 
         {!loading && (
@@ -282,17 +272,14 @@ export default function DashboardRoute() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                  <div className="xl:col-span-2">
-                    <TopCreatives data={filteredDashboardData} />
-                  </div>
-
-                  <div>
-                    <NextActions data={filteredDashboardData} />
-                  </div>
-                </div>
+                <TopCreatives data={filteredDashboardData} />
               </>
             )}
+
+            <ConnectMoreDataSources
+              search={location.search}
+              statuses={dashboardData.integrationStatuses}
+            />
           </>
         )}
       </div>
@@ -300,64 +287,22 @@ export default function DashboardRoute() {
   );
 }
 
-function ShopifyProductContextCard({ context = {} }) {
-  const product = context.selectedProduct;
-
-  return (
-    <div className="glass rounded-xl p-5">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-            Shopify product context
-          </p>
-          <h2 className="mt-2 text-xl font-semibold text-foreground">
-            {product?.title || "No main product selected"}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {context.productCount
-              ? `${context.productCount} Shopify products available from read_products.`
-              : "No Shopify products found yet. Add products in Shopify or enter product context manually."}
-          </p>
-          {context.error && (
-            <p className="mt-2 text-sm font-semibold text-amber-200">
-              Shopify products could not be loaded right now. Manual product
-              context still works.
-            </p>
-          )}
-        </div>
-
-        {product && (
-          <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
-            {[product.productType, product.vendor, product.status]
-              .filter(Boolean)
-              .join(" · ") || "Workspace profile"}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function buildCommandCenterData({
-  activities,
   analyses,
   blueprints,
   briefs,
   creatives,
   performanceData = [],
-  profile = {},
   merchantData = { errors: [], products: [] },
-  settings,
   campaigns = [],
-  shop,
 }) {
-  const effectivenessRecords = (performanceData.records || []).filter(
+  const importedPerformanceRecords = (performanceData.records || []).filter(
     (record) => !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType),
   );
-  const selectedProduct = resolveProductContext(
-    merchantData.products || [],
-    profile,
-  );
+  const {
+    creativeRecords: effectivenessRecords,
+    creatorRollups: excludedCreatorRollups,
+  } = partitionDashboardPerformanceRecords(importedPerformanceRecords);
   const analysisScores = analyses.map(getAnalysisScore).filter((score) => score > 0);
   const averageAnalysisScore = analysisScores.length
     ? Math.round(
@@ -379,50 +324,52 @@ function buildCommandCenterData({
     blueprints.length > 0 ||
     campaigns.length > 0 ||
     effectivenessRecords.length > 0;
+  const productContext = buildProductContext({
+    shopifyProducts: merchantData.products || [],
+    performanceRecords: performanceData.records || [],
+  });
 
   return {
     hasDemoPerformanceData: Boolean(performanceData.hasDemoPerformanceData),
+    hasImportedPerformanceData: Boolean(performanceData.hasImportedPerformanceData),
     hasMeasuredPerformanceData: Boolean(performanceData.hasMeasuredPerformanceData),
-    hasTimeSeriesData: (performanceData.dailyRecords || []).length > 0,
-    integrationStatuses: performanceData.integrationStatuses || [],
+    hasUploadedData:
+      analyses.length > 0 || creatives.length > 0 || effectivenessRecords.length > 0,
+    hasTimeSeriesData:
+      new Set(
+        effectivenessRecords
+          .filter(hasReportingDate)
+          .map((record) => record.reportingDate || record.date)
+          .filter(Boolean)
+          .map((date) => new Date(date))
+          .filter((date) => !Number.isNaN(date.getTime()))
+          .map((date) => date.toISOString().slice(0, 10)),
+      ).size > 1,
+    integrationStatuses:
+      performanceData.integrationStatuses ||
+      buildIntegrationStatuses({
+        hasShopifyProducts: productContext.hasShopifyProducts,
+      }),
     isEmptyState: !hasSavedRecords,
     mode: "saved_app_records",
-    shop: {
-      id: shop,
-      name: shop,
-      category: profile.category || "",
-      mainProduct: profile.mainProduct || "",
-      shop_name: formatShopName(shop),
-    },
-    productContext: {
-      error: merchantData.errors?.[0] || "",
-      productCount: merchantData.products?.length || 0,
-      selectedProduct,
-    },
+    productCount: productContext.availableProducts.length,
+    productContext,
     totals: {
-      activities: activities.length,
       analyses: analyses.length,
       avg_analysis_score: averageAnalysisScore,
       blueprints: blueprints.length,
       briefs: briefs.length,
       creatives: creatives.length,
       readiness: readinessScore,
-      recommendations: buildNextActions({
-        analyses,
-        blueprints,
-        briefs,
-        creatives,
-        profile,
-        settings,
-      }).length,
     },
     patterns: buildPatterns({ analyses, creatives, briefs }),
     adPerformance: buildAdPerformanceTrackingData(
       performanceData.dailyRecords?.length
-        ? performanceData.dailyRecords
-        : performanceData.records || [],
+        ? [...performanceData.dailyRecords, ...effectivenessRecords]
+        : effectivenessRecords,
     ),
     effectivenessRecords,
+    excludedCreatorRollupCount: excludedCreatorRollups.length,
     campaigns: campaigns.map((campaign) => ({
       id: campaign.id,
       name: campaign.name,
@@ -444,15 +391,6 @@ function buildCommandCenterData({
       creatives,
       performanceRecords: performanceData.records || [],
     }),
-    next_actions: buildNextActions({
-      analyses,
-      blueprints,
-      briefs,
-      creatives,
-      profile,
-      settings,
-    }),
-    recent_activity: activities.map(toActivityRow),
   };
 }
 
@@ -692,96 +630,6 @@ function buildPatterns({ analyses, creatives, briefs }) {
   };
 }
 
-function buildNextActions({
-  analyses,
-  blueprints,
-  briefs,
-  creatives,
-  profile = {},
-  settings,
-}) {
-  const actions = [];
-  const productContext = profile.mainProduct || "";
-
-  if (analyses.length === 0) {
-    actions.push({
-      type: "analysis",
-      title: productContext
-        ? `Analyze a ${productContext} creative`
-        : "Analyze a saved or new creative",
-      description:
-        profile.category
-          ? `Run the first video analysis against the ${profile.category} workspace profile.`
-          : "Run the first video analysis so the Command Center can calculate estimated creative readiness.",
-      priority: "High",
-      actionLabel: "Analyze Video",
-      href: "/app/video-analysis",
-    });
-  }
-
-  if (creatives.length === 0) {
-    actions.push({
-      type: "creative",
-      title: "Save the first creative record",
-      description:
-        "Add a creative URL or save an analysis result to start building a durable Creative Library.",
-      priority: analyses.length ? "High" : "Medium",
-      actionLabel: "Open Creative Library",
-      href: "/app/creative-library",
-    });
-  }
-
-  if (briefs.length === 0 && (analyses.length > 0 || creatives.length > 0)) {
-    actions.push({
-      type: "brief",
-      title: "Generate a saved ad brief",
-      description:
-        "Turn saved creative context into a planning brief with grounded hooks, script notes, and CTAs.",
-      priority: "Medium",
-      actionLabel: "Open Ad Briefs",
-      href: "/app/ad-briefs",
-    });
-  }
-
-  if (blueprints.length === 0 && (briefs.length > 0 || creatives.length > 0)) {
-    actions.push({
-      type: "blueprint",
-      title: "Create a planning blueprint",
-      description:
-        "Use saved app records to outline the next creative and product-page experiment.",
-      priority: "Medium",
-      actionLabel: "Open Blueprint",
-      href: "/app/revenue-blueprint",
-    });
-  }
-
-  if (settings.auto_save_analyzed_videos === "false") {
-    actions.push({
-      type: "settings",
-      title: "Review auto-save preference",
-      description:
-        "Auto-save is off, so future analyses need to be saved manually before they can power this dashboard.",
-      priority: "Low",
-      actionLabel: "Open Settings",
-      href: "/app/settings",
-    });
-  }
-
-  if (actions.length === 0) {
-    actions.push({
-      type: "review",
-      title: "Review recent app activity",
-      description:
-        "You have saved records across the workspace. Review recent analyses, briefs, and blueprints to choose the next manual test.",
-      priority: "Low",
-      actionLabel: "Open Activity Log",
-      href: "/app/activity-log",
-    });
-  }
-
-  return actions.slice(0, 4);
-}
-
 function getAnalysisPayload(record) {
   return (
     record.payload?.result?.analysis ||
@@ -825,16 +673,6 @@ function calculateReadinessScore({
     : 0;
 
   return Math.max(0, Math.min(100, completionScore + qualityScore));
-}
-
-function toActivityRow(activity) {
-  return {
-    id: activity.id,
-    title: activity.title,
-    description: activity.description || "",
-    type: activity.type,
-    createdAt: activity.createdAt,
-  };
 }
 
 function addPattern(target, label) {

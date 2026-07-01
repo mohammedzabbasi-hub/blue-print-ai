@@ -1,6 +1,4 @@
 /* eslint-disable react/prop-types */
-import { Link } from "react-router";
-import { statLabels } from "../../data/demo-creatives";
 
 export function detailUrl(creative) {
   const params = new URLSearchParams();
@@ -42,23 +40,14 @@ export function CreativePerformanceCard({ creative, onSelect }) {
           </p>
         </div>
 
-        <div className="bp-performance-stats" aria-label={`${creative.title} performance`}>
-          {statLabels.map(([key, label]) => (
-            <div className="bp-performance-stat" key={key}>
-              <span>{label}</span>
-              <strong>{formatNumber(creative.stats[key])}</strong>
-            </div>
-          ))}
-        </div>
-
         <p className="bp-performance-description">{creative.description}</p>
-        <Link
-          className="bp-performance-link"
-          to={detailUrl(creative)}
+        <button
+          type="button"
+          className="bp-performance-link border-0 bg-transparent p-0 text-left"
           onClick={() => onSelect(creative)}
         >
           View creative details →
-        </Link>
+        </button>
       </div>
     </article>
   );

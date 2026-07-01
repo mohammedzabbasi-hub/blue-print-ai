@@ -3,7 +3,7 @@
 
 This is an adapted, self-contained bridge based on the original
 BLUEPRINTAIBACKEND/video_analysis_engine pipeline. It extracts video metadata,
-key frames, optional audio, transcript placeholders, OCR text, and heuristic
+key frames, optional audio, transcript availability, OCR text, and heuristic
 creative scores, then returns JSON to the React Router server action.
 """
 
@@ -194,15 +194,19 @@ def extract_audio(video_path: Path, output_root: Path) -> Path:
 def transcribe_audio(audio_path: Path) -> dict:
     if not audio_path.exists():
         return {
-            "full_text": "No transcript available because no audio file was found or ffmpeg is unavailable.",
+            "full_text": "",
             "segments": [],
+            "available": False,
+            "unavailable_reason": "No audio track was extracted, or ffmpeg is unavailable.",
         }
 
     # Keep the Shopify app deploy-safe: do not require Google Speech credentials.
     # The original backend uses Google Cloud Speech here when configured.
     return {
-        "full_text": "Audio was extracted successfully. Speech transcription is not configured in this Shopify app runtime.",
+        "full_text": "",
         "segments": [],
+        "available": False,
+        "unavailable_reason": "Speech transcription is not configured in this Shopify app runtime.",
     }
 
 
@@ -253,13 +257,13 @@ def build_heuristic_analysis(
     if on_screen_text:
         strengths.append("Detected on-screen text with OCR.")
     if transcript_text:
-        strengths.append("Audio extraction path ran and returned transcript status.")
+        strengths.append("Speech transcript text was available for review.")
 
     weaknesses = []
     if not on_screen_text:
         weaknesses.append("No readable on-screen text was detected in sampled frames.")
     if not has_cta:
-        weaknesses.append("No clear CTA language was detected in transcript or OCR text.")
+        weaknesses.append("No clear CTA language was detected in the available OCR or transcript evidence.")
     if duration > 45:
         weaknesses.append("The video may be long for a cold-traffic creative test.")
 
@@ -272,6 +276,7 @@ def build_heuristic_analysis(
         recommendations.append("Create a shorter 15-35 second cut for paid social testing.")
 
     return {
+        "analysis_method": "heuristic",
         "hook_score": hook_score,
         "cta_score": cta_score,
         "clarity_score": clarity_score,
@@ -301,16 +306,7 @@ def build_unreadable_video_analysis(video_path: Path, error: Exception) -> dict:
         "frames": [],
         "transcript": {"full_text": "", "segments": []},
         "ocr_text": [],
-        "analysis": {
-            "hook_score": 4,
-            "cta_score": 4,
-            "clarity_score": 4,
-            "creator_style": "Unreadable video fallback",
-            "strengths": ["The upload was accepted and passed into the media analyzer bridge."],
-            "weaknesses": ["The video could not be opened as readable media."],
-            "recommendations": ["Upload a playable mp4, mov, m4v, or webm file for full analysis."],
-            "summary": "The media analyzer could not inspect this file.",
-        },
+        "error": "The media analyzer could not inspect this file.",
         "fallback": True,
         "fallback_reason": str(error),
         "pipeline": {"metadata": False, "frames": False, "audio": False, "transcript": False, "ocr": False},

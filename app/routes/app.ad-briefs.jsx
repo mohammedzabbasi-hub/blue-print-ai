@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
+import ProductContextEvidence from "../components/ProductContextEvidence";
 import {
   buildBrief,
   getWorkspaceProfile,
@@ -9,6 +11,7 @@ import {
 } from "../models/blueprint.server";
 import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
+import { buildProductContext } from "../models/product-context";
 
 export const meta = () => {
   return [{ title: "Ad Briefs | BluePrintAI" }];
@@ -21,16 +24,22 @@ export const loader = async ({ request }) => {
     getWorkspaceProfile(session.shop),
     listCreativePerformance({ merchantData, shop: session.shop }),
   ]);
+  const productContext = buildProductContext({
+    shopifyProducts: merchantData.products,
+    performanceRecords: performance.records,
+  });
+  const products = productContext.availableProducts;
 
   return {
     briefs: briefs.map(toBriefCard),
-    canGenerate: Boolean(resolveProductContext(merchantData.products, profile)),
+    canGenerate: Boolean(resolveProductContext(products, profile)),
     hasDemoPerformanceData: performance.hasDemoPerformanceData,
     hasMeasuredPerformanceData: performance.hasMeasuredPerformanceData,
     performanceBriefs: performance.records.slice(0, 4).map(toPerformanceBriefCard),
     productError: merchantData.errors?.[0] || "",
-    products: merchantData.products,
-    selectedProductId: profile.selectedProductId || merchantData.products[0]?.id || "",
+    productContext,
+    products,
+    selectedProductId: profile.selectedProductId || products[0]?.id || "",
     shop: session.shop,
   };
 };
@@ -38,15 +47,25 @@ export const loader = async ({ request }) => {
 export const action = async ({ request }) => {
   const { merchantData, session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
-  const profile = await getWorkspaceProfile(session.shop);
+  const [profile, performance] = await Promise.all([
+    getWorkspaceProfile(session.shop),
+    listCreativePerformance({ merchantData, shop: session.shop }),
+  ]);
+  const productContext = buildProductContext({
+    shopifyProducts: merchantData.products,
+    performanceRecords: performance.records,
+  });
   const product = resolveProductContext(
-    merchantData.products,
+    productContext.availableProducts,
     profile,
     String(formData.get("productId") || ""),
   );
 
   if (!product) {
-    return { error: "No product context yet. Complete onboarding or add a Shopify product before saving a brief." };
+    return {
+      error:
+        "No product context. Add a Shopify product, import creative data with a product name, or enter product context in Settings.",
+    };
   }
 
   try {
@@ -92,6 +111,7 @@ export default function AdBriefsRoute() {
     briefs: loaderBriefs,
     canGenerate,
     performanceBriefs,
+    productContext,
     productError,
     products,
     selectedProductId,
@@ -99,7 +119,9 @@ export default function AdBriefsRoute() {
   } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
+  const [activeProductId, setActiveProductId] = useState(selectedProductId);
   const saving = navigation.state === "submitting";
+  const activeProduct = products.find((product) => product.id === activeProductId) || products[0] || null;
   const briefs = actionData?.brief
     ? [actionData.brief, ...loaderBriefs.filter((brief) => brief.id !== actionData.brief.id)]
     : loaderBriefs;
@@ -118,9 +140,10 @@ export default function AdBriefsRoute() {
             </h1>
 
             <p className="text-muted-foreground mt-3 text-sm sm:text-[15px]">
-              Briefs generated from {shop}&apos;s Shopify product context and
-              saved app activity. They are planning outputs, not performance
-              guarantees.
+              Briefs generated from {shop}&apos;s available product context and
+              saved app activity. Shopify products include catalog data;
+              imported products include only the CSV/ad fields and performance
+              metrics actually provided. Demo data is labeled separately.
             </p>
           </div>
 
@@ -130,12 +153,14 @@ export default function AdBriefsRoute() {
                 Product
                 <select
                   className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground"
-                  defaultValue={selectedProductId}
+                  value={activeProductId}
                   name="productId"
+                  onChange={(event) => setActiveProductId(event.target.value)}
                 >
                   {products.map((product) => (
                     <option key={product.id} value={product.id}>
                       {product.title}
+                      {product.source === "imported" ? " · Imported product context" : product.source === "demo" ? " · Demo product" : " · Shopify product"}
                     </option>
                   ))}
                 </select>
@@ -152,6 +177,12 @@ export default function AdBriefsRoute() {
         </div>
       </div>
 
+      <ProductContextEvidence
+        product={activeProduct}
+        productContext={productContext}
+        title="Product context available for generation"
+      />
+
       {actionData?.error && (
         <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200">
           {actionData.error}
@@ -166,8 +197,9 @@ export default function AdBriefsRoute() {
 
       {productError && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100">
-          Shopify products could not be loaded right now. Manual workspace
-          profile product context still works.
+          Shopify products could not be loaded right now. {productContext.hasImportedProductContext
+            ? "Imported CSV/ad product performance context is available and can generate briefs; unavailable catalog fields remain Not available."
+            : "Import a product name or use manual workspace product context."}
         </div>
       )}
 
@@ -177,10 +209,10 @@ export default function AdBriefsRoute() {
           description={
             canGenerate
               ? "Generate the first saved brief from this shop's product context."
-              : "No Shopify products found yet. Add products in Shopify or enter product context manually."
+              : "No product context. Add a Shopify product, import data with a product name, or enter product context manually."
           }
-          primaryText="Upload Creative"
-          primaryLink="/app/video-analysis"
+          primaryText={canGenerate ? "Upload Creative" : "Import Product Data"}
+          primaryLink={canGenerate ? "/app/video-analysis" : "/app/data-import"}
         />
       )}
 
@@ -213,6 +245,14 @@ export default function AdBriefsRoute() {
           <p className="text-muted-foreground mt-3 text-sm">
             {formatBriefDescription(brief)}
           </p>
+          <div className="mt-5">
+            <ProductContextEvidence
+              compact
+              product={productEvidenceFromBrief(brief, products)}
+              productContext={productContext}
+              title="AI used this context"
+            />
+          </div>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <MiniBriefField label="Creator type" value={brief.recommendedCreatorType} />
             <MiniBriefField label="Hook idea" value={brief.hooks?.[0]} />
@@ -234,6 +274,24 @@ export default function AdBriefsRoute() {
       </div>
     </div>
   );
+}
+
+function productEvidenceFromBrief(brief = {}, products = []) {
+  if (brief.context?.productSource) {
+    return {
+      id: brief.productId || null,
+      title: brief.context.productName || brief.productTitle,
+      productName: brief.context.productName || brief.productTitle,
+      source: brief.context.productSource,
+      ...(brief.context.importedPerformance || {}),
+    };
+  }
+  const current = products.find((product) =>
+    product.id === brief.productId || product.title === brief.productTitle,
+  );
+  return current
+    ? { title: brief.productTitle || current.title, source: "none" }
+    : { title: brief.productTitle || "Evidence snapshot", source: "none" };
 }
 
 function MiniBriefField({ label, value }) {

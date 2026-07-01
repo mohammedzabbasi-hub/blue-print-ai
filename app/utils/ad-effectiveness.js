@@ -28,7 +28,69 @@ function clean(value) {
 }
 
 function dateValue(record) {
-  return first(record, ["reportingDate", "date", "firstSeenAt", "createdAt"]);
+  // Import/creation timestamps describe ingestion, not when performance happened.
+  // Keeping this strict prevents undated rollups from becoming fake daily spikes.
+  return first(record, ["reportingDate", "date"]);
+}
+
+export function isCreatorPerformanceRollup(record = {}) {
+  return clean(record.sourceRecordType).toLowerCase() === "creator_performance_import" ||
+    clean(record.sourceType).toLowerCase() === "creator_performance_csv";
+}
+
+export function partitionDashboardPerformanceRecords(records = []) {
+  const creativeRecords = [];
+  const creatorRollups = [];
+
+  records.forEach((record) => {
+    // Creator imports summarize creative rows and must remain available to creator
+    // pages, but mixing grains here would double dashboard outcome metrics.
+    if (isCreatorPerformanceRollup(record)) creatorRollups.push(record);
+    else creativeRecords.push(record);
+  });
+
+  return { creativeRecords, creatorRollups };
+}
+
+export function hasReportingDate(record = {}) {
+  return Boolean(dateKey(dateValue(record)));
+}
+
+export function filterPerformanceRecordsByDateRange(records = [], range = "30d", now = new Date()) {
+  const days = { "7d": 7, "30d": 30, "90d": 90 }[range];
+  const endKey = dateKey(now);
+  if (!days || !endKey) return records.filter(hasReportingDate);
+
+  const start = new Date(`${endKey}T00:00:00.000Z`);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  const startKey = start.toISOString().slice(0, 10);
+
+  return records.filter((record) => {
+    const key = dateKey(dateValue(record));
+    return key && key >= startKey && key <= endKey;
+  });
+}
+
+function creativeIdentity(record) {
+  const id = first(record, ["creativeId", "sourceCreativeId", "adId"]);
+  const title = first(record, ["videoFilename", "creativeTitle", "adName", "title"]);
+  return {
+    key: clean(id || title || record?.id || "Imported creative"),
+    label: clean(title || id || "Imported creative"),
+  };
+}
+
+function dailyRecordKey(record) {
+  const creative = creativeIdentity(record).key;
+  const campaign = first(record, ["workspaceCampaignId", "campaignId", "sourceCampaignId", "workspaceCampaignName", "campaignName"]);
+  return [platformLabel(record), clean(campaign), creative, dateKey(dateValue(record))]
+    .join("|")
+    .toLowerCase();
+}
+
+function recordCompleteness(record) {
+  return ["views", "videoViews", "impressions", "clicks", "orders", "conversions", "revenue", "conversionValue", "spend"]
+    .filter((key) => present(record?.[key])).length;
 }
 
 function dateKey(value) {
@@ -127,10 +189,13 @@ export function aggregateEffectiveness(records = []) {
   const saves = importedSum(records, ["saves"]);
   const explicitEngagements = importedSum(records, ["engagementCount", "engagements"]);
   const engagementPartsImported = likes.imported || comments.imported || shares.imported || saves.imported;
-  const engagements = explicitEngagements.imported
+  const componentEngagements = engagementPartsImported
+    ? number(likes.value) + number(comments.value) + number(shares.value) + number(saves.value)
+    : null;
+  const engagements = explicitEngagements.imported && (explicitEngagements.value > 0 || !engagementPartsImported)
     ? explicitEngagements.value
     : engagementPartsImported
-      ? likes.value + comments.value + shares.value + saves.value
+      ? componentEngagements
       : null;
   const engagementDenominator =
     impressions.imported && impressions.value > 0 ? impressions.value : views.value;
@@ -173,6 +238,18 @@ export function aggregateEffectiveness(records = []) {
   };
 }
 
+export function dedupeDailyPerformanceRecords(records = []) {
+  const byCreativeDate = new Map();
+  records.forEach((record) => {
+    const key = dailyRecordKey(record);
+    const current = byCreativeDate.get(key);
+    if (!current || recordCompleteness(record) >= recordCompleteness(current)) {
+      byCreativeDate.set(key, record);
+    }
+  });
+  return [...byCreativeDate.values()];
+}
+
 export function filterEffectivenessRecords(records = [], view = "all", key = "") {
   if (view === "all" || !key) return records;
   return records.filter((record) => groupIdentity(record, view, records).key === key);
@@ -189,9 +266,9 @@ export function metricNumber(summary, metric) {
   return summary?.[metric]?.imported ? number(summary[metric].value) : null;
 }
 
-export function buildTrendRows(records = []) {
+export function buildTrendRows(records = [], { cumulative = false } = {}) {
   const byDate = new Map();
-  records.forEach((record) => {
+  dedupeDailyPerformanceRecords(records).forEach((record) => {
     const rawDate = dateValue(record);
     if (!rawDate) return;
     const date = dateKey(rawDate);
@@ -199,9 +276,37 @@ export function buildTrendRows(records = []) {
     current.push(record);
     byDate.set(date, current);
   });
-  return [...byDate.entries()]
-    .map(([date, rows]) => ({ date, label: date.slice(5), summary: aggregateEffectiveness(rows) }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const dated = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right));
+  let running = [];
+  return dated.map(([date, rows]) => {
+    running = cumulative ? [...running, ...rows] : rows;
+    return { date, label: date.slice(5), records: rows, summary: aggregateEffectiveness(running) };
+  });
+}
+
+export function buildCreativeLaunchMarkers(records = []) {
+  const launches = new Map();
+  dedupeDailyPerformanceRecords(records).forEach((record) => {
+    const creative = creativeIdentity(record);
+    const launchDate = dateKey(first(record, ["creativeLaunchDate", "launchDate", "firstSeenDate"]) || dateValue(record));
+    if (!launchDate) return;
+    const current = launches.get(creative.key);
+    if (!current || launchDate < current.date) {
+      launches.set(creative.key, { creativeKey: creative.key, date: launchDate, label: `${creative.label} launched` });
+    }
+  });
+  return [...launches.values()].sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label));
+}
+
+export function trendAvailability(records = []) {
+  const reportingDates = new Set(
+    dedupeDailyPerformanceRecords(records).map(dateValue).map(dateKey).filter(Boolean),
+  );
+  return {
+    dateCount: reportingDates.size,
+    isSparse: reportingDates.size === 1,
+    hasTrend: reportingDates.size > 1,
+  };
 }
 
 export function performanceInsight(records = []) {

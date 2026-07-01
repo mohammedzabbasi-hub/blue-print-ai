@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLoaderData, useLocation } from "react-router";
+import { Link, useLoaderData, useLocation, useOutlet } from "react-router";
 import {
   BarChart3,
   MousePointerClick,
@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 
 import {
-  buildCreators,
   getWorkspaceProfile,
   listSavedCreatives,
   workspaceProfileHasContext,
@@ -29,7 +28,7 @@ export const loader = async ({ request }) => {
     listCreativePerformance({ merchantData, shop: session.shop }),
   ]);
   const creators = buildCreatorPerformanceRows(
-    buildCreators(merchantData.products, creatives),
+    [],
     performance.records,
   );
 
@@ -46,6 +45,7 @@ export const loader = async ({ request }) => {
 };
 
 export default function CreatorsRoute() {
+  const outlet = useOutlet();
   const {
     creators,
     creativesCount,
@@ -59,6 +59,8 @@ export default function CreatorsRoute() {
   const [selectedCreator, setSelectedCreator] = useState(null);
   const totals = summarizeCreators(creators);
   const topCreator = creators[0];
+
+  if (outlet) return outlet;
 
   return (
     <div className="space-y-7">
@@ -81,12 +83,17 @@ export default function CreatorsRoute() {
             </h1>
 
             <p className="mt-4 max-w-4xl text-sm leading-6 text-muted-foreground">
-              Compare which creator accounts are driving traffic, clicks, engagement,
-              sales, and conversion so you can decide who to scale, coach, pause,
-              or assign to the next campaign.
+              Compare merchant-imported creator traffic, engagement, and attributed
+              sales. Scores and management guidance are labeled heuristic and are
+              not connected-platform measurements.
             </p>
           </div>
-
+          <Link
+            className="bp-primary-cta shrink-0"
+            to={withEmbeddedRouteParams("/app/data-import?type=creators", location.search)}
+          >
+            Import creator CSV
+          </Link>
         </div>
       </section>
 
@@ -104,9 +111,9 @@ export default function CreatorsRoute() {
           </p>
           <Link
             className="bp-primary-cta mt-5"
-            to={withEmbeddedRouteParams("/app/data-import", location.search)}
+            to={withEmbeddedRouteParams("/app/data-import?type=creators", location.search)}
           >
-            Open Data Import
+            Import creator CSV
           </Link>
         </section>
       )}
@@ -122,7 +129,7 @@ export default function CreatorsRoute() {
         <PerformanceMetric
           icon={BarChart3}
           label="Engagement"
-          value={`${totals.engagementRate.toFixed(1)}%`}
+          value={formatOptionalRate(totals.engagementRate, "%")}
           detail="Weighted creator engagement rate"
         />
         <PerformanceMetric
@@ -191,7 +198,7 @@ export default function CreatorsRoute() {
                 <th className="px-5 py-4">Best product</th>
                 <th className="px-5 py-4">Best angle</th>
                 <th className="px-5 py-4">AOV</th>
-                <th className="px-5 py-4">Decision</th>
+                <th className="px-5 py-4">Heuristic guidance</th>
               </tr>
             </thead>
             <tbody>
@@ -275,7 +282,7 @@ function CreatorPerformanceCard({ creator, onView }) {
           </p>
         </div>
         <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">
-          {creator.performanceScore}/100
+          Heuristic {creator.performanceScore}/100
         </span>
       </div>
 
@@ -303,7 +310,7 @@ function CreatorPerformanceCard({ creator, onView }) {
 
       <div className="mt-3 rounded-2xl border border-white/10 bg-[#07101d] p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-          Management decision
+          Heuristic guidance
         </p>
         <p className="mt-2 text-sm leading-6 text-slate-300">
           {creator.recommendation}
@@ -413,7 +420,7 @@ function CreatorAccountPopIn({ creator, onClose, search = "" }) {
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Management decision
+            Heuristic guidance
               </p>
               <p className="mt-3 text-2xl font-black text-white">
                 {creator.decision}
@@ -549,7 +556,7 @@ function ManagementRecommendation({
   return (
     <section className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
       <p className="text-sm font-black uppercase tracking-[0.24em] text-cyan-300">
-        Recommended management action
+        Heuristic management suggestion
       </p>
       <h2 className="mt-3 text-3xl font-black text-white">
         {topCreator ? `Scale ${topCreator.name}` : "Import creator data"}
@@ -558,13 +565,13 @@ function ManagementRecommendation({
       {topCreator ? (
         <>
           <p className="mt-4 leading-7 text-slate-400">
-            {topCreator.name} is currently the strongest account by blended
+            Based on merchant-imported fields, {topCreator.name} ranks highest by blended
             clicks, engagement, orders, and attributed sales. Increase spend or
             assign a new creative test while monitoring conversion quality.
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <MiniMetric label="Workspace" value={profile.mainProduct || shop} />
-            <MiniMetric label="Top decision" value={topCreator.decision} />
+            <MiniMetric label="Heuristic guidance" value={topCreator.decision} />
             <MiniMetric label="Saved creatives" value={String(creativesCount)} />
             <MiniMetric
               label="Profile context"
@@ -627,11 +634,16 @@ export function buildCreatorPerformanceRows(creators = [], performanceRecords = 
               Number(record.reposts || 0)),
         0,
       );
+      const importedEngagementRates = matchingRecords
+        .map((record) => record.engagementRate)
+        .filter((value) => value !== null && value !== undefined && value !== "");
       const finalClicks = imported ? clicks : clicks || Math.round(creator.averageViews * 0.08);
       const finalOrders = imported ? orders : orders || creator.orders;
       const finalSales = imported ? sales : sales || creator.revenue;
       const finalViews = imported ? views : views || creator.averageViews;
-      const engagementRate = views !== null && views > 0
+      const engagementRate = importedEngagementRates.length
+        ? Number((importedEngagementRates.reduce((sum, value) => sum + Number(value), 0) / importedEngagementRates.length).toFixed(1))
+        : views !== null && views > 0
         ? Number(((engagements / views) * 100).toFixed(1))
         : imported ? null : creator.engagementRate;
       const conversionRate = finalClicks && finalOrders !== null
@@ -737,7 +749,11 @@ function buildImportedCreatorBase(key, records = []) {
     followerCount: null,
     status: "Imported",
     specialty: "Public engagement records",
-    strengths: ["Imported public engagement records are available."],
+    strengths: [
+      "Imported creator performance records are available.",
+      ...(first.creatorNotes ? [first.creatorNotes] : []),
+    ],
+    notes: first.creatorNotes || "",
     weaknesses: revenue
       ? []
       : ["Clicks, orders, and revenue are not available for every imported row."],
@@ -772,21 +788,27 @@ function normalizeCreatorKey(value = "") {
 }
 
 function summarizeCreators(creators = []) {
-  const clicks = creators.reduce((sum, creator) => sum + creator.clicks, 0);
-  const orders = creators.reduce((sum, creator) => sum + creator.orders, 0);
-  const sales = creators.reduce((sum, creator) => sum + creator.sales, 0);
+  const clicks = creators.reduce((sum, creator) => sum + Number(creator.clicks || 0), 0);
+  const orders = creators.reduce((sum, creator) => sum + Number(creator.orders || 0), 0);
+  const sales = creators.reduce((sum, creator) => sum + Number(creator.sales || 0), 0);
   const spend = creators.reduce((sum, creator) => sum + Number(creator.spend || 0), 0);
-  const views = creators.reduce((sum, creator) => sum + Number(creator.views || 0), 0);
-  const weightedEngagement = creators.reduce(
+  const creatorsWithEngagement = creators.filter(
+    (creator) => creator.engagementRate !== null && creator.engagementRate !== undefined,
+  );
+  const engagementWeight = creatorsWithEngagement.reduce(
+    (sum, creator) => sum + (Number(creator.views || 0) || Number(creator.clicks || 0) || 1),
+    0,
+  );
+  const weightedEngagement = creatorsWithEngagement.reduce(
     (sum, creator) =>
-      sum + creator.engagementRate * (Number(creator.views || 0) || creator.clicks),
+      sum + Number(creator.engagementRate) * (Number(creator.views || 0) || Number(creator.clicks || 0) || 1),
     0,
   );
 
   return {
     clicks,
     conversionRate: clicks ? (orders / clicks) * 100 : 0,
-    engagementRate: views || clicks ? weightedEngagement / (views || clicks) : 0,
+    engagementRate: engagementWeight ? weightedEngagement / engagementWeight : null,
     orders,
     roas: spend ? sales / spend : null,
     sales,

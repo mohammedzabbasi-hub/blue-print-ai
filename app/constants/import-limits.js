@@ -1,0 +1,1 @@
+export const MAX_PUBLIC_IMPORT_BYTES = 2 * 1024 * 1024;

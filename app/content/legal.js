@@ -1,17 +1,20 @@
-export const LEGAL_PLACEHOLDERS = {
-  address: "972 New Dover Rd",
-  companyName: "BluePrintAI",
-  effectiveDate: "June 23, 2026",
-  governingLaw:
-    "the applicable laws and venue determined by the operator of BluePrintAI, subject to legal review",
-  legalEntityStatus: "Not currently registered as an LLC or corporation",
-  supportEmail: "mohammedzabbasi@gmail.com",
-  website: "https://blueprintaiapp.com",
+export const BUSINESS_DETAILS = {
+  address: "[[OWNER ACTION REQUIRED: confirm business mailing address]]",
+  companyName: "[[OWNER ACTION REQUIRED: confirm legal business/entity name]]",
+  effectiveDate: "[[OWNER ACTION REQUIRED: confirm effective date]]",
+  governingLaw: "[[OWNER ACTION REQUIRED: qualified legal review of governing law]]",
+  legalEntityStatus: "[[OWNER ACTION REQUIRED: confirm legal business/entity status]]",
+  supportEmail: "[[OWNER ACTION REQUIRED: confirm support/contact email]]",
+  website: "[[OWNER ACTION REQUIRED: confirm production website URL]]",
 };
 
-const contactSentence = `Questions can be sent to ${LEGAL_PLACEHOLDERS.supportEmail} or mailed to ${LEGAL_PLACEHOLDERS.address}.`;
+const LEGAL_PLACEHOLDERS = BUSINESS_DETAILS;
+const contactSentence = `Questions can be sent to ${BUSINESS_DETAILS.supportEmail} or mailed to ${BUSINESS_DETAILS.address}.`;
 const refundPosition =
   "BluePrintAI is currently free during its MVP/testing period. We do not currently charge users directly for access to the app. If paid Shopify billing is introduced in the future, charges, cancellations, and refunds will be handled through Shopify's billing system and according to the refund terms presented at the time of purchase.";
+
+const ownerLegalReview =
+  "[[OWNER ACTION REQUIRED: have this section finalized by an appropriate qualified party before submission]]";
 
 export const legalPages = {
   terms: {
@@ -19,11 +22,11 @@ export const legalPages = {
     eyebrow: "Terms",
     updated: LEGAL_PLACEHOLDERS.effectiveDate,
     intro:
-      "These Terms of Service describe the rules for using BluePrintAI. BluePrintAI is currently operated as an unregistered project/business. BluePrintAI is not currently a registered LLC or corporation. Any references to BluePrintAI, we, us, or our refer to the operator of the BluePrintAI application.",
+      "This page is Terms of Service scaffolding, not legally reviewed text. The owner must finalize it with an appropriate qualified party before submission.",
     sections: [
       {
         title: "Business And Legal Entity Status",
-        body: `${LEGAL_PLACEHOLDERS.legalEntityStatus}. BluePrintAI is currently operated as an unregistered project/business. Any references to BluePrintAI, we, us, or our refer to the operator of the BluePrintAI application. The official website is ${LEGAL_PLACEHOLDERS.website}.`,
+        body: `${LEGAL_PLACEHOLDERS.legalEntityStatus}. Legal name: ${LEGAL_PLACEHOLDERS.companyName}. Website: ${LEGAL_PLACEHOLDERS.website}.`,
       },
       {
         title: "App Description",
@@ -31,11 +34,11 @@ export const legalPages = {
       },
       {
         title: "AI Wrapper Disclosure",
-        body: "BluePrintAI wraps AI-assisted workflows around merchant-provided data, uploaded content, saved app records, and Shopify context. The app does not replace human judgment, professional services, or platform compliance review.",
+        body: "The app provides heuristic or analyzer-assisted creative review, planning outputs, and saved workspace records from merchant-provided content and Shopify context. Outputs require human review.",
       },
       {
         title: "Third-Party AI Providers",
-        body: "Prompts, uploaded files, product context, creative metadata, and generated outputs may be sent to third-party AI providers or processing services to provide the service. Provider availability, behavior, and model outputs may change.",
+        body: "Uploaded videos are sent to a separately configured analyzer service only when the owner enables and configures that integration. The current rule-based planning features do not require an external generative-AI provider.",
       },
       {
         title: "User Accounts",
@@ -71,7 +74,7 @@ export const legalPages = {
       },
       {
         title: "Third-Party Services",
-        body: "The app depends on Shopify, hosting providers, databases, storage, analytics if later enabled, AI providers, and other subprocessors. Third-party services may have their own terms and privacy practices.",
+        body: "The app depends on Shopify, hosting providers, databases, storage, analytics if later enabled, AI providers, Google Ads when a merchant authorizes it, and other subprocessors. Third-party services may have their own terms and privacy practices.",
       },
       {
         title: "Service Availability",
@@ -79,15 +82,15 @@ export const legalPages = {
       },
       {
         title: "Warranty Disclaimer",
-        body: "The service is provided as is and as available, without warranties of any kind to the fullest extent permitted by law. We do not warrant that outputs will be accurate, unique, uninterrupted, secure, compliant, or error-free.",
+        body: ownerLegalReview,
       },
       {
         title: "Limitation Of Liability",
-        body: "To the fullest extent permitted by law, BluePrintAI and its owners, employees, contractors, and providers will not be liable for indirect, incidental, special, consequential, exemplary, or lost-profit damages, or for decisions made using AI outputs.",
+        body: ownerLegalReview,
       },
       {
         title: "Indemnification",
-        body: "You agree to defend, indemnify, and hold BluePrintAI harmless from claims arising from your content, uploads, prompts, use of outputs, violation of these Terms, infringement, unlawful conduct, or misuse of the service.",
+        body: ownerLegalReview,
       },
       {
         title: "Termination And Suspension",
@@ -95,11 +98,11 @@ export const legalPages = {
       },
       {
         title: "Governing Law",
-        body: `These Terms are governed by ${LEGAL_PLACEHOLDERS.governingLaw}, excluding conflict-of-law rules where applicable.`,
+        body: LEGAL_PLACEHOLDERS.governingLaw,
       },
       {
         title: "Dispute Resolution",
-        body: "Dispute resolution process, venue, arbitration, class-action waiver, informal resolution period, and exceptions should be reviewed by counsel before any paid launch or business registration change.",
+        body: ownerLegalReview,
       },
       {
         title: "Changes To Terms",
@@ -116,7 +119,7 @@ export const legalPages = {
     eyebrow: "Privacy",
     updated: LEGAL_PLACEHOLDERS.effectiveDate,
     intro:
-      "This Privacy Policy explains how BluePrintAI collects, uses, shares, retains, and protects information. BluePrintAI is currently operated as an unregistered project/business and is not currently a registered LLC or corporation.",
+      "This page is Privacy Policy scaffolding based on behavior visible in the app code. It is not legally reviewed text; the owner must confirm and finalize it before submission.",
     sections: [
       {
         title: "Information We Collect",
@@ -127,12 +130,16 @@ export const legalPages = {
         body: "Account data may include Shopify store domain, workspace settings, authorized user context from Shopify, onboarding profile fields, plan or billing status, support requests, and app activity records.",
       },
       {
+        title: "Google Ads Authorization And Data",
+        body: "Google Ads data is accessed only after a merchant authorizes BluePrintAI. The app stores the connection per Shopify store, protects the refresh token server-side, and does not persist Google access tokens. Authorized users can disconnect Google Ads from Connections. Synced Google Ads metrics remain identified as connected-platform data and are distinct from manual, CSV-imported, and clearly labeled demo data; demo or fabricated metrics are not presented as Google Ads results.",
+      },
+      {
         title: "Prompt And Input Data",
         body: "Prompt and input data may include product context, creative notes, planning instructions, generated-workflow parameters, search text, and other text you enter into the app.",
       },
       {
         title: "Uploaded Files And Content",
-        body: "Uploaded content may include videos, file names, file metadata, thumbnails, transcripts, creative records, product or creator notes, CSV/JSON import content if enabled later, and related analysis metadata.",
+        body: "Uploaded content may include videos, file names, file metadata, thumbnails, transcripts, creative records, product or creator notes, CSV import content, and related analysis metadata.",
       },
       {
         title: "AI-Generated Outputs",
@@ -140,7 +147,7 @@ export const legalPages = {
       },
       {
         title: "Payment And Billing Data",
-        body: "Payments and subscription billing are expected to be handled through Shopify or third-party payment processors. BluePrintAI may receive plan, trial, subscription, renewal, cancellation, and payment-status metadata, but should not receive full payment card numbers.",
+        body: "BluePrintAI is free during its current review and trial period and does not collect payment-card data. If paid plans are introduced, billing will be handled through Shopify and this policy and the applicable pricing terms will be updated before charges begin.",
       },
       {
         title: "Device And Log Data",
@@ -160,19 +167,19 @@ export const legalPages = {
       },
       {
         title: "Third-Party Service Providers And Subprocessors",
-        body: "We may use Shopify, cloud hosting, databases, storage, logging, security, email/support, billing, AI providers, and analytics providers if enabled. Additional vendor-specific subprocessor details should be reviewed when new providers are added.",
+        body: "We use Shopify for authentication and app delivery, our hosting and database providers for operating the service, private object storage for uploaded media, and Google only when a merchant explicitly authorizes Google Ads. The current service does not require an external generative-AI provider for its heuristic review and rule-based planning features. We update this policy before adding a provider that materially changes data processing.",
       },
       {
         title: "Data Retention",
-        body: "We retain information for as long as needed to provide the service, maintain records, comply with law, resolve disputes, secure the app, and enforce agreements. Specific retention periods should be reviewed before paid launch or broader production use.",
+        body: "The app stores shop-scoped workspace records and uploaded media. Verified Shopify app-uninstalled and shop-redact webhooks invoke the app's workspace and session deletion flow. [[OWNER ACTION REQUIRED: confirm backup retention and any legally required retention before submission]]",
       },
       {
         title: "Data Deletion Requests",
-        body: `To request deletion, contact ${LEGAL_PLACEHOLDERS.supportEmail} with your Shopify store domain and enough detail to identify the workspace. Destructive deletion logic should be implemented only through a safe, authenticated workflow and reviewed before launch.`,
+        body: `Uninstalling the app triggers the app's shop-scoped workspace and session deletion flow. Shopify shop-redact requests use the same deletion flow. There is no user-facing full-workspace deletion control while the app remains installed. To request deletion, contact ${LEGAL_PLACEHOLDERS.supportEmail}.`,
       },
       {
         title: "User Privacy Rights",
-        body: "Depending on your location, you may have rights to access, correct, delete, restrict, object to, or receive a copy of personal information. We will respond to verified requests as required by applicable law.",
+        body: "[[OWNER ACTION REQUIRED: qualified legal review of applicable privacy-rights language]]",
       },
       {
         title: "Children And Age Restrictions",
@@ -180,7 +187,7 @@ export const legalPages = {
       },
       {
         title: "International Data Transfers",
-        body: "Information may be processed in countries other than where you are located. International transfer mechanisms and regional disclosures should be reviewed by counsel as the app expands.",
+        body: "[[OWNER ACTION REQUIRED: confirm hosting locations, subprocessors, and any required transfer disclosure]]",
       },
       {
         title: "Security Safeguards",
@@ -188,7 +195,7 @@ export const legalPages = {
       },
       {
         title: "Breach And Contact Procedure",
-        body: `If we identify a security incident requiring notice, we will follow applicable law and provider requirements. Contact ${LEGAL_PLACEHOLDERS.supportEmail} for security, privacy, or data protection questions.`,
+        body: `Contact ${LEGAL_PLACEHOLDERS.supportEmail} for security, privacy, or data protection questions. [[OWNER ACTION REQUIRED: qualified legal review of incident-notification language]]`,
       },
       {
         title: "Changes To Policy",
@@ -431,11 +438,36 @@ export const legalPages = {
       },
       {
         title: "Legal Entity Status",
-        body: `${LEGAL_PLACEHOLDERS.legalEntityStatus}. BluePrintAI is currently operated as an unregistered project/business.`,
+        body: LEGAL_PLACEHOLDERS.legalEntityStatus,
       },
       {
         title: "Privacy And Data Deletion Requests",
         body: `For privacy or data deletion requests, contact us at ${LEGAL_PLACEHOLDERS.supportEmail}. Include your Shopify store domain and enough detail to identify the relevant workspace and records.`,
+      },
+    ],
+  },
+  "data-deletion": {
+    title: "Data Deletion",
+    eyebrow: "Privacy Request",
+    updated: LEGAL_PLACEHOLDERS.effectiveDate,
+    intro:
+      "This page explains the deletion mechanisms that are visible in the current app code.",
+    sections: [
+      {
+        title: "Uninstalling BluePrintAI",
+        body: "When Shopify sends a verified app-uninstalled webhook, the app deletes the shop-scoped BluePrintAI workspace records, uploaded media, and Shopify sessions handled by its deletion flow.",
+      },
+      {
+        title: "Shopify Redaction Requests",
+        body: "When Shopify sends a verified shop-redact webhook, the app invokes the same shop-scoped workspace and session deletion flow.",
+      },
+      {
+        title: "Requesting Deletion While Installed",
+        body: `The app does not currently provide a user-facing control that deletes the entire workspace while it remains installed. To request deletion, contact ${LEGAL_PLACEHOLDERS.supportEmail} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, or access tokens.`,
+      },
+      {
+        title: "Request Handling",
+        body: "[[OWNER ACTION REQUIRED: confirm deletion-request verification process and response-time expectations]]",
       },
     ],
   },
@@ -450,4 +482,6 @@ export const legalNavItems = [
   { label: "AI Disclaimer", to: "/ai-disclaimer", pageId: "ai-disclaimer" },
   { label: "Copyright", to: "/copyright", pageId: "copyright" },
   { label: "Contact", to: "/contact", pageId: "contact" },
+  { label: "Support", to: "/support", pageId: "support" },
+  { label: "Data Deletion", to: "/data-deletion", pageId: "data-deletion" },
 ];

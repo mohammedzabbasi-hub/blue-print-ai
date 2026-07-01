@@ -20,20 +20,12 @@ import {
   getPlanSelectionUrl,
 } from "../utils/billing.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { getLocalDemoAccess } from "../utils/demo-access.server";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
-  const isLocalDemoHost = ["localhost", "127.0.0.1", "::1"].includes(
-    url.hostname,
-  );
-  const hasShopifyEmbeddedParams =
-    url.searchParams.has("shop") || url.searchParams.has("host");
-
-  const shouldUseDemoBypass =
-    (isLocalDemoHost && !hasShopifyEmbeddedParams) ||
-    process.env.DEV_BYPASS_SHOPIFY_AUTH === "true" ||
-    url.searchParams.get("demo") === "1";
-  const explicitDemoMode = url.searchParams.get("demo") === "1";
+  const { explicitDemoMode, useDemoWorkspace: shouldUseDemoBypass } =
+    getLocalDemoAccess(request);
 
   if (shouldUseDemoBypass) {
     const demoShop = "blueprintai-test-store.myshopify.com";
@@ -108,7 +100,7 @@ const navItems = [
   { to: "/app/creative-library", label: "Creative Library", icon: "layers" },
   { to: "/app/video-analysis", label: "AI Review Studio", icon: "video" },
   { to: "/app/ad-briefs", label: "Ad Briefs", icon: "brief" },
-  { to: "/app/recommendations", label: "Recommendations", icon: "list" },
+  { to: "/app/recommendations", label: "AI Advisor", icon: "sparkles" },
   {
     to: "/app/revenue-blueprint",
     label: "Revenue Blueprint",
@@ -116,7 +108,12 @@ const navItems = [
   },
   { to: "/app/creators", label: "Creators", icon: "users" },
   { to: "/app/data-import", label: "Data Import", icon: "database" },
+  { to: "/app/connections", label: "Connections", icon: "plug" },
   { to: "/app/settings", label: "Settings", icon: "settings" },
+  { to: "/app/privacy", label: "Privacy", icon: "list" },
+  { to: "/app/terms", label: "Terms", icon: "list" },
+  { to: "/app/support", label: "Support", icon: "brief" },
+  { to: "/app/data-deletion", label: "Data Deletion", icon: "database" },
 ];
 
 export default function App() {
@@ -146,6 +143,18 @@ export default function App() {
 
         <div className="bp-main-frame">
           <main className="bp-shell">
+            {billingStatus.demoMode && (
+              <div className="mb-6 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm font-semibold text-amber-100" role="status">
+                <span className="block text-xs font-black uppercase tracking-[0.16em]">
+                  Demo workspace · sample data
+                </span>
+                <span className="mt-1 block">
+                  Products, CSV imports, uploads, metrics, recommendations, briefs,
+                  blueprints, and saved reviews in this local demo are sample data—not
+                  live merchant or connected-platform results.
+                </span>
+              </div>
+            )}
             <Outlet />
           </main>
         </div>
@@ -282,7 +291,8 @@ function isOnboardingAllowedPath(pathname) {
     pathname === "/app/refund-policy" ||
     pathname === "/app/ai-disclaimer" ||
     pathname === "/app/copyright" ||
-    pathname === "/app/contact"
+    pathname === "/app/contact" ||
+    pathname === "/app/data-deletion"
   );
 }
 
@@ -322,6 +332,7 @@ function ShellIcon({ name, className = "" }) {
     layers: "▱",
     list: "☷",
     menu: "☰",
+    plug: "⌁",
     search: "⌕",
     settings: "⚙",
     users: "♙",

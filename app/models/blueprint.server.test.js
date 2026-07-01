@@ -14,6 +14,7 @@ import {
   buildDataImportJobs,
   buildRecommendations,
   buildRevenueBlueprint,
+  deleteWorkspaceData,
   getWorkspaceProfile,
   mergeWorkspaceProfileWithProduct,
   resetDemoWorkspace,
@@ -427,9 +428,30 @@ describe("BluePrintAI demo workspace reset", () => {
 
   it("does not return hardcoded demo creators or recommendations by default", () => {
     assert.deepEqual(buildCreators([], []), []);
+    assert.deepEqual(
+      buildCreators(DEMO_PRODUCTS, [
+        { id: "merchant-creative", productId: DEMO_PRODUCTS[0].id },
+      ]),
+      [],
+    );
     assert.deepEqual(buildRecommendations([]), []);
     assert.ok(buildCreators(DEMO_PRODUCTS, [], { includeDemo: true }).length > 0);
     assert.ok(buildRecommendations([], { includeDemo: true }).length > 0);
+  });
+
+  it("deletes private uploaded media with workspace data", async () => {
+    const shop = `delete-workspace-${Date.now()}.myshopify.com`;
+    const uploadDir = resolve(".data", "private-media", shop, "video-analysis");
+    const uploadPath = resolve(uploadDir, "private-test.mp4");
+    resetTestShops.add(shop);
+    await mkdir(uploadDir, { recursive: true });
+    await writeFile(uploadPath, "private-test-video");
+    await db.workspaceSetting.create({ data: { shop, key: "test", value: "true" } });
+
+    await deleteWorkspaceData(shop);
+
+    await assert.rejects(readFile(uploadPath), { code: "ENOENT" });
+    assert.equal(await db.workspaceSetting.count({ where: { shop } }), 0);
   });
 
   it("lists persisted CreativePerformance rows without demo fallback rows", async () => {
@@ -595,6 +617,31 @@ describe("BluePrintAI demo workspace reset", () => {
     const record = parsePublicEngagementCsv(csv).rows[0].record;
 
     assert.equal(record.videoFilename, "TTAD1.mp4");
+  });
+
+  it("accepts daily reporting and creative launch date aliases", () => {
+    for (const dateHeader of ["date", "performance_date", "reporting_date", "day"]) {
+      const csv = [
+        `creative_id,video_filename,platform,creative_title,creator,product,${dateHeader},first_seen_date,views,clicks,orders,revenue,spend`,
+        "daily-1,TTAD1.mp4,TikTok Ads,Daily creative,@daily,Daily Product,2026-06-20,2026-06-18,100,10,2,50,20",
+      ].join("\n");
+      const record = parsePublicEngagementCsv(csv).rows[0].record;
+      assert.equal(record.reportingDate.slice(0, 10), "2026-06-20");
+      assert.equal(record.creativeLaunchDate.slice(0, 10), "2026-06-18");
+    }
+  });
+
+  it("merges duplicate creative/date rows without double-counting", () => {
+    const csv = [
+      "creative_id,platform,creative_name,creator,product,date,views,clicks,orders,revenue,spend",
+      "duplicate-day,TikTok,Duplicate daily,@daily,Daily Product,2026-06-20,100,10,2,50,20",
+      "duplicate-day,TikTok,Duplicate daily,@daily,Daily Product,2026-06-20,100,10,2,50,20",
+    ].join("\n");
+    const preview = parsePublicEngagementCsv(csv);
+    assert.equal(preview.rows.length, 1);
+    assert.equal(preview.duplicateRowsMerged, 1);
+    assert.equal(preview.rows[0].record.revenue, 50);
+    assert.match(preview.rows[0].warnings.join(" "), /Duplicate creative\/date row merged/);
   });
 
   it("keeps same-day uploaded creatives distinct by creative id and filename", () => {

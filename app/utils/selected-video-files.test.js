@@ -65,6 +65,8 @@ describe("selected video file queue", () => {
 
     assert.equal(CREATIVE_VIDEO_FILE_FIELD, "videoFiles");
     assert.equal(formData.get("intent"), "creative-upload-preview");
+    assert.equal(formData.has("campaignId"), false);
+    assert.equal(formData.has("newCampaignName"), false);
     assert.deepEqual(
       formData.getAll(CREATIVE_VIDEO_FILE_FIELD).map((file) => file.name),
       ["TTAD1.mp4", "TTAD2.mp4"],

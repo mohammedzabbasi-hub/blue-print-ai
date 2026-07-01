@@ -29,7 +29,7 @@ describe("Campaign Manager route UX", () => {
     assert.match(source, /\["overview", "creatives", "performance", "notes"\]/);
   });
 
-  it("connects campaign assignment to creative detail and video import", async () => {
+  it("connects campaign assignment to creative detail while keeping import campaign assignment out of the workflow", async () => {
     const [creativeSource, importSource] = await Promise.all([
       readFile(creativeDetailPath, "utf8"),
       readFile(importPath, "utf8"),
@@ -37,8 +37,8 @@ describe("Campaign Manager route UX", () => {
 
     assert.match(creativeSource, /Move to campaign/);
     assert.match(creativeSource, /assignCampaignRecords/);
-    assert.match(importSource, /Step 3 · Assign campaign/);
-    assert.match(importSource, /newCampaignName/);
+    assert.doesNotMatch(importSource, /Assign campaign/);
+    assert.doesNotMatch(importSource, /newCampaignName/);
     assert.match(importSource, /name="videoFiles"/);
   });
 });

@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 
 import { MAX_PUBLIC_IMPORT_BYTES } from "../constants/import-limits";
+import {
+  assertUploadedVideoBatch,
+  assertUploadRequestSize,
+} from "../utils/upload-storage.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import {
   appendSelectedVideoFiles,
@@ -27,19 +31,16 @@ export const meta = () => {
   return [{ title: "Data Import | BluePrintAI" }];
 };
 
-const sampleCsv = `creative_id,creative_name,video_filename,platform,campaign_id,campaign_name,ad_id,ad_name,creator_handle,creator_name,creator_platform,creator_profile_url,creator_type,creator_clicks,creator_orders,creator_revenue,creator_commission,creator_notes,product_id,product_name,reporting_date,impressions,reach,video_views,likes,comments,shares,clicks,orders,conversions,revenue,conversion_value,spend,ctr,cvr,roas,cpc,cpm,notes
-cr_ice_001,Ice Roller morning demo,ice-roller-demo.mp4,TikTok Ads,camp_summer_26,June Scale Tests,ad_ice_001,Ice Roller Pro morning depuff demo,@mayaglowup,Maya Chen,TikTok,https://www.tiktok.com/@mayaglowup,affiliate,2600,94,4230,423,Optional creator attribution,shopify_101,Ice Roller Pro,2026-06-01,148000,121400,126000,9800,640,850,2600,94,94,4230,4230,820,1.76,3.62,5.16,0.32,5.54,Full paid and engagement metrics
-cr_lash_002,LashLift before-after,lashlift-before-after.mp4,Meta Ads,camp_creator_ugc,Creator UGC Batch,ad_lash_002,LashLift Starter Kit before-after,@lashlabdaily,Ari Brooks,Instagram,https://instagram.com/lashlabdaily,ugc,1400,51,2295,230,,shopify_102,LashLift Starter Kit,2026-06-03,101000,88400,84200,6100,320,430,1400,51,51,2295,2295,530,1.39,3.64,4.33,0.38,5.25,Attach a matching video by filename
-cr_bundle_003,Glass Skin Bundle shelfie,,Google Ads,camp_pmax_bundle,Performance Max Bundle Push,ad_bundle_003,Glass Skin Bundle shelfie angle,,,,,,,,,,,shopify_103,Glass Skin Bundle,2026-06-09,52000,44100,,2300,120,170,620,17,17,1190,1190,260,1.19,2.74,4.58,0.42,5.00,Valid performance-only creative with optional creator fields blank`;
 const requiredColumns = [
   "platform",
   "ad_name/creative_name or video_url/source_url",
-  "date/reporting_date",
+  "date / performance_date / reporting_date / day",
 ];
 
 const optionalColumns = [
   "creative_id",
   "campaign/ad identifiers",
+  "launch_date / creative_launch_date / first_seen_date",
   "creator_name",
   "creator_handle and creator_name (either is enough)",
   "creator_platform / creator_profile_url / creator_type",
@@ -66,6 +67,26 @@ const optionalColumns = [
   "reposts",
   "notes",
 ];
+const creatorRequiredColumns = ["creator_handle or creator_name"];
+const creatorOptionalColumns = [
+  "creator_handle",
+  "creator_name",
+  "creator_platform",
+  "creator_profile_url",
+  "creator_type",
+  "creator_email",
+  "creator_clicks",
+  "creator_orders",
+  "creator_revenue",
+  "creator_spend",
+  "creator_commission",
+  "creator_engagement_rate",
+  "creator_notes",
+  "product_name",
+  "campaign_name",
+  "best_angle",
+  "reporting_date",
+];
 
 const videoFilenameColumns = [
   "video_filename",
@@ -89,15 +110,13 @@ export const loader = async ({ request }) => {
   const { listCreativePerformance } = await import(
     "../models/creative-performance.server"
   );
-  const { listCampaigns } = await import("../models/campaign.server");
   const { merchantData, session } = await loadShopifyRouteContext(request);
-  const [creatives, analyses, briefs, blueprints, performance, campaigns] = await Promise.all([
+  const [creatives, analyses, briefs, blueprints, performance] = await Promise.all([
     listSavedCreatives(session.shop, 1000),
     listVideoAnalyses(session.shop, 1000),
     listSavedBriefs(session.shop, 1000),
     listRevenueBlueprints(session.shop, 1000),
     listCreativePerformance({ merchantData, shop: session.shop, limit: 1000 }),
-    listCampaigns(session.shop),
   ]);
   const importedRecords = performance.records.filter(
     (record) =>
@@ -106,9 +125,7 @@ export const loader = async ({ request }) => {
   );
 
   return {
-    sampleCsv,
     shop: session.shop,
-    campaigns: campaigns.map(({ id, name }) => ({ id, name })),
     counts: {
       analyses: analyses.length,
       blueprints: blueprints.length,
@@ -121,17 +138,21 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
+  assertUploadRequestSize(request);
   const { loadShopifyRouteContext } = await import("../models/route-context.server");
   const { parsePublicEngagementCsv, upsertPublicEngagementRecord } = await import(
     "../models/creative-performance.server"
   );
   const {
+    buildCreatorPerformancePreview,
     buildCreativeUploadPreview,
     getUploadedVideoFiles,
+    importCreatorPerformanceRows,
     importMatchedCreativeRows,
   } = await import("../models/creative-upload-import.server");
   const { session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
+  const importType = formData.get("importType") === "creator" ? "creator" : "creative";
   const intent = String(formData.get("intent") || "creative-upload-preview");
   const input = await readCsvInput(formData);
   if (input.error) {
@@ -140,23 +161,42 @@ export const action = async ({ request }) => {
       creativeUploadPreview: intent === "creative-upload-preview",
       errors: [input.error],
       headers: [],
+      importType,
       rows: [],
       totalRows: 0,
     };
   }
 
   const uploadedVideos = getUploadedVideoFiles(formData);
-  const createCreatorProfiles = formData.get("createCreatorProfiles") !== "false";
-  const existingCreators = createCreatorProfiles
+  try {
+    assertUploadedVideoBatch(uploadedVideos);
+  } catch (error) {
+    return {
+      actionIntent: intent,
+      creativeUploadPreview: intent === "creative-upload-preview",
+      errors: [error.message],
+      headers: [],
+      importType,
+      rows: [],
+      totalRows: 0,
+    };
+  }
+  const existingCreators = importType === "creator"
     ? await (await import("../models/creator-attribution.server")).listCreatorProfiles(session.shop)
     : [];
-  const preview = buildCreativeUploadPreview({
-    csvText: input.csvText,
-    createCreatorProfiles,
-    existingCreators,
-    parsePublicEngagementCsv,
-    uploadedVideos,
-  });
+  const preview = importType === "creator"
+    ? buildCreatorPerformancePreview({
+        csvText: input.csvText,
+        existingCreators,
+        parsePublicEngagementCsv,
+      })
+    : buildCreativeUploadPreview({
+        csvText: input.csvText,
+        createCreatorProfiles: false,
+        existingCreators,
+        parsePublicEngagementCsv,
+        uploadedVideos,
+      });
 
   if (intent === "creative-upload-preview") {
     return {
@@ -164,41 +204,36 @@ export const action = async ({ request }) => {
       actionIntent: intent,
       creativeUploadPreview: true,
       csvText: input.csvText,
+      importType,
       ok: false,
     };
   }
 
-  let campaignId = String(formData.get("campaignId") || "");
-  const newCampaignName = String(formData.get("newCampaignName") || "").trim();
-  if (!campaignId && newCampaignName) {
-    const { createCampaign } = await import("../models/campaign.server");
-    const createdCampaign = await createCampaign(session.shop, {
-      name: newCampaignName,
-      objective: "testing",
-      platform: "other",
-      status: "draft",
-    });
-    campaignId = createdCampaign.id;
-  }
-  const result = await importMatchedCreativeRows({
-    campaignId,
-    createCreatorProfiles,
-    preview,
-    shop: session.shop,
-    uploadedVideos,
-    upsertPublicEngagementRecord,
-  });
+  const result = importType === "creator"
+    ? await importCreatorPerformanceRows({
+        preview,
+        shop: session.shop,
+        upsertPublicEngagementRecord,
+      })
+    : await importMatchedCreativeRows({
+        createCreatorProfiles: false,
+        preview,
+        shop: session.shop,
+        uploadedVideos,
+        upsertPublicEngagementRecord,
+      });
 
   return {
     ...result,
     actionIntent: "creative-upload-confirm",
     creativeUploadPreview: false,
+    importType,
     importToastId: createImportToastId(),
   };
 };
 
 export default function DataImportRoute() {
-  const { campaigns, counts, sampleCsv: loaderSampleCsv, shop } = useLoaderData();
+  const { counts, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
@@ -208,12 +243,14 @@ export default function DataImportRoute() {
   const [previewCleared, setPreviewCleared] = useState(false);
   const [clearMessage, setClearMessage] = useState("");
   const [creativeUploadCsvDraft, setCreativeUploadCsvDraft] = useState("");
-  const [selectedCampaignId, setSelectedCampaignId] = useState("");
-  const [newCampaignName, setNewCampaignName] = useState("");
+  const [importType, setImportType] = useState(() =>
+    new URLSearchParams(location.search).get("type") === "creators"
+      ? "creator"
+      : "creative",
+  );
   const [fileInputKey, setFileInputKey] = useState(0);
   const [videoInputKey, setVideoInputKey] = useState(0);
   const [selectedVideos, setSelectedVideos] = useState([]);
-  const [createCreatorProfiles, setCreateCreatorProfiles] = useState(true);
   const submitting = navigation.state === "submitting";
   const submittingIntent = navigation.formData
     ? String(navigation.formData.get("intent") || "preview")
@@ -223,9 +260,11 @@ export default function DataImportRoute() {
   const creativeUploadImporting =
     submitting && submittingIntent === "creative-upload-confirm";
   const visibleActionData = previewCleared ? null : actionData;
+  const isCreatorImport = importType === "creator";
   const rows = visibleActionData?.rows || [];
   const hasCreativeUploadPreview =
     visibleActionData?.actionIntent === "creative-upload-preview" &&
+    (visibleActionData?.importType || "creative") === importType &&
     (rows.length > 0 || visibleActionData?.errors?.length > 0);
   const showCreativeUploadConfirm =
     visibleActionData?.creativeUploadPreview && rows.length > 0;
@@ -272,9 +311,13 @@ export default function DataImportRoute() {
     setFileInputKey((key) => key + 1);
     setVideoInputKey((key) => key + 1);
     setSelectedVideos([]);
-    setSelectedCampaignId("");
-    setNewCampaignName("");
-    setCreateCreatorProfiles(true);
+  }
+
+  function changeImportType(nextType) {
+    setImportType(nextType);
+    setPreviewCleared(true);
+    setClearMessage("");
+    if (nextType === "creator") clearSelectedVideoFiles();
   }
 
   function addSelectedVideoFiles(fileList) {
@@ -296,14 +339,12 @@ export default function DataImportRoute() {
   function submitCreativeImport(intent) {
     const csvFile = creativeCsvFileInputRef.current?.files?.[0];
     const formData = buildCreativeImportFormData({
-      campaignId: selectedCampaignId,
-      newCampaignName,
       csvFile,
       csvText: creativeUploadCsvDraft,
       intent,
       selectedVideos,
     });
-    formData.set("createCreatorProfiles", String(createCreatorProfiles));
+    formData.set("importType", importType);
 
     submit(formData, {
       encType: "multipart/form-data",
@@ -324,26 +365,26 @@ export default function DataImportRoute() {
       <section className="glass-strong rounded-2xl p-8">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-primary uppercase tracking-[0.18em] font-semibold text-xs">
-            Creative data import
+            Data import
           </p>
           <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-1 text-xs font-black uppercase tracking-widest text-cyan-200">
-            CSV + optional videos
+            One unified workflow
           </span>
         </div>
 
         <h1 className="font-display mt-3 text-4xl font-semibold text-foreground">
-          Import creative performance data
+          Import performance data
         </h1>
 
         <p className="mt-3 max-w-4xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
-          Upload a CSV and add matching video files to create creative records,
-          attach ads to campaigns, and populate dashboard metrics.
+          Use one CSV upload or paste area for creative/ad performance or
+          creator-centered performance data.
         </p>
 
         <p className="mt-4 max-w-4xl rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs font-semibold leading-5 text-cyan-100">
-          Each CSV row becomes an ad or creative performance record. A matching
-          video adds a playable Creative Library asset; rows without videos are
-          still imported as performance-only creative records.
+          {isCreatorImport
+            ? "Creator rows update creator profiles and metrics without creating fake Creative Library records. Videos are not required."
+            : "Each CSV row becomes an ad or creative performance record. A matching video adds a playable Creative Library asset; rows without videos remain valid performance-only records."}
         </p>
         <p className="mt-3 max-w-4xl rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs font-semibold leading-5 text-amber-100">
           Fields like spend, clicks, orders, revenue, ROAS, and CVR will show as
@@ -356,6 +397,41 @@ export default function DataImportRoute() {
       </section>
 
       <section className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
+        <fieldset className="mb-7 rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.05] p-5">
+          <legend className="px-2 text-xs font-black uppercase tracking-[0.18em] text-cyan-200">
+            Import type
+          </legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ["creative", "Creative/ad performance", "CSV metrics with optional matching video files."],
+              ["creator", "Creator performance", "Creator profiles, attribution, and creator-level metrics."],
+            ].map(([value, label, description]) => (
+              <label
+                className={`cursor-pointer rounded-xl border p-4 transition ${
+                  importType === value
+                    ? "border-cyan-400/50 bg-cyan-400/10 text-white"
+                    : "border-white/10 bg-slate-950/40 text-slate-300 hover:border-white/20"
+                }`}
+                key={value}
+              >
+                <span className="flex items-center gap-3 text-sm font-black">
+                  <input
+                    checked={importType === value}
+                    className="h-4 w-4 accent-cyan-400"
+                    name="importTypeSelector"
+                    onChange={() => changeImportType(value)}
+                    type="radio"
+                    value={value}
+                  />
+                  {label}
+                </span>
+                <span className="mt-2 block pl-7 text-xs leading-5 text-slate-400">
+                  {description}
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-xl bg-emerald-400/10 p-3 text-emerald-300">
             <Film className="h-5 w-5" />
@@ -365,18 +441,18 @@ export default function DataImportRoute() {
               One guided workflow
             </p>
             <h2 className="mt-1 text-3xl font-black text-white">
-              Import creative performance data
+              {isCreatorImport ? "Import creator performance data" : "Import creative performance data"}
             </h2>
           </div>
         </div>
         <p className="mt-4 max-w-4xl text-sm leading-6 text-slate-400">
-          Add creative/ad CSV data, optionally attach matching MP4, MOV, M4V,
-          or WebM files, choose campaign behavior, and review everything before
-          saving.
+          {isCreatorImport
+            ? "Add creator-centered CSV data and review creator changes before saving."
+            : "Add creative/ad CSV data, optionally attach matching MP4, MOV, M4V, or WebM files, and review everything before saving."}
         </p>
 
         <div className="mt-6 space-y-6">
-          <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className={`grid gap-5 ${isCreatorImport ? "" : "lg:grid-cols-[1.1fr_0.9fr]"}`}>
             <div className="space-y-3">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">
                 Step 1 · Add CSV data
@@ -405,23 +481,18 @@ export default function DataImportRoute() {
                 id="creative-upload-csv"
                 name="csvText"
                 onChange={(event) => setCreativeUploadCsvDraft(event.target.value)}
-                placeholder="Paste CSV here, including video_filename for each uploaded file."
+                placeholder={isCreatorImport
+                  ? "Paste creator CSV here, starting with creator_handle or creator_name."
+                  : "Paste CSV here, including video_filename for each uploaded file."}
                 value={creativeUploadCsvDraft}
               />
               <div className="flex flex-wrap items-center gap-3">
-                <a
-                  className="rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-4 py-2.5 text-sm font-black text-cyan-100 transition hover:bg-cyan-500/20"
-                  download="blueprintai-creative-performance-sample.csv"
-                  href={`data:text/csv;charset=utf-8,${encodeURIComponent(loaderSampleCsv)}`}
-                >
-                  Download sample CSV
-                </a>
                 <p className="text-xs font-semibold text-slate-500">
                   Upload a file or paste text—if both are present, the uploaded file is used.
                 </p>
               </div>
             </div>
-            <div className="space-y-3">
+            {!isCreatorImport && <div className="space-y-3">
               <p
                 className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300"
               >
@@ -500,53 +571,38 @@ export default function DataImportRoute() {
                 creative; paths, ambiguous duplicates, and unsupported file
                 extensions must be fixed before importing that video.
               </p>
-            </div>
+            </div>}
           </div>
 
-          <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.04] p-4">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Step 3 · Assign campaign</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">Apply an existing or new campaign to every imported row, or leave both fields empty to use row-level campaign_id/campaign_name values.</p>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
-              Select existing campaign
-              <select
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-white"
-                onChange={(event) => { setSelectedCampaignId(event.target.value); if (event.target.value) setNewCampaignName(""); }}
-                value={selectedCampaignId}
-              >
-                <option value="">Skip / use CSV campaign</option>
-                {campaigns.map((campaign) => (
-                  <option key={campaign.id} value={campaign.id}>
-                    {campaign.name}
-                  </option>
+          {isCreatorImport ? (
+            <div className="rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-violet-200">
+                Creator-centered import
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                Each valid row creates or updates a creator profile and stores
+                creator-level metrics. No video or creative name is required.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Supported creator performance CSV columns">
+                {creatorOptionalColumns.map((column) => (
+                  <span
+                    className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 font-mono text-[11px] font-semibold text-violet-100"
+                    key={column}
+                  >
+                    {column}
+                  </span>
                 ))}
-              </select>
-            </label>
-            <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
-              Or create a new campaign
-              <input className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-white placeholder:text-slate-600" onChange={(event) => { setNewCampaignName(event.target.value); if (event.target.value) setSelectedCampaignId(""); }} placeholder="Campaign name" value={newCampaignName} />
-            </label>
+              </div>
             </div>
-          </div>
-          <div className="rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-4">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-violet-200">Creator attribution</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
-              Rows with creator_name or creator_handle will update Creator Performance and connect creators to imported creatives.
-            </p>
-            <label className="mt-3 flex items-center gap-3 text-sm font-bold text-slate-200">
-              <input
-                checked={createCreatorProfiles}
-                className="h-4 w-4 accent-violet-400"
-                onChange={(event) => setCreateCreatorProfiles(event.target.checked)}
-                type="checkbox"
-              />
-              Create/update creator profiles from CSV rows
-            </label>
-          </div>
+          ) : null}
           <div className="flex flex-wrap gap-3">
             <div className="w-full">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Step 4 · Review import</p>
-              <p className="mt-1 text-xs leading-5 text-slate-400">Preview records, video matches, campaign data, warnings, and errors before anything is saved.</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">
+                Step {isCreatorImport ? "2" : "3"} · Review import
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                Preview {isCreatorImport ? "creator changes and matching details" : "records and video matches"}, warnings, and errors before anything is saved.
+              </p>
             </div>
             <button
               className="bp-primary-cta"
@@ -562,6 +618,7 @@ export default function DataImportRoute() {
             <CreativeUploadPreview
               actionData={visibleActionData}
               clearImportPreview={clearImportPreview}
+              importType={importType}
               importing={creativeUploadImporting}
               onImport={() => submitCreativeImport("creative-upload-confirm")}
               showConfirm={showCreativeUploadConfirm}
@@ -583,8 +640,14 @@ export default function DataImportRoute() {
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <ColumnList title="Required" items={requiredColumns} />
-            <ColumnList title="Recommended and optional" items={optionalColumns} />
+            <ColumnList
+              title="Required"
+              items={isCreatorImport ? creatorRequiredColumns : requiredColumns}
+            />
+            <ColumnList
+              title="Recommended and optional"
+              items={isCreatorImport ? creatorOptionalColumns : optionalColumns}
+            />
           </div>
         </div>
       </section>
@@ -696,6 +759,7 @@ export default function DataImportRoute() {
 function CreativeUploadPreview({
   actionData,
   clearImportPreview,
+  importType,
   importing,
   onImport,
   showConfirm,
@@ -703,6 +767,7 @@ function CreativeUploadPreview({
   const rows = actionData?.rows || [];
   const previewRows = rows.slice(0, 50);
   const summary = actionData?.summary || {};
+  const isCreatorImport = importType === "creator";
   const importBlocked = Number(summary.ready || 0) === 0;
 
   return (
@@ -713,12 +778,14 @@ function CreativeUploadPreview({
             Import preview
           </p>
           <h3 className="mt-2 text-2xl font-black text-white">
-            Creative/ad import preview
+            {isCreatorImport ? "Creator performance import preview" : "Creative/ad import preview"}
           </h3>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
             Showing first {Math.min(50, rows.length)} of{" "}
             {actionData?.totalRows || rows.length} rows. Only ready rows are
-            imported. Performance-only rows remain valid without a video.
+            imported. {isCreatorImport
+              ? "Creator-only rows do not create Creative Library assets."
+              : "Performance-only rows remain valid without a video."}
           </p>
         </div>
 
@@ -731,7 +798,11 @@ function CreativeUploadPreview({
                 onClick={onImport}
                 type="button"
               >
-                {importing ? "Importing..." : "Import creative records"}
+                {importing
+                  ? "Importing..."
+                  : isCreatorImport
+                    ? "Import creator records"
+                    : "Import creative records"}
               </button>
               <button
                 className="rounded-2xl border border-slate-700 bg-slate-950/50 px-6 py-3 font-black text-slate-200 transition hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -744,7 +815,7 @@ function CreativeUploadPreview({
             </div>
             {importBlocked && (
               <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold leading-5 text-amber-100">
-                No creative/ad rows are ready to import yet.
+                No {isCreatorImport ? "creator" : "creative/ad"} rows are ready to import yet.
               </p>
             )}
           </div>
@@ -755,33 +826,41 @@ function CreativeUploadPreview({
       <Messages messages={actionData?.fileWarnings || []} tone="warning" />
       <Messages messages={actionData?.topErrors || []} tone="error" />
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <Metric label="Ready to import" value={summary.ready || 0} />
-        <Metric label="Missing videos" value={summary.missingVideos || 0} />
-        <Metric label="Warnings" value={summary.warnings || 0} />
-        <Metric label="Errors" value={summary.errors || 0} />
-        <Metric label="Files matched" value={summary.uploadedFilesMatched || 0} />
-        <Metric label="Files unused" value={summary.uploadedFilesUnused || 0} />
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-4">
-        <p className="text-xs font-black uppercase tracking-[0.14em] text-violet-200">
-          Creator attribution
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {isCreatorImport ? (
+        <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
           <Metric label="Creators detected" value={summary.creatorsDetected || 0} />
           <Metric label="New creators" value={summary.newCreators || 0} />
           <Metric label="Updated creators" value={summary.updatedCreators || 0} />
-          <Metric label="Missing identity" value={summary.missingCreatorIdentity || 0} />
           <Metric label="Duplicate rows merged" value={summary.duplicateCreatorRowsMerged || 0} />
+          <Metric label="Missing creator identity" value={summary.missingCreatorIdentity || 0} />
+          <Metric label="Ready to import" value={summary.ready || 0} />
+          <Metric label="With campaign data" value={summary.rowsWithCampaignData || 0} />
+          <Metric label="With product data" value={summary.rowsWithProductData || 0} />
+          <Metric label="With angle data" value={summary.rowsWithAngleData || 0} />
         </div>
-      </div>
+      ) : (
+        <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <Metric label="Ready to import" value={summary.ready || 0} />
+          <Metric label="Missing videos" value={summary.missingVideos || 0} />
+          <Metric label="Files matched" value={summary.uploadedFilesMatched || 0} />
+          <Metric label="Files unused" value={summary.uploadedFilesUnused || 0} />
+        </div>
+      )}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
-        <table className="min-w-[1320px] w-full border-collapse text-left">
+        <table className="min-w-[900px] w-full border-collapse text-left">
           <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
-              {[
+              {(isCreatorImport ? [
+                "Row",
+                "Status",
+                "Creator",
+                "Platform",
+                "Product",
+                "Campaign",
+                "Best angle",
+                "Messages",
+              ] : [
                 "Row",
                 "Status",
                 "Video filename",
@@ -790,13 +869,8 @@ function CreativeUploadPreview({
                 "Creative title",
                 "Creator",
                 "Platform",
-                "Views",
-                "Clicks",
-                "Orders",
-                "Revenue",
-                "Spend",
                 "Messages",
-              ].map((heading) => (
+              ]).map((heading) => (
                 <th key={heading} className="px-5 py-4">
                   {heading}
                 </th>
@@ -805,12 +879,43 @@ function CreativeUploadPreview({
           </thead>
           <tbody>
             {previewRows.map((row) => (
-              <CreativeUploadPreviewRow key={row.rowNumber} row={row} />
+              isCreatorImport
+                ? <CreatorPerformancePreviewRow key={row.rowNumber} row={row} />
+                : <CreativeUploadPreviewRow key={row.rowNumber} row={row} />
             ))}
           </tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+function CreatorPerformancePreviewRow({ row }) {
+  const record = row.record || {};
+  const messages = [...(row.errors || []), ...(row.warnings || [])];
+  const tone = row.status === "error"
+    ? "border-red-500/30 bg-red-500/10 text-red-100"
+    : row.status === "warning"
+      ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
+      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
+
+  return (
+    <tr className="border-t border-white/10 text-sm text-slate-300">
+      <td className="px-5 py-4">{row.rowNumber}</td>
+      <td className="px-5 py-4">
+        <span className={`rounded-full border px-3 py-1 text-xs font-black ${tone}`}>
+          {row.creativeUploadStatus || "Creator ready"}
+        </span>
+      </td>
+      <td className="px-5 py-4 font-bold text-white">
+        {record.creatorHandle || record.creatorName || "Missing"}
+      </td>
+      <td className="px-5 py-4">{record.creatorPlatform || record.sourcePlatform || "Not imported"}</td>
+      <td className="px-5 py-4">{record.productName || "Not imported"}</td>
+      <td className="px-5 py-4">{record.campaignName || "Unassigned"}</td>
+      <td className="px-5 py-4">{record.angle || "Not imported"}</td>
+      <td className="px-5 py-4">{messages.length ? messages.join(" ") : "Ready to import."}</td>
+    </tr>
   );
 }
 
@@ -843,11 +948,6 @@ function CreativeUploadPreviewRow({ row }) {
       </td>
       <td className="px-5 py-4">{record.creatorHandle || record.creatorName || "Not provided"}</td>
       <td className="px-5 py-4">{record.platform || record.sourcePlatform || "Unknown"}</td>
-      <td className="px-5 py-4">{formatOptionalNumber(record.videoViews ?? record.views)}</td>
-      <td className="px-5 py-4">{formatOptionalNumber(record.clicks)}</td>
-      <td className="px-5 py-4">{formatOptionalNumber(record.orders ?? record.conversions)}</td>
-      <td className="px-5 py-4">{formatOptionalCurrency(record.revenue ?? record.conversionValue)}</td>
-      <td className="px-5 py-4">{formatOptionalCurrency(record.spend)}</td>
       <td className="px-5 py-4">
         {messages.length ? messages.join(" ") : "Ready to import."}
       </td>
@@ -978,26 +1078,6 @@ function UseCard({ text, title }) {
   );
 }
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: 0,
-    style: "currency",
-  }).format(Number(value || 0));
-}
-
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
-}
-
-function hasOptionalValue(value) {
-  return value !== null && value !== undefined && value !== "";
-}
-
-function formatOptionalCurrency(value) {
-  return hasOptionalValue(value) ? formatCurrency(value) : "Not imported";
-}
-
-function formatOptionalNumber(value) {
-  return hasOptionalValue(value) ? formatNumber(value) : "Not imported";
 }

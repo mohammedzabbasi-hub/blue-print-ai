@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export function Icon({ name = "sparkles", className = "" }) {
   const glyphs = {
@@ -227,8 +228,8 @@ export function ProductCard({ product }) {
     <div className="bp-product-card">
       <ProductSummary product={product} />
       <div className="bp-product-card-meta">
-        <span>{Number(product.totalInventory || 0).toLocaleString()}</span>
-        <small>inventory</small>
+        <span>{product.variants?.length || 0}</span>
+        <small>variants</small>
       </div>
     </div>
   );
@@ -262,6 +263,8 @@ export function ActionCard({
   href,
   glow = false,
 }) {
+  const location = useLocation();
+
   return (
     <article className={`bp-action-card ${glow ? "bp-action-card-glow" : ""}`}>
       <div className="bp-action-card-top">
@@ -275,7 +278,10 @@ export function ActionCard({
       {body && <p>{body}</p>}
       {meta && <small>{meta}</small>}
       {href && (
-        <Link className="bp-link" to={href}>
+        <Link
+          className="bp-link"
+          to={withEmbeddedRouteParams(href, location.search)}
+        >
           {cta || "Open"} →
         </Link>
       )}
@@ -326,6 +332,8 @@ export function CopyBlock({ label, text }) {
 }
 
 export function EmptyState({ title, body, actionHref, actionText, icon = "sparkles", checklist }) {
+  const location = useLocation();
+
   return (
     <div className="bp-empty">
       <span className="bp-empty-icon">
@@ -344,7 +352,10 @@ export function EmptyState({ title, body, actionHref, actionText, icon = "sparkl
         </ul>
       )}
       {actionHref && (
-        <Link className="bp-button bp-button-primary" to={actionHref}>
+        <Link
+          className="bp-button bp-button-primary"
+          to={withEmbeddedRouteParams(actionHref, location.search)}
+        >
           {actionText || "Get started"}
         </Link>
       )}

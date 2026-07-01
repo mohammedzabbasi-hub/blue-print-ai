@@ -10,7 +10,7 @@ Baseline checkpoint: `992033c Initial Shopify app checkpoint`
 | --- | --- | --- | --- | --- |
 | Login / app entry | `/`, `/login` | `/`, `/auth/login` | Preserved | Shopify OAuth and server sessions remain the auth source. TikTok and local-token auth were not copied. |
 | Onboarding | `/onboarding` | Shopify install/auth flow plus `/app/settings` | Partial | Shopify onboarding is platform-driven. Workspace setup and status are surfaced in Settings. |
-| Dashboard | `/dashboard` | `/app` | Migrated before this pass, shell labels updated | Uses Shopify products/orders via Admin API with demo fallback. |
+| Dashboard | `/dashboard` | `/app` | Migrated before this pass, shell labels updated | Uses Shopify products plus saved app records; order reads are not requested in the current scope set. |
 | Creative Library | `/creative-library` | `/app/creative-library` | Migrated before this pass | Saved analyses and Shopify product concepts feed cards/details. |
 | Creative Upload / AI Review Studio | `/upload` | `/app/video-analysis` | Migrated before this pass, nav restored | Upload validation, analyzer bridge, save-to-library flow retained. |
 | Creative Detail | `/creatives/:id` | `/app/creative-library?creativeId=...` | Adapted | Detail panel lives inside the Shopify route rather than a separate nested route. |

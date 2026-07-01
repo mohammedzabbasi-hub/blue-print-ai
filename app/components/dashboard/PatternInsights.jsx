@@ -2,22 +2,22 @@ import { Sparkles } from "lucide-react";
 
 const GROUPS = [
   {
-    category: "Hook Types",
+    category: "Hook Signals",
     key: "hooks",
     colors: ["bg-sky-500", "bg-blue-500", "bg-cyan-500"],
   },
   {
-    category: "Creator Styles",
+    category: "Creator/Format Signals",
     key: "creator_types",
     colors: ["bg-emerald-500", "bg-teal-500", "bg-green-500"],
   },
   {
-    category: "Humor Styles",
-    key: "humor_styles",
+    category: "Source Types",
+    key: "source_types",
     colors: ["bg-amber-500", "bg-orange-500", "bg-yellow-500"],
   },
   {
-    category: "Delivery Styles",
+    category: "Planning Stages",
     key: "delivery_styles",
     colors: ["bg-rose-500", "bg-pink-500", "bg-red-500"],
   },
@@ -60,7 +60,9 @@ export default function PatternInsights({ data }) {
 
         <div>
           <h2 className="text-[14px] font-semibold text-white leading-none">Pattern Insights</h2>
-          <p className="text-[10px] text-slate-500 mt-0.5">Win-rate by creative type</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Share of saved creative signals
+          </p>
         </div>
       </div>
 
@@ -71,7 +73,7 @@ export default function PatternInsights({ data }) {
               No pattern insights yet.
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Import data or upload creatives to generate shop-specific patterns.
+              Analyze a video or save a creative to populate your Command Center.
             </p>
           </div>
         )}

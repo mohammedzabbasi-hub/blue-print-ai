@@ -1,5 +1,4 @@
 import {
-  Activity,
   FileText,
   Gauge,
   Library,
@@ -53,17 +52,10 @@ export default function StatCards({ data }) {
       accent: "text-rose-400",
       iconBg: "bg-rose-500/15",
     },
-    {
-      label: "Recent Activity",
-      value: compactNumber(totals.activities),
-      icon: Activity,
-      accent: "text-violet-400",
-      iconBg: "bg-violet-500/15",
-    },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
       {stats.map((stat) => {
         const Icon = stat.icon;
 

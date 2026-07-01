@@ -1,0 +1,9 @@
+orderName,customerEmail,productHandle,quantity,discountCode,channel,creatorHandle,campaignName,source,testDate,note,createAs
+BPAI-DEMO-1001,customer1@example.com,ice-roller-pro,1,GLOW10,TikTok,@glowwithavery,Morning Depuffing Push,creator seeded CSV,2026-06-01,"Demo draft order for morning routine product context.",draft_order
+BPAI-DEMO-1002,customer2@example.com,lashlift-starter-kit,1,LASH10,Instagram,@mayamakesup,Lash Tutorial Sprint,creator seeded CSV,2026-06-03,"Demo draft order for lash tutorial context.",draft_order
+BPAI-DEMO-1003,customer3@example.com,glowprep-headband-set,2,PREP10,TikTok,@routinejordan,GRWM Prep Add On,creator seeded CSV,2026-06-05,"Demo draft order for accessory bundle context.",draft_order
+BPAI-DEMO-1004,customer4@example.com,glowlift-facial-sculptor,1,LIFT10,TikTok,@sofiaskincare,Jawline Routine Review,creator seeded CSV,2026-06-07,"Demo draft order for sculpting tool context.",draft_order
+BPAI-DEMO-1005,customer5@example.com,glass-skin-bundle,1,BUNDLE10,Instagram,@harperglow,Glass Skin Bundle Launch,creator seeded CSV,2026-06-09,"Demo draft order for bundle offer context.",draft_order
+BPAI-DEMO-1006,customer6@example.com,glowlift-facial-sculptor,1,,Shopify Admin,@rileyreviews,Organic Search Followup,manual seeded CSV,2026-06-11,"Demo draft order with no discount code.",draft_order
+BPAI-DEMO-1007,customer7@example.com,ice-roller-pro,2,GLOW10,TikTok,@emeryedits,Creator Whitelist Test,creator seeded CSV,2026-06-13,"Requested as test order but safely falls back to skip unless explicitly implemented.",test_order
+BPAI-DEMO-1008,customer8@example.com,glass-skin-bundle,1,BUNDLE10,Instagram,@quinncontent,Routine Bundle Retargeting,creator seeded CSV,2026-06-15,"Demo draft order for retargeting context.",draft_order

@@ -1,0 +1,451 @@
+import { buildProductContext, productContextLabel } from "./product-context.js";
+
+const ACTIONS = {
+  briefs: { label: "Generate Brief", href: "/app/ad-briefs", type: "primary" },
+  campaigns: { label: "Open Campaigns", href: "/app/campaigns", type: "primary" },
+  creators: { label: "Compare Creators", href: "/app/creators", type: "secondary" },
+  import: { label: "Import More Data", href: "/app/data-import", type: "primary" },
+  library: { label: "Open Creative Library", href: "/app/creative-library", type: "secondary" },
+  review: { label: "Open AI Review Studio", href: "/app/video-analysis", type: "primary" },
+  settings: { label: "Open Settings", href: "/app/settings", type: "secondary" },
+  blueprint: { label: "Open Revenue Blueprint", href: "/app/revenue-blueprint", type: "secondary" },
+};
+
+export function buildAdvisorContext({
+  analyses = [],
+  blueprints = [],
+  briefs = [],
+  campaigns = [],
+  creatives = [],
+  merchantData = { products: [] },
+  performance = {},
+  profile = {},
+} = {}) {
+  const records = performance.records || [];
+  const productContext = buildProductContext({
+    shopifyProducts: merchantData.products || [],
+    performanceRecords: records,
+  });
+  const creativeRanking = rankCreatives({ analyses, creatives, records });
+  const campaignRanking = rankCampaigns(campaigns);
+  const creatorRanking = rankCreators(records);
+  const counts = {
+    analyses: analyses.length,
+    blueprints: blueprints.length,
+    briefs: briefs.length,
+    campaigns: campaigns.length,
+    creatives: creatives.length,
+    creatorSignals: creatorRanking.length,
+    performanceRecords: records.length,
+    products: productContext.availableProducts.length,
+    shopifyProducts: productContext.shopifyProductsCount,
+    importedProductNames: productContext.importedProductNamesCount,
+  };
+  const gaps = buildDataGaps({ counts, productContext, records, profile });
+
+  return {
+    counts,
+    gaps,
+    productContext,
+    storeSummary: {
+      productContextSource: productContext.productContextSource,
+      productContextLabel: productContextLabel(productContext),
+      products: productContext.availableProducts,
+    },
+    rankings: {
+      campaigns: campaignRanking,
+      creatives: creativeRanking,
+      creators: creatorRanking,
+    },
+    sourceStatus: {
+      hasDemoPerformanceData: Boolean(performance.hasDemoPerformanceData),
+      hasMeasuredPerformanceData: Boolean(performance.hasMeasuredPerformanceData),
+      productError: merchantData.errors?.[0] || "",
+    },
+  };
+}
+
+export function buildAdvisorResponse(context, question = "What should I do next?") {
+  const intent = detectIntent(question);
+  const { rankings, counts, gaps } = context;
+  let result;
+
+  if (intent === "missing") result = answerMissingData(context);
+  else if (intent === "creator") result = answerCreator(rankings.creators[0], gaps);
+  else if (intent === "campaign_fix") {
+    const weakCampaign = rankings.campaigns.find((row) => row.needsAttention);
+    result = weakCampaign
+      ? answerCampaign(weakCampaign, gaps, true)
+      : answerNoCampaignAttention(rankings.campaigns[0], gaps);
+  }
+  else if (intent === "campaign") result = answerCampaign(rankings.campaigns[0], gaps, false);
+  else if (intent === "creative_fix") result = answerCreative(rankings.creatives.find((row) => row.needsAttention), gaps, true);
+  else if (intent === "creative") result = answerCreative(rankings.creatives[0], gaps, false);
+  else if (intent === "brief") result = answerBrief(context);
+  else if (intent === "test") result = answerTest(context);
+  else result = answerNext(context);
+
+  const risks = unique([
+    ...(result.risks || []),
+    context.sourceStatus.productError
+      ? "Shopify product data could not be refreshed, so saved workspace context was used where available."
+      : "",
+    context.sourceStatus.hasDemoPerformanceData && !context.sourceStatus.hasMeasuredPerformanceData
+      ? "Some visible performance signals are demo data and should not be treated as measured store results."
+      : "",
+  ]).filter(Boolean);
+  const evidence = [
+    ...(result.evidence || []),
+    {
+      label: "Product context",
+      value: productContextLabel(context.productContext),
+    },
+  ].filter((item) => item?.label && item?.value !== undefined);
+  const recommendation = result.recommendation;
+  const why = result.why;
+
+  return {
+    answer: `${recommendation} ${why}`.trim(),
+    recommendation,
+    why,
+    evidence,
+    risks,
+    nextAction: result.nextAction,
+    nextActions: result.nextActions || [],
+    storeSummary: context.storeSummary,
+    meta: {
+      deterministic: true,
+      evidenceCount: evidence.length,
+      intent,
+      recordsConsidered: counts.performanceRecords,
+    },
+  };
+}
+
+function answerNext(context) {
+  const weakCampaign = context.rankings.campaigns.find((row) => row.needsAttention);
+  const strongCampaign = context.rankings.campaigns.find((row) => !row.needsAttention && row.metrics.roas !== null);
+  const strongCreative = context.rankings.creatives[0];
+
+  if (weakCampaign) return answerCampaign(weakCampaign, context.gaps, true);
+  if (strongCampaign) return answerCampaign(strongCampaign, context.gaps, false);
+  if (strongCreative) return answerCreative(strongCreative, context.gaps, false);
+  return answerMissingData(context);
+}
+
+function answerCreative(creative, gaps, fix) {
+  if (!creative) {
+    return fallback(
+      "There is not enough creative evidence to rank a creative yet.",
+      "Import performance data or analyze a creative first; BluePrintAI will not guess without a saved signal.",
+      "Analyze one creative or import at least one performance record.",
+      [ACTIONS.review, ACTIONS.import],
+      gaps,
+    );
+  }
+  const shouldFix = fix || creative.needsAttention;
+  return {
+    recommendation: shouldFix
+      ? `Fix “${creative.name}” before putting more spend behind it.`
+      : `Use “${creative.name}” as the lead candidate for the next measured test.`,
+    why: shouldFix
+      ? "It has the clearest weak readiness, CTA, click, or conversion signal in the available store data."
+      : "It ranks highest across measured performance and saved AI review/readiness signals. Scale only in a controlled test; this is not a performance guarantee.",
+    evidence: creative.evidence,
+    risks: creative.risks,
+    nextAction: shouldFix
+      ? "Open AI Review Studio and revise the weakest hook, clarity, or CTA element before producing a new variation."
+      : "Generate one brief that keeps this angle and changes a single variable, then compare it on the same campaign objective.",
+    nextActions: shouldFix ? [ACTIONS.review, ACTIONS.library] : [ACTIONS.briefs, ACTIONS.library],
+  };
+}
+
+function answerCampaign(campaign, gaps, needsAttention) {
+  if (!campaign) {
+    return fallback(
+      "There is not enough assigned campaign evidence to choose a campaign yet.",
+      "Campaign recommendations require a saved campaign and assigned creative performance records.",
+      "Assign imported creative records to a campaign, then ask again.",
+      [ACTIONS.campaigns, ACTIONS.import],
+      gaps,
+    );
+  }
+  const fix = needsAttention || campaign.needsAttention;
+  return {
+    recommendation: fix
+      ? `Open “${campaign.name}” first and diagnose it before adding spend.`
+      : `“${campaign.name}” has the strongest campaign signal for a controlled scale test.`,
+    why: fix
+      ? "Its assigned records show a weak return, click-through, or conversion signal relative to the available campaign set."
+      : "It ranks highest using the app’s aggregated ROAS, revenue, CVR, CTR, creative assignments, and data completeness.",
+    evidence: campaign.evidence,
+    risks: campaign.risks,
+    nextAction: fix
+      ? "Review the weakest assigned creative and test one stronger hook or CTA before reassessing budget."
+      : "Increase budget gradually and monitor CVR and ROAS before making another change.",
+    nextActions: [
+      { label: "Open Campaign", href: `/app/campaigns/${campaign.id}`, type: "primary" },
+      ACTIONS.review,
+    ],
+  };
+}
+
+function answerNoCampaignAttention(campaign, gaps) {
+  if (!campaign) return answerCampaign(null, gaps, true);
+  return {
+    recommendation: `No campaign currently crosses BluePrintAI’s weak-signal threshold; review “${campaign.name}” first because it has the strongest available campaign evidence.`,
+    why: "None of the ranked campaigns has imported ROAS below 1x, CTR below 1%, or CVR below 1%. That does not prove every campaign is healthy, especially where metrics are incomplete.",
+    evidence: campaign.evidence,
+    risks: unique([
+      ...campaign.risks,
+      "A campaign without complete ROAS, CTR, and CVR cannot be cleared as healthy.",
+    ]),
+    nextAction: "Open the campaign and check its assigned creative coverage before changing budget or pausing anything.",
+    nextActions: [
+      { label: "Open Campaign", href: `/app/campaigns/${campaign.id}`, type: "primary" },
+      ACTIONS.import,
+    ],
+  };
+}
+
+function answerCreator(creator, gaps) {
+  if (!creator) {
+    return fallback(
+      "There is not enough creator attribution data to recommend a creator yet.",
+      "No performance records contain a usable creator handle or name.",
+      "Import creative performance with creator names, clicks, orders, and revenue.",
+      [ACTIONS.import, ACTIONS.creators],
+      gaps,
+    );
+  }
+  return {
+    recommendation: `Reuse ${creator.name} for the next controlled creator test.`,
+    why: "This creator has the strongest blended signal across revenue, orders, clicks, engagement, conversion, and consistency in current records.",
+    evidence: creator.evidence,
+    risks: creator.risks,
+    nextAction: "Generate a brief around this creator’s strongest product or angle, then hold the offer and campaign objective constant.",
+    nextActions: [ACTIONS.briefs, ACTIONS.creators],
+  };
+}
+
+function answerMissingData(context) {
+  const topGaps = context.gaps.slice(0, 4);
+  const first = topGaps[0];
+  return {
+    recommendation: first
+      ? first.recommendation
+      : "Your core store context is present; improve confidence by adding more recent, consistently attributed performance rows.",
+    why: first
+      ? first.why
+      : "More observations reduce the chance that one creative or campaign is ranked from a thin sample.",
+    evidence: Object.entries(context.counts).map(([label, value]) => ({
+      label: countLabel(label),
+      value: String(value),
+    })),
+    risks: topGaps.map((gap) => gap.risk),
+    nextAction: first?.nextAction || "Import another reporting period with campaign, creative, creator, product, spend, and outcome fields.",
+    nextActions: first?.actions || [ACTIONS.import, ACTIONS.settings],
+  };
+}
+
+function answerBrief(context) {
+  const creative = context.rankings.creatives[0];
+  if (!creative) return answerCreative(null, context.gaps, false);
+  return {
+    recommendation: `Generate the next brief from “${creative.name}” and preserve its strongest angle.`,
+    why: "The best next brief should start from the highest-ranked saved creative signal, then isolate one new hook, proof sequence, or CTA variable.",
+    evidence: [...creative.evidence, { label: "Saved briefs", value: String(context.counts.briefs) }],
+    risks: creative.risks,
+    nextAction: "Create one product-specific brief with a single testable change and a defined success metric.",
+    nextActions: [ACTIONS.briefs, ACTIONS.blueprint],
+  };
+}
+
+function answerTest(context) {
+  const creative = context.rankings.creatives[0];
+  const campaign = context.rankings.campaigns[0];
+  if (!creative && !campaign) return answerMissingData(context);
+  return {
+    recommendation: creative
+      ? `Test a new hook variation of “${creative.name}” without changing its product, offer, or campaign objective.`
+      : `Test one new creative inside “${campaign.name}” while holding the audience and offer constant.`,
+    why: "Changing one variable makes the next result interpretable and lets BluePrintAI compare it with the current strongest signal.",
+    evidence: creative?.evidence || campaign.evidence,
+    risks: unique([...(creative?.risks || []), ...(campaign?.risks || [])]),
+    nextAction: "Write a brief with one explicit hypothesis and import the next result with spend, clicks, orders, and revenue.",
+    nextActions: [ACTIONS.briefs, ACTIONS.import],
+  };
+}
+
+function fallback(recommendation, why, nextAction, nextActions, gaps) {
+  return {
+    recommendation,
+    why,
+    evidence: gaps.slice(0, 4).map((gap) => gap.evidence),
+    risks: gaps.slice(0, 3).map((gap) => gap.risk),
+    nextAction,
+    nextActions,
+  };
+}
+
+function rankCampaigns(campaigns) {
+  return campaigns.map((campaign) => {
+    const metrics = campaign.metrics || {};
+    const roas = nullable(metrics.roas);
+    const ctr = nullable(metrics.ctr);
+    const cvr = nullable(metrics.cvr);
+    const revenue = nullable(metrics.revenue);
+    const completeness = [roas, ctr, cvr, revenue, nullable(metrics.clicks), nullable(metrics.orders)].filter((v) => v !== null).length;
+    const needsAttention = (roas !== null && roas < 1) || (ctr !== null && ctr < 1) || (cvr !== null && cvr < 1);
+    const score = (roas || 0) * 18 + Math.min(30, (revenue || 0) / 100) + (cvr || 0) * 2 + (ctr || 0) + Number(campaign.creativeCount || 0) * 3 + completeness * 2 - (needsAttention ? 15 : 0);
+    return {
+      id: campaign.id,
+      name: campaign.name || "Untitled campaign",
+      metrics: { roas, ctr, cvr, revenue },
+      needsAttention,
+      score,
+      evidence: compact([
+        metric("ROAS", roas, "x"), metric("Revenue", revenue, "currency"), metric("CVR", cvr, "%"),
+        metric("CTR", ctr, "%"), { label: "Assigned creatives", value: String(campaign.creativeCount || 0) },
+      ]),
+      risks: completeness < 3 ? ["This campaign has incomplete commercial metrics, which lowers ranking confidence."] : [],
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function rankCreatives({ analyses, creatives, records }) {
+  const rows = [];
+  for (const record of records) {
+    const roas = value(record, "roas");
+    const revenue = value(record, "revenue");
+    const orders = value(record, "orders", "conversions");
+    const clicks = value(record, "clicks");
+    const ctr = value(record, "ctr");
+    const cvr = value(record, "cvr", "conversionRate");
+    const engagement = value(record, "engagementRate");
+    const readiness = value(record, "creativeScore", "readinessScore");
+    const score = (roas || 0) * 16 + Math.min(35, (revenue || 0) / 80) + (orders || 0) * 3 + Math.min(20, (clicks || 0) / 25) + (engagement || 0) + (readiness || 0) / 5;
+    const commercialCount = [roas, revenue, orders, clicks, ctr, cvr].filter((v) => v !== null).length;
+    rows.push({
+      id: record.id,
+      name: record.creativeTitle || record.adName || record.creativeId || "Imported creative",
+      needsAttention: (clicks !== null && clicks >= 50 && (!cvr || cvr < 1.5)) || (readiness !== null && readiness < 55),
+      score,
+      evidence: compact([metric("ROAS", roas, "x"), metric("Revenue", revenue, "currency"), metric("Orders", orders), metric("Clicks", clicks), metric("CTR", ctr, "%"), metric("CVR", cvr, "%"), metric("Engagement", engagement, "%"), metric("Creative readiness", readiness, "/100")]),
+      risks: commercialCount < 2 ? ["This creative has limited commercial outcome data; its rank leans on engagement or readiness signals."] : [],
+    });
+  }
+  for (const record of analyses) rows.push(analysisCreative(record, "Saved AI review"));
+  for (const record of creatives) rows.push(savedCreative(record));
+  return dedupeByName(rows).sort((a, b) => b.score - a.score);
+}
+
+function analysisCreative(record, source) {
+  const payload = record.payload?.result || record.payload || {};
+  const scores = payload.scores || payload.analysis?.scores || payload.reviewScores || {};
+  const hook = scoreValue(scores, "hook", "hookScore");
+  const clarity = scoreValue(scores, "clarity", "clarityScore");
+  const cta = scoreValue(scores, "cta", "ctaScore");
+  const readiness = scoreValue(scores, "readiness", "readinessScore") || Math.round(((hook || 0) + (clarity || 0) + (cta || 0)) / 3 * 10);
+  return {
+    id: record.id,
+    name: record.productTitle || record.fileName || "Saved analysis",
+    needsAttention: readiness < 55 || (cta !== null && cta < 5),
+    score: readiness,
+    evidence: compact([metric("Hook", hook, "/10"), metric("Clarity", clarity, "/10"), metric("CTA", cta, "/10"), metric("Creative readiness", readiness, "/100"), { label: "Source", value: source }]),
+    risks: ["No linked commercial performance was found for this saved AI review."],
+  };
+}
+
+function savedCreative(record) {
+  const row = analysisCreative({ ...record, payload: record.payload?.analysis || record.payload }, "Saved creative");
+  row.name = record.title || row.name;
+  row.score = row.score || Number(record.payload?.score || 0) || 40;
+  return row;
+}
+
+function rankCreators(records) {
+  const groups = new Map();
+  for (const record of records) {
+    const name = record.creatorHandle || record.creatorName;
+    if (!name) continue;
+    const key = String(name).trim().toLowerCase();
+    const row = groups.get(key) || { name, records: 0, clicks: 0, orders: 0, revenue: 0, engagements: 0, views: 0, commercialRows: 0 };
+    row.records += 1;
+    row.clicks += number(record.clicks);
+    row.orders += number(record.orders ?? record.conversions);
+    row.revenue += number(record.revenue);
+    row.engagements += number(record.engagements) + number(record.likes) + number(record.comments) + number(record.shares);
+    row.views += number(record.views ?? record.videoViews);
+    if ([record.clicks, record.orders, record.revenue].some((v) => v !== null && v !== undefined)) row.commercialRows += 1;
+    groups.set(key, row);
+  }
+  return [...groups.values()].map((row) => {
+    const cvr = row.clicks ? row.orders / row.clicks * 100 : null;
+    const engagementRate = row.views ? row.engagements / row.views * 100 : null;
+    const score = row.revenue / 80 + row.orders * 4 + row.clicks / 25 + (engagementRate || 0) + Math.min(10, row.records * 2);
+    return {
+      ...row,
+      score,
+      evidence: compact([metric("Revenue", row.revenue, "currency"), metric("Orders", row.orders), metric("Clicks", row.clicks), metric("CVR", cvr, "%"), metric("Engagement", engagementRate, "%"), { label: "Records", value: String(row.records) }]),
+      risks: row.commercialRows ? [] : ["This creator rank is based on public engagement only; conversion attribution is missing."],
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function buildDataGaps({ counts, productContext, records, profile }) {
+  const gaps = [];
+  if (!productContext.hasAnyProductContext && !profile.mainProduct) gaps.push(gap("Add product context.", "Product context is missing, so advice cannot reliably connect creative signals to a specific product.", "Product context", "0", "Add a Shopify product, import a product name, or enter your main product in Settings.", [ACTIONS.import, ACTIONS.settings]));
+  if (!counts.performanceRecords) gaps.push(gap("Import performance data before choosing a winner.", "There are no imported or synced performance records, so BluePrintAI cannot compare real outcomes.", "Performance records", "0", "Import creative-level performance with clicks, orders, revenue, and spend.", [ACTIONS.import]));
+  if (!counts.campaigns) gaps.push(gap("Create or import a campaign and assign its creatives.", "Campaign assignments are missing, which prevents campaign-level opportunity ranking.", "Campaigns", "0", "Create a campaign and assign related creative records.", [ACTIONS.campaigns]));
+  if (!counts.creatorSignals) gaps.push(gap("Add creator attribution to imported creative rows.", "No usable creator name or handle is present, so BluePrintAI cannot compare creators.", "Creator signals", "0", "Import creator handles with clicks, orders, revenue, and engagement.", [ACTIONS.import, ACTIONS.creators]));
+  if (!counts.briefs && (counts.creatives || counts.analyses)) gaps.push(gap("Generate a brief from the strongest saved creative.", "Creative evidence exists, but there is no saved brief defining the next controlled test.", "Saved briefs", "0", "Generate a brief with one hypothesis and success metric.", [ACTIONS.briefs]));
+  const commercialRows = records.filter((row) => [row.clicks, row.orders, row.revenue, row.spend].some((v) => v !== null && v !== undefined)).length;
+  if (records.length && !commercialRows) gaps.push(gap("Import commercial outcomes to improve confidence.", "Current rows contain engagement but no clicks, orders, revenue, or spend.", "Commercial rows", "0", "Add available outcome fields to the next import.", [ACTIONS.import]));
+  return gaps;
+}
+
+function gap(recommendation, why, label, value, nextAction, actions) {
+  return { recommendation, why, evidence: { label, value }, risk: why, nextAction, actions };
+}
+
+function detectIntent(question) {
+  const q = String(question || "").toLowerCase();
+  if (/missing|need more data|data gap|connect/.test(q)) return "missing";
+  if (/creator|influencer/.test(q)) return "creator";
+  if (/campaign/.test(q) && /attention|wast|fix|weak|pause|problem/.test(q)) return "campaign_fix";
+  if (/campaign/.test(q)) return "campaign";
+  if (/creative|\bad\b/.test(q) && /fix|weak|first|improve|attention/.test(q)) return "creative_fix";
+  if (/creative|\bad\b|scale|strongest|winner/.test(q)) return "creative";
+  if (/brief|generate/.test(q)) return "brief";
+  if (/test|experiment|try next/.test(q)) return "test";
+  return "next";
+}
+
+function metric(label, raw, suffix = "") {
+  const value = nullable(raw);
+  if (value === null) return null;
+  if (suffix === "currency") return { label, value: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value) };
+  return { label, value: `${formatNumber(value)}${suffix}` };
+}
+
+function compact(values) { return values.filter(Boolean).slice(0, 7); }
+function unique(values) { return [...new Set(values.filter(Boolean))]; }
+function number(value) { return Number.isFinite(Number(value)) ? Number(value) : 0; }
+function nullable(value) { return value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? null : Number(value); }
+function value(record, ...keys) { for (const key of keys) { const found = nullable(record[key]); if (found !== null) return found; } return null; }
+function scoreValue(scores, ...keys) { for (const key of keys) { const found = nullable(scores?.[key]?.score ?? scores?.[key]); if (found !== null) return found > 10 ? found / 10 : found; } return null; }
+function formatNumber(value) { return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
+function countLabel(value) {
+  if (value === "products") return "Products";
+  return value.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
+}
+function dedupeByName(rows) {
+  const output = new Map();
+  for (const row of rows) {
+    const key = row.name.trim().toLowerCase();
+    const current = output.get(key);
+    if (!current || row.score > current.score) output.set(key, row);
+  }
+  return [...output.values()];
+}

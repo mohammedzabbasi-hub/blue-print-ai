@@ -9,9 +9,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { analyzeUploadedVideoFile } from "../services/media-analyzer.server";
+import { analyzeUploadedVideoFile, getAnalyzerRuntimeStatus } from "../services/media-analyzer.server";
 import {
-  analyzeVideoInput,
   buildRevenueBlueprint,
   getWorkspaceProfile,
   getWorkspaceSettingsMap,
@@ -23,11 +22,16 @@ import {
 } from "../models/blueprint.server";
 import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
-import { generateCreativeTitleAndSummary } from "../utils/creative-display.server";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server";
+import { assertUploadRequestSize } from "../utils/upload-storage.server";
+import {
+  analyzerEvidence,
+  normalizeRetentionAnalysis,
+  transcriptEvidence,
+} from "../utils/video-analysis-evidence";
 
 export const meta = () => {
-  return [{ title: "Video Analysis | BluePrintAI" }];
+  return [{ title: "AI Review Studio | BluePrintAI" }];
 };
 
 export const loader = async ({ request }) => {
@@ -43,6 +47,7 @@ export const loader = async ({ request }) => {
 
   return {
     analyses,
+    analyzerRuntime: getAnalyzerRuntimeStatus(),
     autoSaveAnalyzedVideos: settings.auto_save_analyzed_videos === "true",
     hasDemoPerformanceData: performance.hasDemoPerformanceData,
     hasMeasuredPerformanceData: performance.hasMeasuredPerformanceData,
@@ -53,6 +58,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
+  assertUploadRequestSize(request);
   const { merchantData, session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "analyze");
@@ -88,6 +94,13 @@ export const action = async ({ request }) => {
           title: "Uploaded Video",
         };
       const analyzer = await analyzeUploadedVideoFile(videoFile);
+      if (!analyzer.available) {
+        return {
+          analyzerUnavailable: true,
+          analyzerMessage: analyzer.message,
+          success: "Upload saved, analysis unavailable.",
+        };
+      }
       const analysis = buildVideoAnalysisPayload({
         analyzer,
         fileName,
@@ -157,14 +170,9 @@ export const action = async ({ request }) => {
       analysisPayload.result?.display ||
       payload.display ||
       payload?.result?.display ||
-      generateCreativeTitleAndSummary({
-        productTitle: product.title,
-        fileName,
-        analysis,
-        metadata,
-      });
+      { displayTitle: fileName, originalFilename: fileName, summary: analysis.summary || "Not available" };
     const displayTitle = display.displayTitle || display.generatedTitle || fileName;
-    const summary = display.summary || analysis.summary || "Video analysis";
+    const summary = display.summary || analysis.summary || "Not available";
     const saveableAnalysis = {
       filename: fileName,
       result: {
@@ -266,98 +274,20 @@ export const action = async ({ request }) => {
   }
 };
 
-const DEFAULT_RETENTION_ANALYSIS = {
-  retention_score: 42,
-  hook_status: "Weak",
-  useless_viewership_flag: true,
-  first_3_seconds_retention: 78,
-  first_5_seconds_retention: 61,
-  first_10_seconds_retention: 39,
-  retention_curve: [
-    { second: 0, retention: 100 },
-    { second: 3, retention: 78 },
-    { second: 5, retention: 61 },
-    { second: 10, retention: 39 },
-    { second: 15, retention: 31 },
-    { second: 20, retention: 24 },
-    { second: 30, retention: 18 },
-  ],
-  biggest_dropoff: {
-    timestamp: "0:10",
-    drop_percent: 22,
-    severity: "High",
-    reason:
-      "The ad loses momentum before the product benefit is clearly shown.",
-  },
-  major_dropoffs: [],
-  engagement_vacancies: [
-    "No strong pattern interrupt in the first 10 seconds",
-    "Product benefit appears too late",
-    "Visual pacing slows down before the viewer has a reason to stay",
-  ],
-  recommendations: [
-    "Show the product result within the first 2 seconds.",
-    "Cut the intro by 3-5 seconds.",
-    "Add a bold text overlay that states the main pain point immediately.",
-    "Insert a fast visual change before second 8.",
-  ],
-  verdict:
-    "This ad loses too much viewer attention in the first 10 seconds, so much of the viewership is low-value.",
-};
-
-function buildVideoAnalysisPayload({
+export function buildVideoAnalysisPayload({
   analyzer,
   fileName,
   fileSize,
   fileType,
   storedVideo,
-  product,
 }) {
-  const heuristic = analyzeVideoInput({
-    description: [
-      analyzer?.summary,
-      analyzer?.transcript?.full_text,
-      analyzer?.ocr_text?.map((item) => item.text).join(" "),
-    ]
-      .filter(Boolean)
-      .join(" "),
-    productTitle: product.title,
-    fileName,
-    fileSize,
-    fileType,
-    contentSignature: analyzer?.message || "",
-  });
-  const analysis = {
-    summary:
-      analyzer?.summary ||
-      `${fileName} creative analysis saved from Shopify workspace upload.`,
-    hook_score: heuristic.hookScore,
-    cta_score: heuristic.ctaScore,
-    clarity_score: heuristic.clarityScore,
-    creator_style: "Product demonstration",
-    recommendations: heuristic.rewriteSuggestions,
-    strengths: [
-      analyzer?.available
-        ? "The uploaded video was processed by the local media analyzer."
-        : "The analysis used file metadata from the uploaded video.",
-    ],
-    weaknesses: [heuristic.firstTenSecondRisk],
-    hook_type: "Problem-solution",
-    creator_type: "Product demo",
-    delivery_style: "Direct response",
-    pacingNotes: heuristic.pacingNotes,
-    firstTenSecondRisk: heuristic.firstTenSecondRisk,
+  const evidence = analyzerEvidence(analyzer);
+  const { analysis, transcript } = evidence;
+  const display = {
+    displayTitle: analyzer?.display?.displayTitle || fileName,
+    originalFilename: fileName,
+    summary: analysis.summary || "Not available",
   };
-  const display = generateCreativeTitleAndSummary({
-    productTitle: product.title,
-    fileName,
-    transcriptText: analyzer?.transcript?.full_text || "",
-    ocrText: analyzer?.ocr_text?.map((item) => item.text).join(" ") || "",
-    analysis,
-    metadata: analyzer?.metadata || {},
-  });
-
-  analysis.summary = display.summary;
 
   return {
     filename: fileName,
@@ -365,10 +295,7 @@ function buildVideoAnalysisPayload({
       analysis,
       display,
       metadata: {
-        duration_seconds: analyzer?.metadata?.duration_seconds || 0,
-        fps: analyzer?.metadata?.fps || 0,
-        height: analyzer?.metadata?.height || 0,
-        width: analyzer?.metadata?.width || 0,
+        ...evidence.metadata,
         file_size: fileSize,
         file_type: fileType,
         media_fingerprint: storedVideo?.fingerprint || "",
@@ -382,12 +309,9 @@ function buildVideoAnalysisPayload({
             storage: storedVideo.storage,
           }
         : null,
-      transcript: analyzer?.transcript || {
-        summary: "",
-        full_text: "",
-      },
-      ocr_text: analyzer?.ocr_text || [],
-      retention_analysis: analyzer?.retention_analysis || DEFAULT_RETENTION_ANALYSIS,
+      transcript,
+      ocr_text: evidence.ocr_text,
+      retention_analysis: evidence.retention_analysis,
       analyzer,
     },
   };
@@ -405,87 +329,6 @@ function scoreLabel(score) {
   if (score >= 8) return "Strong";
   if (score >= 5) return "Needs Testing";
   return "Weak";
-}
-
-function predictImpact(analysis) {
-  const hook = Number(analysis.hook_score || 0);
-  const cta = Number(analysis.cta_score || 0);
-  const clarity = Number(analysis.clarity_score || 0);
-  const avg = (hook + cta + clarity) / 3;
-
-  if (avg >= 7) {
-    return {
-      level: "High",
-      reason:
-        "Strong hook, clear message, and CTA give this creative stronger estimated readiness for the next planning test.",
-    };
-  }
-
-  if (avg >= 4) {
-    return {
-      level: "Medium",
-      reason:
-        "The creative has some usable elements, but weak clarity or CTA may limit readiness for a TikTok-style planning test.",
-    };
-  }
-
-  return {
-    level: "Low",
-    reason:
-      "Weak CTA, unclear benefit, and low hook strength make this unlikely to convert well without revision.",
-  };
-}
-
-function getWinningPattern(analysis) {
-  const hook = Number(analysis.hook_score || 0);
-  const cta = Number(analysis.cta_score || 0);
-  const clarity = Number(analysis.clarity_score || 0);
-
-  const missing = [];
-  if (hook < 6) missing.push("strong hook");
-  if (cta < 6) missing.push("clear CTA");
-  if (clarity < 6) missing.push("clear benefit text");
-
-  return {
-    matches: hook >= 7 && cta >= 7 && clarity >= 7 ? "Yes" : "No",
-    closest: analysis.creator_style || "Product Demo",
-    missing: missing.length
-      ? missing.join(", ")
-      : "No major missing pattern detected",
-  };
-}
-
-function getAdClassification(analysis, metadata) {
-  const style = analysis.creator_style || "Product demonstration";
-  const duration = Number(metadata.duration_seconds || 0);
-
-  return {
-    format: `${style} / short-form ad`,
-    style,
-    bestUse:
-      duration > 60
-        ? "Retargeting or product education, not cold traffic"
-        : "Cold traffic test or retargeting creative",
-  };
-}
-
-function rewriteAd(analysis) {
-  const summary = `${analysis.summary || ""}`.toLowerCase();
-
-  if (summary.includes("old spice") || summary.includes("deodorant")) {
-    return {
-      hook: "Most deodorants fade by noon — this one does not.",
-      cta: "Tap to shop Old Spice now.",
-      angle: "Lead with the product benefit, then show the result clearly.",
-    };
-  }
-
-  return {
-    hook: "Stop scrolling — this fixes the problem you deal with every day.",
-    cta: "Tap to shop now.",
-    angle:
-      "Open with the pain point, show the product in action, then end with a direct CTA.",
-  };
 }
 
 function formatFileSize(bytes = 0) {
@@ -520,8 +363,10 @@ function savedReviewPayload(record = {}) {
     analysis: result.analysis || payload.analysis || {},
     display: result.display || payload.display || {},
     metadata: result.metadata || payload.metadata || {},
-    transcript: result.transcript || payload.transcript || {},
-    retention: result.retention_analysis || payload.retention_analysis || {},
+    transcript: transcriptEvidence(result.transcript || payload.transcript),
+    retention: normalizeRetentionAnalysis(
+      result.retention_analysis || payload.retention_analysis,
+    ),
     media: result.media || payload.media || {},
   };
 }
@@ -563,7 +408,7 @@ function normalizeScore(value) {
 function formatReviewScore(value) {
   const score = normalizeScore(value);
 
-  return score ? `${score}/10` : "—";
+  return score ? `${score}/10` : "Not available";
 }
 
 function truncateText(value = "", maxLength = 170) {
@@ -607,7 +452,6 @@ function buildSavedReview(record = {}) {
   const hookScore = normalizeScore(analysis.hook_score || analysis.hookScore);
   const clarityScore = normalizeScore(analysis.clarity_score || analysis.clarityScore);
   const ctaScore = normalizeScore(analysis.cta_score || analysis.ctaScore);
-  const knownScores = [hookScore, clarityScore, ctaScore].filter(Boolean);
   const overallScore =
     normalizeScore(
       analysis.overall_score ||
@@ -615,19 +459,13 @@ function buildSavedReview(record = {}) {
         analysis.creative_score ||
         analysis.creativeScore ||
         analysis.readinessScore,
-    ) ||
-    (knownScores.length
-      ? Math.round(
-          knownScores.reduce((total, score) => total + score, 0) /
-            knownScores.length,
-        )
-      : null);
+    );
   const summary = pickText(
     display.summary,
     analysis.summary,
     record.brief,
     result.summary,
-    "No summary saved for this review.",
+    "Not available",
   );
   const recommendations = pickList(
     analysis.recommendations,
@@ -635,14 +473,11 @@ function buildSavedReview(record = {}) {
     analysis.nextActions,
     retention.recommendations,
   );
-  const nextAction =
-    recommendations[0] ||
-    pickText(
-      analysis.next_action,
-      analysis.nextAction,
-      result.nextAction,
-      "Turn the strongest hook and CTA into the next creative test.",
-    );
+  const nextAction = pickText(
+    analysis.next_action,
+    analysis.nextAction,
+    result.nextAction,
+  );
   const transcriptSummary = pickText(
     transcript.summary,
     transcript.full_text,
@@ -658,13 +493,18 @@ function buildSavedReview(record = {}) {
       analysis.creator_style,
       analysis.creator_type,
       analysis.delivery_style,
-      "Manual upload",
+      "Not available",
     ),
     date: formatSavedReviewDate(record.createdAt || result.createdAt),
     hookScore,
     clarityScore,
     ctaScore,
     overallScore,
+    scorePrefix: /heuristic|estimate|predicted|modeled/i.test(
+      String(analysis.analysis_method || analysis.evidence_type || ""),
+    )
+      ? "Estimated "
+      : "",
     summary,
     summaryPreview: truncateText(summary),
     recommendations,
@@ -686,9 +526,6 @@ function buildSavedReview(record = {}) {
       analysis.ctaNotes,
       analysis.cta_notes,
       analysis.cta_feedback,
-      analysis.cta_score
-        ? `CTA strength was scored ${analysis.cta_score}/10.`
-        : "",
     ),
     objectionHandlingNotes: pickText(
       analysis.objectionHandlingNotes,
@@ -705,14 +542,19 @@ function buildSavedReview(record = {}) {
   };
 }
 
-function ScoreCard({ label, value }) {
-  const score = Number(value || 0);
+function ScoreCard({ label, value, method = "Analyzer output" }) {
+  const score = normalizeScore(value);
 
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0d1526] p-5">
-      <p className="text-sm text-slate-400">{label}</p>
-      <p className="mt-2 text-4xl font-bold text-white">{score}/10</p>
-      <p className="mt-2 text-xs text-sky-300">{scoreLabel(score)}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-slate-400">{label}</p>
+        <RetentionBadge tone="info">{method}</RetentionBadge>
+      </div>
+      <p className="mt-2 text-4xl font-bold text-white">
+        {score ? `${score}/10` : "Not available"}
+      </p>
+      {score && <p className="mt-2 text-xs text-sky-300">{scoreLabel(score)}</p>}
     </div>
   );
 }
@@ -738,15 +580,10 @@ function RetentionBadge({ children, tone = "neutral" }) {
 }
 
 function retentionTone(score) {
+  if (!Number.isFinite(Number(score))) return "neutral";
   if (score >= 75) return "healthy";
   if (score >= 50) return "warning";
   return "danger";
-}
-
-function retentionStatus(score) {
-  if (score >= 75) return "Healthy Retention";
-  if (score >= 50) return "Medium Warning";
-  return "Critical Warning";
 }
 
 function SectionCard({ title, subtitle, children, accent = false }) {
@@ -770,7 +607,7 @@ function ListCard({ title, items = [], accent = false }) {
         {items.length ? (
           items.map((item, index) => <li key={index}>• {item}</li>)
         ) : (
-          <li>No data available.</li>
+          <li>Not available</li>
         )}
       </ul>
     </SectionCard>
@@ -778,9 +615,16 @@ function ListCard({ title, items = [], accent = false }) {
 }
 
 function RetentionChart({ curve = [] }) {
-  const chartData = curve.length
-    ? curve
-    : DEFAULT_RETENTION_ANALYSIS.retention_curve;
+  const chartData = Array.isArray(curve) ? curve : [];
+
+  if (!chartData.length) {
+    return (
+      <div className="flex h-72 items-center justify-center rounded-xl border border-dashed border-white/10 bg-slate-950/30 p-6 text-center text-sm text-slate-400">
+        Retention curve not available. Connect platform or video analytics to
+        measure viewer decay over time.
+      </div>
+    );
+  }
 
   return (
     <div className="h-72 w-full">
@@ -847,34 +691,80 @@ function MetricTile({ label, value, detail }) {
 }
 
 function RetentionDropOffAnalyzer({ retentionAnalysis }) {
-  const retention = retentionAnalysis || DEFAULT_RETENTION_ANALYSIS;
-  const score = Number(retention.retention_score || 0);
+  const retention = normalizeRetentionAnalysis(retentionAnalysis);
+  const hasScore =
+    retention.retention_score !== undefined &&
+    retention.retention_score !== null &&
+    retention.retention_score !== "" &&
+    Number.isFinite(Number(retention.retention_score));
+  const score = hasScore ? Number(retention.retention_score) : null;
   const tone = retentionTone(score);
   const biggestDropoff = retention.biggest_dropoff || {};
   const isWeakHook = retention.hook_status === "Weak";
   const isHighDropoff = biggestDropoff.severity === "High";
+  const isHeuristic = retention.evidence_type === "heuristic";
+  const formatPercent = (value) =>
+    value !== undefined &&
+    value !== null &&
+    value !== "" &&
+    Number.isFinite(Number(value))
+      ? `${Number(value)}%`
+      : "Not available";
+
+  if (!retention.available) {
+    return (
+      <section className="rounded-3xl border border-sky-500/20 bg-[#0a1020] p-6 shadow-2xl shadow-black/20">
+        <p className="text-xs font-bold uppercase tracking-[0.25em] text-sky-400">
+          Retention Analytics
+        </p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-3xl font-black text-white">Viewer Retention</h2>
+            <p className="mt-2 max-w-3xl text-slate-400">
+              {retention.unavailable_reason}
+            </p>
+          </div>
+          <RetentionBadge>Not available</RetentionBadge>
+        </div>
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <MetricTile label="First 3 Seconds" value="Not available" />
+          <MetricTile label="First 5 Seconds" value="Not available" />
+          <MetricTile label="First 10 Seconds" value="Not available" />
+        </div>
+        <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-[#07101f] p-6 text-sm leading-6 text-slate-400">
+          No retention curve, retention score, viewership flag, or drop-off
+          diagnosis was generated. Those claims require measured audience data
+          from a connected platform or video analytics source.
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-3xl border border-sky-500/20 bg-[#0a1020] p-6 shadow-2xl shadow-black/20">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.25em] text-sky-400">
-            Retention Intelligence
+            Retention Analytics
           </p>
           <h2 className="mt-2 text-3xl font-black text-white">
             Retention Drop-Off Analyzer
           </h2>
           <p className="mt-2 max-w-3xl text-slate-400">
-            Viewer decay, hook strength, engagement vacancies, and fixes for
-            keeping more valuable attention.
+            Metrics supplied by the analyzer. Estimated values are labeled and
+            are not live platform performance.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <RetentionBadge tone={tone}>{retentionStatus(score)}</RetentionBadge>
-          <RetentionBadge tone={isWeakHook ? "danger" : "healthy"}>
-            {isWeakHook ? "Weak Hook" : "Strong Hook"}
+          <RetentionBadge tone={isHeuristic ? "info" : "healthy"}>
+            {isHeuristic ? "Heuristic estimate" : "Analyzer output"}
           </RetentionBadge>
+          {retention.hook_status && (
+            <RetentionBadge tone={isWeakHook ? "danger" : "healthy"}>
+              {retention.hook_status} Hook
+            </RetentionBadge>
+          )}
           {retention.useless_viewership_flag && (
             <RetentionBadge tone="danger">Useless Viewership Flag</RetentionBadge>
           )}
@@ -884,44 +774,26 @@ function RetentionDropOffAnalyzer({ retentionAnalysis }) {
         </div>
       </div>
 
-      {score < 50 && (
-        <div className="mt-5 rounded-2xl border border-red-400/25 bg-red-500/10 p-4 text-red-100">
-          <p className="font-black">Critical retention warning</p>
-          <p className="mt-1 text-sm text-red-100/85">
-            Retention score is below 50. The first 5-10 seconds should be
-            rebuilt before this ad is scaled.
-          </p>
-        </div>
-      )}
-
-      {score >= 50 && score < 75 && (
-        <div className="mt-5 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-amber-100">
-          <p className="font-black">Medium retention warning</p>
-          <p className="mt-1 text-sm text-amber-100/85">
-            Retention is usable, but the ad needs a stronger early payoff and
-            pacing test.
-          </p>
-        </div>
-      )}
-
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricTile
           label="Retention Health Score"
-          value={`${score}/100`}
-          detail={retentionStatus(score)}
+          value={hasScore ? `${score}/100` : "Not available"}
         />
-        <MetricTile label="Hook Status" value={retention.hook_status || "Unknown"} />
+        <MetricTile
+          label="Hook Status"
+          value={retention.hook_status || "Not available"}
+        />
         <MetricTile
           label="First 3 Seconds"
-          value={`${retention.first_3_seconds_retention ?? 0}%`}
+          value={formatPercent(retention.first_3_seconds_retention)}
         />
         <MetricTile
           label="First 5 Seconds"
-          value={`${retention.first_5_seconds_retention ?? 0}%`}
+          value={formatPercent(retention.first_5_seconds_retention)}
         />
         <MetricTile
           label="First 10 Seconds"
-          value={`${retention.first_10_seconds_retention ?? 0}%`}
+          value={formatPercent(retention.first_10_seconds_retention)}
         />
       </div>
 
@@ -934,31 +806,27 @@ function RetentionDropOffAnalyzer({ retentionAnalysis }) {
                 Seconds watched vs. viewers retained
               </p>
             </div>
-            <RetentionBadge tone={tone}>
-              {score >= 75 ? "Healthy Retention" : "Drop-Off Risk"}
+            <RetentionBadge tone={isHeuristic ? "info" : tone}>
+              {isHeuristic ? "Estimated" : "Analyzer data"}
             </RetentionBadge>
           </div>
           <RetentionChart curve={retention.retention_curve} />
         </div>
 
         <div className="space-y-4 lg:col-span-2">
-          <SectionCard title="Useless Viewership Flag">
-            <p
-              className={
-                retention.useless_viewership_flag
-                  ? "text-red-100"
-                  : "text-emerald-100"
-              }
-            >
-              {retention.useless_viewership_flag
-                ? "True - retention at 10 seconds is below the healthy threshold."
-                : "False - enough viewers are staying through the early value window."}
+          <SectionCard title="Viewership Quality Flag">
+            <p>
+              {typeof retention.useless_viewership_flag === "boolean"
+                ? retention.useless_viewership_flag
+                  ? "Flagged by the analyzer."
+                  : "Not flagged by the analyzer."
+                : "Not available"}
             </p>
           </SectionCard>
 
           <SectionCard title="Biggest Drop-Off Moment" accent={isHighDropoff}>
             <p className="text-2xl font-black text-white">
-              {biggestDropoff.timestamp || "No major drop"}{" "}
+              {biggestDropoff.timestamp || "Not available"}{" "}
               <span className="text-base text-slate-400">
                 {biggestDropoff.drop_percent
                   ? `-${biggestDropoff.drop_percent}%`
@@ -966,7 +834,7 @@ function RetentionDropOffAnalyzer({ retentionAnalysis }) {
               </span>
             </p>
             <p className="mt-3">
-              {biggestDropoff.reason || "No significant drop-off detected."}
+              {biggestDropoff.reason || "Not available"}
             </p>
           </SectionCard>
         </div>
@@ -983,7 +851,7 @@ function RetentionDropOffAnalyzer({ retentionAnalysis }) {
           accent
         />
         <SectionCard title="Final Verdict" accent>
-          <p>{retention.verdict || "No retention verdict available yet."}</p>
+          <p>{retention.verdict || "Not available"}</p>
         </SectionCard>
       </div>
     </section>
@@ -1000,19 +868,18 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
   const payload = currentResult?.result || {};
   const analysis = payload?.analysis || {};
   const metadata = payload?.metadata || {};
-  const transcript = payload?.transcript || {};
+  const transcript = transcriptEvidence(payload?.transcript);
   const ocrText = payload?.ocr_text || [];
-  const retentionAnalysis =
-    payload?.retention_analysis || DEFAULT_RETENTION_ANALYSIS;
+  const retentionAnalysis = normalizeRetentionAnalysis(payload?.retention_analysis);
+  const pipeline = payload?.analyzer?.pipeline || analysis.analysis_basis || {};
 
-  const hookScore = Number(analysis.hook_score || 0);
-  const ctaScore = Number(analysis.cta_score || 0);
-  const clarityScore = Number(analysis.clarity_score || 0);
-
-  const impact = predictImpact(analysis);
-  const pattern = getWinningPattern(analysis);
-  const classification = getAdClassification(analysis, metadata);
-  const rewrite = rewriteAd(analysis);
+  const hookScore = analysis.hook_score;
+  const ctaScore = analysis.cta_score;
+  const clarityScore = analysis.clarity_score;
+  const isEstimated = /heuristic|estimate|predicted|modeled/i.test(
+    String(analysis.analysis_method || analysis.evidence_type || ""),
+  );
+  const scoreMethod = isEstimated ? "Estimated" : "Analyzer output";
 
   const detectedText = ocrText
     .map((item) => item.text)
@@ -1083,10 +950,6 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
     const report = {
       filename: currentResult?.filename || file?.name,
       generated_at: new Date().toISOString(),
-      estimated_creative_readiness: impact,
-      creative_pattern_match: pattern,
-      ad_classification: classification,
-      rewrite_this_ad: rewrite,
       analysis,
       metadata,
       transcript,
@@ -1118,8 +981,8 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
             Video Ad Breakdown
           </h2>
           <p className="mt-2 text-slate-400">
-            Hook, messaging, visual clarity, CTA strength, format,
-            AI-estimated creative readiness, and next-test recommendations.
+            Fields returned by the configured analyzer. Missing fields remain
+            explicitly unavailable.
           </p>
         </div>
 
@@ -1169,9 +1032,38 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
       </div>
 
       <p className="text-xs font-semibold leading-5 text-slate-500">
-        AI-estimated analysis can be inaccurate. Review results before using
-        them for publishing, claims, or business decisions.
+        {isEstimated
+          ? "Estimated: the analyzer identified these results as heuristic or modeled, not measured audience performance."
+          : "Only analyzer-provided values are shown; this page does not create fallback scores or conclusions."}
       </p>
+
+      <SectionCard
+        title="Analysis Coverage"
+        subtitle="What this review actually inspected"
+      >
+        <div className="flex flex-wrap gap-2">
+          <RetentionBadge tone={pipeline.metadata ? "healthy" : "neutral"}>
+            Metadata {pipeline.metadata ? "analyzed" : "unavailable"}
+          </RetentionBadge>
+          <RetentionBadge tone={pipeline.frames ? "healthy" : "neutral"}>
+            Frames {pipeline.frames ? "sampled" : "unavailable"}
+          </RetentionBadge>
+          <RetentionBadge tone={pipeline.ocr ? "healthy" : "neutral"}>
+            OCR {pipeline.ocr ? "detected" : "not detected"}
+          </RetentionBadge>
+          <RetentionBadge tone={pipeline.audio ? "healthy" : "neutral"}>
+            Audio {pipeline.audio ? "extracted" : "unavailable"}
+          </RetentionBadge>
+          <RetentionBadge tone={transcript.available ? "healthy" : "neutral"}>
+            Transcript {transcript.available ? "analyzed" : "unavailable"}
+          </RetentionBadge>
+          <RetentionBadge
+            tone={retentionAnalysis.available ? "healthy" : "neutral"}
+          >
+            Retention {retentionAnalysis.available ? "provided" : "unavailable"}
+          </RetentionBadge>
+        </div>
+      </SectionCard>
 
       {actionMessage && (
         <div
@@ -1187,132 +1079,26 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <ScoreCard label="Hook Score" value={hookScore} />
-        <ScoreCard label="CTA Score" value={ctaScore} />
-        <ScoreCard label="Clarity Score" value={clarityScore} />
+        <ScoreCard label="Hook Score" value={hookScore} method={scoreMethod} />
+        <ScoreCard label="CTA Score" value={ctaScore} method={scoreMethod} />
+        <ScoreCard label="Clarity Score" value={clarityScore} method={scoreMethod} />
       </div>
 
       <SectionCard title="Executive Summary">
-        <p>{analysis.summary || "No summary available."}</p>
+        <p>{analysis.summary || "Not available"}</p>
       </SectionCard>
 
       <RetentionDropOffAnalyzer retentionAnalysis={retentionAnalysis} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <SectionCard
-          title="Estimated Creative Readiness"
-          subtitle="AI-estimated planning signal, not live TikTok performance"
-          accent
-        >
-          <p className="text-3xl font-black text-white">{impact.level}</p>
-          <p className="mt-3">{impact.reason}</p>
-        </SectionCard>
-
-        <SectionCard
-          title="Creative Pattern Match"
-          subtitle="How closely this upload matches saved planning patterns"
-        >
-          <p>
-            <strong>Matches Planning Pattern:</strong> {pattern.matches}
-          </p>
-          <p className="mt-2">
-            <strong>Closest Pattern:</strong> {pattern.closest}
-          </p>
-          <p className="mt-2">
-            <strong>Missing:</strong> {pattern.missing}
-          </p>
-        </SectionCard>
-
-        <SectionCard
-          title="Ad Type / Format Classification"
-          subtitle="Creative format and best use"
-        >
-          <p>
-            <strong>Format:</strong> {classification.format}
-          </p>
-          <p className="mt-2">
-            <strong>Style:</strong> {classification.style}
-          </p>
-          <p className="mt-2">
-            <strong>Best Use:</strong> {classification.bestUse}
-          </p>
-        </SectionCard>
-      </div>
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <SectionCard
-          title="Hook Analysis"
-          subtitle="First 3 seconds and scroll-stopping power"
-        >
-          <p>
-            The opening hook scored <strong>{hookScore}/10</strong>.{" "}
-            {hookScore >= 7
-              ? "The opening is strong enough to earn attention."
-              : "A stronger first 3 seconds should quickly show the problem, result, or product payoff."}
-          </p>
-        </SectionCard>
-
         <SectionCard title="Messaging Angle" subtitle="Main selling angle detected">
-          <p>
-            Detected creator style:{" "}
-            <strong>{analysis.creator_style || "Not clearly detected"}</strong>.
-          </p>
-          <p className="mt-2">
-            The core benefit should be made clearer earlier, especially for
-            viewers watching without sound.
-          </p>
+          <p>{analysis.creator_style || analysis.messaging_angle || "Not available"}</p>
         </SectionCard>
 
         <SectionCard title="Visual Elements" subtitle="Branding, text, product focus">
-          <p>
-            Detected text:{" "}
-            <span className="text-slate-400">
-              {detectedText || "No readable on-screen text detected."}
-            </span>
-          </p>
-          <p className="mt-2">
-            Visual clarity score: <strong>{clarityScore}/10</strong>.
-          </p>
-        </SectionCard>
-
-        <SectionCard title="CTA Effectiveness" subtitle="Planning prompt strength">
-          <p>
-            CTA score: <strong>{ctaScore}/10</strong>.{" "}
-            {ctaScore >= 7
-              ? "The next step is clear."
-              : "The ad should clearly tell the viewer what to do next."}
-          </p>
+          <p>{detectedText || "Not available"}</p>
         </SectionCard>
       </div>
-
-      <SectionCard
-        title="Rewrite This Ad"
-        subtitle="Suggested creative variation to test next"
-        accent
-      >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div>
-            <p className="text-xs uppercase tracking-widest text-slate-500">
-              Better Hook
-            </p>
-            <p className="mt-2 font-semibold text-white">“{rewrite.hook}”</p>
-          </div>
-
-          <div>
-            <p className="text-xs uppercase tracking-widest text-slate-500">
-              Better CTA
-            </p>
-            <p className="mt-2 font-semibold text-white">“{rewrite.cta}”</p>
-          </div>
-
-          <div>
-            <p className="text-xs uppercase tracking-widest text-slate-500">
-              Better Angle
-            </p>
-            <p className="mt-2 font-semibold text-white">{rewrite.angle}</p>
-          </div>
-        </div>
-      </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <ListCard title="Strengths" items={analysis.strengths || []} />
@@ -1330,26 +1116,25 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
             Duration:{" "}
             {metadata.duration_seconds
               ? `${metadata.duration_seconds.toFixed(1)} seconds`
-              : "Unknown"}
+              : "Not available"}
           </p>
           <p>
-            Size: {metadata.width || "?"} × {metadata.height || "?"}
+            Size: {metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : "Not available"}
           </p>
-          <p>FPS: {metadata.fps || "Unknown"}</p>
+          <p>FPS: {metadata.fps || "Not available"}</p>
         </SectionCard>
 
         <SectionCard title="Transcript Review">
-          <p>{transcript.full_text || "No clear transcript detected."}</p>
+          <p>
+            {transcript.full_text ||
+              `Not available. ${
+                transcript.unavailable_reason ||
+                "Speech transcription was not produced for this review."
+              }`}
+          </p>
         </SectionCard>
 
-        <SectionCard title="Next Test Plan" accent>
-          <ul className="space-y-3">
-            <li>• Test a stronger first 3-second hook.</li>
-            <li>• Add clearer product-benefit text on screen.</li>
-            <li>• Add a direct CTA near the end.</li>
-            <li>• Test a creator voiceover version.</li>
-          </ul>
-        </SectionCard>
+        <ListCard title="Next Test Plan" items={analysis.next_test_plan || []} accent />
       </div>
     </section>
   );
@@ -1358,6 +1143,7 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
 export default function VideoAnalysisRoute() {
   const {
     analyses,
+    analyzerRuntime,
     autoSaveAnalyzedVideos,
     productError,
     products,
@@ -1370,6 +1156,8 @@ export default function VideoAnalysisRoute() {
   const result = analyzeFetcher.data?.result || null;
   const error = analyzeFetcher.data?.error || "";
   const success = analyzeFetcher.data?.success || "";
+  const analyzerUnavailable = analyzeFetcher.data?.analyzerUnavailable === true;
+  const analyzerMessage = analyzeFetcher.data?.analyzerMessage || "";
   const selectedFileMeta = file
     ? [file.type || "video file", formatFileSize(file.size)].filter(Boolean).join(" · ")
     : "MP4, MOV, M4V, or WebM";
@@ -1435,13 +1223,22 @@ export default function VideoAnalysisRoute() {
         </p>
 
         <h1 className="font-display mt-3 text-4xl font-semibold text-foreground">
-          Video Analysis
+          AI Review Studio
         </h1>
 
         <p className="mt-3 max-w-4xl text-sm text-muted-foreground sm:text-[15px]">
-          Upload a TikTok-style video and BlueprintAI will break down the hook,
-          clarity, CTA, transcript, pacing, and creative structure.
+          Upload a short-form video for frame, metadata, and OCR checks plus
+          clearly labeled heuristic creative guidance. Transcript and retention
+          appear only when those signals are actually available.
         </p>
+
+        {!analyzerRuntime.configured && (
+          <div className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100" role="status">
+            <strong>Analyzer unavailable in this environment.</strong>{" "}
+            Needs production analyzer service configured. Uploads can still be
+            saved, but no analysis scores or recommendations will be generated.
+          </div>
+        )}
 
         <div className="mt-10 rounded-2xl border border-white/10 p-6">
           <h2 className="text-2xl font-bold">Upload your creative</h2>
@@ -1462,7 +1259,7 @@ export default function VideoAnalysisRoute() {
                 >
                   {products.map((product) => (
                     <option key={product.id} value={product.id}>
-                      {product.title}
+                      {product.title}{product.source === "demo" ? " · Demo product" : product.source === "imported" ? " · Imported product context" : " · Shopify product"}
                     </option>
                   ))}
                 </select>
@@ -1518,10 +1315,14 @@ export default function VideoAnalysisRoute() {
               className="bp-primary-cta mt-6"
             >
               {loading
-                ? autoSaveAnalyzedVideos
+                ? !analyzerRuntime.configured
+                  ? "Saving upload..."
+                  : autoSaveAnalyzedVideos
                   ? "Analyzing and saving..."
                   : "Analyzing..."
-                : "Analyze Video"}
+                : analyzerRuntime.configured
+                  ? "Analyze Video"
+                  : "Save Upload"}
             </button>
             <p className="mt-3 text-xs font-semibold text-slate-500">
               {autoSaveAnalyzedVideos
@@ -1536,14 +1337,24 @@ export default function VideoAnalysisRoute() {
             </div>
           )}
 
+          {analyzerUnavailable && (
+            <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-100" role="status">
+              <p className="font-semibold">Upload saved, analysis unavailable</p>
+              <p className="mt-2 text-sm leading-6">
+                {analyzerMessage || "Analyzer unavailable in this environment. Needs production analyzer service configured."}
+                {" "}No analysis scores or recommendations were generated or saved.
+              </p>
+            </div>
+          )}
+
           {loading && (
             <div className="mt-6 rounded-xl border border-sky-500/20 bg-sky-500/10 p-5">
               <p className="font-semibold text-sky-200">
                 Analyzing your creative...
               </p>
               <p className="mt-2 text-slate-400">
-                Extracting frames, reading on-screen text, checking transcript,
-                scoring hook, CTA, and clarity.
+                Upload complete. Waiting for the configured analyzer service
+                to return available fields.
               </p>
             </div>
           )}
@@ -1625,10 +1436,10 @@ function SavedReviewCard({ review, onView }) {
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-2">
-        <SavedReviewScore label="Hook" value={review.hookScore} />
-        <SavedReviewScore label="Clarity" value={review.clarityScore} />
-        <SavedReviewScore label="CTA" value={review.ctaScore} />
-        <SavedReviewScore label="Overall" value={review.overallScore} />
+        <SavedReviewScore label={`${review.scorePrefix}Hook`} value={review.hookScore} />
+        <SavedReviewScore label={`${review.scorePrefix}Clarity`} value={review.clarityScore} />
+        <SavedReviewScore label={`${review.scorePrefix}CTA`} value={review.ctaScore} />
+        <SavedReviewScore label={`${review.scorePrefix}Overall`} value={review.overallScore} />
       </div>
 
       <p className="mt-4 flex-1 text-sm leading-6 text-slate-300">
@@ -1708,30 +1519,31 @@ function SavedReviewModal({ review, onClose }) {
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <SavedReviewScore label="Hook" value={review.hookScore} />
-          <SavedReviewScore label="Clarity" value={review.clarityScore} />
-          <SavedReviewScore label="CTA" value={review.ctaScore} />
-          <SavedReviewScore label="Overall" value={review.overallScore} />
+          <SavedReviewScore label={`${review.scorePrefix}Hook`} value={review.hookScore} />
+          <SavedReviewScore label={`${review.scorePrefix}Clarity`} value={review.clarityScore} />
+          <SavedReviewScore label={`${review.scorePrefix}CTA`} value={review.ctaScore} />
+          <SavedReviewScore label={`${review.scorePrefix}Overall`} value={review.overallScore} />
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <SavedReviewDetail title="Summary">{review.summary}</SavedReviewDetail>
-          <SavedReviewDetail title="Next action">{review.nextAction}</SavedReviewDetail>
+          <SavedReviewDetail title="Next action">{review.nextAction || "Not available"}</SavedReviewDetail>
           <SavedReviewList title="Recommendations" items={review.recommendations} />
           <SavedReviewDetail title="Transcript / summary">
-            {review.transcriptSummary || "No transcript summary was saved."}
+            {review.transcriptSummary ||
+              "Not available. Speech transcription was not produced for this review."}
           </SavedReviewDetail>
           <SavedReviewDetail title="Pacing notes">
-            {review.pacingNotes || "No pacing notes were saved."}
+            {review.pacingNotes || "Not available"}
           </SavedReviewDetail>
           <SavedReviewDetail title="Creative structure notes">
-            {review.creativeStructureNotes || "No creative structure notes were saved."}
+            {review.creativeStructureNotes || "Not available"}
           </SavedReviewDetail>
           <SavedReviewDetail title="CTA notes">
-            {review.ctaNotes || "No CTA notes were saved."}
+            {review.ctaNotes || "Not available"}
           </SavedReviewDetail>
           <SavedReviewDetail title="Objection handling notes">
-            {review.objectionHandlingNotes || "No objection handling notes were saved."}
+            {review.objectionHandlingNotes || "Not available"}
           </SavedReviewDetail>
           <SavedReviewList title="Strengths" items={review.strengths} />
           <SavedReviewList title="Weaknesses" items={review.weaknesses} />
@@ -1777,7 +1589,7 @@ function SavedReviewList({ title, items }) {
         </ul>
       ) : (
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          No saved details for this section.
+          Not available
         </p>
       )}
     </section>

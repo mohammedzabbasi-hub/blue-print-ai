@@ -1,4 +1,5 @@
 import db from "../db.server.js";
+import { syncImportedCampaignAssignment } from "./campaign.server.js";
 
 export function normalizeCreatorHandle(value = "") {
   const normalized = normalizeCreatorText(value).replace(/^@/, "");
@@ -122,6 +123,67 @@ export async function upsertCreatorAttribution({
   return { attribution, creator: savedCreator };
 }
 
+export async function upsertCreatorPerformanceRecord({ record, shop }) {
+  if (!shop || !record?.importKey) throw new Error("Creator performance row is missing an import key.");
+
+  const existing = await db.creativePerformance.findUnique({
+    where: { shop_importKey: { shop, importKey: record.importKey } },
+    select: { id: true },
+  });
+  const data = {
+    shop,
+    platform: cleanText(record.creatorPlatform || record.sourcePlatform || record.platform),
+    campaignId: cleanText(record.campaignId || record.sourceCampaignId),
+    campaignName: cleanText(record.campaignName),
+    creatorHandle: cleanText(record.creatorHandle),
+    creatorName: cleanText(record.creatorName),
+    productId: cleanText(record.productId || record.shopifyProductId),
+    productName: cleanText(record.productName || record.productTitle || record.productLabel),
+    sourceType: "creator_performance_csv",
+    sourceRecordId: `${shop}:${record.importKey}`,
+    sourceRecordType: "creator_performance_import",
+    importKey: record.importKey,
+    reportingDate: parseOptionalDate(record.reportingDate || record.date),
+    importedAt: new Date(),
+    syncedAt: new Date(),
+    clicks: nullableNumber(record.creatorClicks ?? record.clicks),
+    spend: nullableNumber(record.creatorSpend ?? record.spend),
+    conversions: nullableNumber(record.creatorOrders ?? record.conversions),
+    orders: nullableNumber(record.creatorOrders ?? record.orders),
+    revenue: nullableNumber(record.creatorRevenue ?? record.revenue),
+    conversionValue: nullableNumber(record.creatorRevenue ?? record.conversionValue),
+    cvr: safeRatioPercent(
+      record.creatorOrders ?? record.orders,
+      record.creatorClicks ?? record.clicks,
+    ),
+    roas: safeRatio(record.creatorRevenue ?? record.revenue, record.creatorSpend ?? record.spend),
+    payloadJson: JSON.stringify({
+      ...record,
+      importSource: "creator_performance_import",
+      sourceRecordType: "creator_performance_import",
+      sourceType: "creator_performance_csv",
+    }),
+  };
+  const performance = await db.creativePerformance.upsert({
+    where: { shop_importKey: { shop, importKey: record.importKey } },
+    create: data,
+    update: { ...data, updatedAt: new Date() },
+  });
+  const campaign = await syncImportedCampaignAssignment(shop, {
+    campaignName: record.campaignName,
+    externalCampaignId: record.campaignId || record.sourceCampaignId,
+    creativePerformanceId: performance.id,
+  });
+  await upsertCreatorAttribution({
+    campaignId: campaign?.id || null,
+    creativePerformance: performance,
+    record,
+    shop,
+  });
+
+  return { performance, result: existing ? "updated" : "created" };
+}
+
 async function findCreatorByIdentity(shop, identity) {
   if (identity.normalizedHandle) {
     const byHandle = await db.creator.findUnique({
@@ -191,4 +253,23 @@ function nullableNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function parseOptionalDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function safeRatio(numerator, denominator) {
+  const top = nullableNumber(numerator);
+  const bottom = nullableNumber(denominator);
+  return top !== null && bottom !== null && bottom > 0
+    ? Number((top / bottom).toFixed(2))
+    : null;
+}
+
+function safeRatioPercent(numerator, denominator) {
+  const ratio = safeRatio(numerator, denominator);
+  return ratio === null ? null : Number((ratio * 100).toFixed(2));
 }

@@ -1,35 +1,7 @@
-import { Play, TrendingUp } from "lucide-react";
+import { Play } from "lucide-react";
 
 function num(value) {
   return Number(value || 0);
-}
-
-function compact(value) {
-  const n = num(value);
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
-
-function pct(value) {
-  return `${num(value).toFixed(2)}%`;
-}
-
-function getCtr(item) {
-  if (item.ctr !== undefined && item.ctr !== null) return num(item.ctr);
-  const views = num(item.views);
-  const clicks = num(item.clicks);
-  return views ? (clicks / views) * 100 : 0;
-}
-
-function getRoas(item) {
-  if (item.roas !== undefined && item.roas !== null) return num(item.roas);
-  if (item.estimated_roas !== undefined && item.estimated_roas !== null) return num(item.estimated_roas);
-
-  const score = num(item.score);
-  if (score) return Math.max(1, score / 1.4);
-
-  return 1;
 }
 
 function getCreativeImage(c) {
@@ -56,19 +28,18 @@ function getCreativeTitle(c) {
   );
 }
 
-function RoasBar({ value }) {
-  const max = 10;
-  const pctWidth = Math.min((value / max) * 100, 100);
+function ScoreBar({ value }) {
+  const score = Math.max(0, Math.min(100, num(value)));
 
   return (
     <div className="flex items-center gap-2">
       <span className="text-[12px] font-semibold text-white w-10 text-right">
-        {value.toFixed(1)}x
+        {score}%
       </span>
       <div className="flex-1 h-1.5 bg-white/8 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-400"
-          style={{ width: `${pctWidth}%` }}
+          style={{ width: `${score}%` }}
         />
       </div>
     </div>
@@ -88,22 +59,24 @@ export default function TopCreatives({ data }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-[14px] font-semibold text-white mb-0.5">
-            Top Performing Creatives
+            Saved Creative Activity
           </h2>
           <p className="text-[11px] text-slate-500">
-            Ranked by orders from your saved creative stats
+            Ranked by estimated readiness from saved records
           </p>
         </div>
       </div>
 
       {creatives.length === 0 ? (
-        <p className="text-sm text-slate-500">No saved creative stats available yet.</p>
+        <p className="text-sm text-slate-500">
+          Analyze a video or save a creative to populate your Command Center.
+        </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {["#", "Creative", "Creator", "Views", "Orders", "CTR", "Est. ROAS"].map((h) => (
+                {["#", "Creative", "Source", "Estimated readiness", "Saved", "Next Step"].map((h) => (
                   <th
                     key={h}
                     className="pb-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider first:pl-0 pr-4 last:pr-0"
@@ -116,7 +89,6 @@ export default function TopCreatives({ data }) {
 
             <tbody className="divide-y divide-white/[0.03]">
               {creatives.map((c, index) => {
-                const roas = getRoas(c);
                 const image = getCreativeImage(c);
 
                 return (
@@ -158,37 +130,30 @@ export default function TopCreatives({ data }) {
                     <td className="py-3 pr-4">
                       <div>
                         <p className="text-[11px] font-medium text-slate-300 leading-tight">
-                          {c.creator || c.creator_name || c.promoter_handle || "Unknown Creator"}
+                          {c.source || c.sourceType || "Saved record"}
                         </p>
                         <p className="text-[10px] text-slate-600">
-                          {c.creator_type || c.creator_archetype || "creator"}
+                          {c.creator || c.creator_name || "Manual/uploaded"}
                         </p>
                       </div>
                     </td>
 
                     <td className="py-3 pr-4">
-                      <span className="text-[12px] font-medium text-slate-300">
-                        {compact(c.views)}
-                      </span>
-                    </td>
-
-                    <td className="py-3 pr-4">
-                      <span className="text-[12px] font-medium text-slate-300">
-                        {compact(c.orders)}
-                      </span>
-                    </td>
-
-                    <td className="py-3 pr-4">
-                      <span className="text-[12px] font-medium text-slate-300">
-                        {pct(getCtr(c))}
-                      </span>
+                      <ScoreBar value={c.score || c.readiness} />
                     </td>
 
                     <td className="py-3 min-w-[120px]">
-                      <div className="flex items-center gap-2">
-                        <RoasBar value={roas} />
-                        <TrendingUp size={12} className="text-emerald-400 flex-shrink-0" />
-                      </div>
+                      <span className="text-[12px] font-medium text-slate-300">
+                        {c.savedAt
+                          ? new Date(c.savedAt).toLocaleDateString()
+                          : "Recently"}
+                      </span>
+                    </td>
+
+                    <td className="py-3 min-w-[160px]">
+                      <span className="text-[12px] font-medium text-slate-300">
+                        {c.nextStep || "Review saved record"}
+                      </span>
                     </td>
                   </tr>
                 );

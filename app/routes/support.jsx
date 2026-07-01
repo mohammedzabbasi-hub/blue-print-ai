@@ -64,7 +64,7 @@ export default function SupportRoute() {
               <h2 className="text-xl font-black text-white">Contact</h2>
 
               <p className="mt-3 leading-7 text-slate-400">
-                Contact mohammedzabbasi@gmail.com for support, privacy, data
+                Contact [[OWNER ACTION REQUIRED: confirm support email]] for support, privacy, data
                 deletion, billing, copyright, or legal questions. Do not send
                 passwords, API keys, access tokens, or other secrets.
               </p>
@@ -78,6 +78,10 @@ export default function SupportRoute() {
 
             <Link to="/terms" className="hover:text-cyan-100">
               Terms
+            </Link>
+
+            <Link to="/data-deletion" className="hover:text-cyan-100">
+              Data Deletion
             </Link>
 
             <Link to="/auth/login" className="hover:text-cyan-100">

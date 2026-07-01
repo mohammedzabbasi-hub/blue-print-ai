@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
+import ProductContextEvidence from "../components/ProductContextEvidence";
 import {
   buildRevenueBlueprint,
   findRevenueBlueprint,
@@ -11,6 +13,7 @@ import {
 import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { listCampaigns } from "../models/campaign.server";
+import { buildProductContext } from "../models/product-context";
 
 export const meta = () => {
   return [{ title: "Revenue Blueprint | BluePrintAI" }];
@@ -36,19 +39,25 @@ export const loader = async ({ request }) => {
         Number(record[key] || 0) > 0,
     ),
   );
+  const productContext = buildProductContext({
+    shopifyProducts: merchantData.products,
+    performanceRecords: performance.records,
+  });
+  const products = productContext.availableProducts;
 
   return {
     blueprint: activeBlueprint?.payload || null,
     campaigns: campaigns.map(({ id, name }) => ({ id, name })),
     blueprints,
     hasDemoPerformanceData: performance.hasDemoPerformanceData,
-    hasContext: Boolean(resolveProductContext(merchantData.products, profile)),
+    hasContext: Boolean(resolveProductContext(products, profile)),
     hasMeasuredPerformanceData: performance.hasMeasuredPerformanceData,
     hasRevenueBackedRecords,
     performanceRecords: performance.records.slice(0, 5),
     productError: merchantData.errors?.[0] || "",
-    products: merchantData.products,
-    selectedProductId: profile.selectedProductId || merchantData.products[0]?.id || "",
+    productContext,
+    products,
+    selectedProductId: profile.selectedProductId || products[0]?.id || "",
     shop: session.shop,
   };
 };
@@ -56,9 +65,16 @@ export const loader = async ({ request }) => {
 export const action = async ({ request }) => {
   const { merchantData, session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
-  const profile = await getWorkspaceProfile(session.shop);
+  const [profile, performance] = await Promise.all([
+    getWorkspaceProfile(session.shop),
+    listCreativePerformance({ merchantData, shop: session.shop }),
+  ]);
+  const productContext = buildProductContext({
+    shopifyProducts: merchantData.products,
+    performanceRecords: performance.records,
+  });
   const product = resolveProductContext(
-    merchantData.products,
+    productContext.availableProducts,
     profile,
     String(formData.get("productId") || ""),
   );
@@ -67,14 +83,10 @@ export const action = async ({ request }) => {
     if (!product) {
       return {
         error:
-          "No product context yet. Complete onboarding or add a Shopify product before generating a blueprint.",
+          "No product context. Add a Shopify product, import creative data with a product name, or enter product context in Settings.",
       };
     }
 
-    const performance = await listCreativePerformance({
-      merchantData,
-      shop: session.shop,
-    });
     const campaignId = String(formData.get("campaignId") || "");
     const creativeId = String(formData.get("creativeId") || "");
     const campaign = campaignId ? (await listCampaigns(session.shop)).find((item) => item.id === campaignId) : null;
@@ -125,6 +137,7 @@ export default function RevenueBlueprintRoute() {
     hasContext,
     hasRevenueBackedRecords,
     performanceRecords,
+    productContext,
     productError,
     products,
     selectedProductId,
@@ -132,8 +145,10 @@ export default function RevenueBlueprintRoute() {
   } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
+  const [activeProductId, setActiveProductId] = useState(selectedProductId);
   const generating = navigation.state === "submitting";
   const blueprint = actionData?.blueprint || loaderBlueprint;
+  const activeProduct = products.find((product) => product.id === activeProductId) || products[0] || null;
   const newEmptyAccount = !hasContext && !blueprint;
 
   return (
@@ -148,11 +163,17 @@ export default function RevenueBlueprintRoute() {
         </h1>
 
         <p className="text-muted-foreground mt-3 text-sm sm:text-[15px]">
-          A shop-specific planning estimate saved to {shop}. Outputs are
-          generated from available Shopify app context and are not financial
-          guarantees.
+          A shop-specific planning estimate saved to {shop}. Shopify catalog
+          data and imported CSV/ad performance context are labeled separately;
+          demo assumptions are explicit and missing metrics stay unavailable.
         </p>
       </div>
+
+      <ProductContextEvidence
+        product={activeProduct}
+        productContext={productContext}
+        title="Product context available for generation"
+      />
 
       {actionData?.error && (
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5 font-semibold text-red-200">
@@ -169,17 +190,18 @@ export default function RevenueBlueprintRoute() {
 
       {productError && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 font-semibold text-amber-100">
-          Shopify products could not be loaded right now. Manual workspace
-          profile product context still works.
+          Shopify products could not be loaded right now. {productContext.hasImportedProductContext
+            ? "Imported CSV/ad product performance context is available and can generate a blueprint; it is not a Shopify catalog record."
+            : "Import a product name or use manual workspace product context."}
         </div>
       )}
 
       {newEmptyAccount && (
         <EmptyWorkspaceState
           title="No blueprint yet"
-          description="This new shop does not have enough saved app context for a useful planning estimate yet. Analyze a video or save a creative first."
-          primaryText="Upload Creative"
-          primaryLink="/app/video-analysis"
+          description="No product context is available. Add a Shopify product, import creative data with a product name, or enter product context in Settings."
+          primaryText="Import Product Data"
+          primaryLink="/app/data-import"
         />
       )}
 
@@ -190,14 +212,15 @@ export default function RevenueBlueprintRoute() {
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Generate the first shop-scoped planning estimate from current
-            Shopify product context and saved app activity.
+            product context and saved app activity.
           </p>
           <BlueprintGenerator
             campaigns={campaigns}
             performanceRecords={performanceRecords}
             generating={generating}
             products={products}
-            selectedProductId={selectedProductId}
+            selectedProductId={activeProductId}
+            onProductChange={setActiveProductId}
           />
         </section>
       )}
@@ -212,13 +235,23 @@ export default function RevenueBlueprintRoute() {
             {blueprint.diagnosis || "Your blueprint is ready."}
           </p>
 
+          <div className="mt-5">
+            <ProductContextEvidence
+              compact
+              product={productEvidenceFromBlueprint(blueprint, products)}
+              productContext={productContext}
+              title="AI used this context"
+            />
+          </div>
+
           <BlueprintGenerator
             campaigns={campaigns}
             performanceRecords={performanceRecords}
             generating={generating}
             label="Generate New Blueprint"
             products={products}
-            selectedProductId={selectedProductId}
+            selectedProductId={activeProductId}
+            onProductChange={setActiveProductId}
           />
 
           <div className="space-y-5 mt-8">
@@ -259,7 +292,9 @@ export default function RevenueBlueprintRoute() {
                       {item.creatorName} · {item.angle}
                     </p>
                     <p className="mt-4 text-2xl font-black text-cyan-100">
-                      +{formatCurrency(item.estimatedUpside)} estimated upside
+                      {item.estimatedUpside === null || item.estimatedUpside === undefined
+                        ? "Estimated upside: Not available"
+                        : `+${formatCurrency(item.estimatedUpside)} estimated upside`}
                     </p>
                     <p className="mt-3 text-sm text-slate-300">{item.recommendation}</p>
                   </div>
@@ -328,6 +363,7 @@ function BlueprintGenerator({
   label = "Generate Blueprint",
   performanceRecords = [],
   products = [],
+  onProductChange,
   selectedProductId = "",
 }) {
   return (
@@ -351,12 +387,13 @@ function BlueprintGenerator({
           Product
           <select
             className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground"
-            defaultValue={selectedProductId}
+            value={selectedProductId}
             name="productId"
+            onChange={(event) => onProductChange?.(event.target.value)}
           >
             {products.map((product) => (
               <option key={product.id} value={product.id}>
-                {product.title}
+                {product.title}{product.source === "imported" ? " · Imported product context" : product.source === "demo" ? " · Demo product" : " · Shopify product"}
               </option>
             ))}
           </select>
@@ -371,4 +408,23 @@ function BlueprintGenerator({
       </button>
     </Form>
   );
+}
+
+function productEvidenceFromBlueprint(blueprint = {}, products = []) {
+  const context = blueprint.context || {};
+  if (context.productSource) {
+    return {
+      id: context.productId || null,
+      title: context.productName || context.productTitle,
+      productName: context.productName || context.productTitle,
+      source: context.productSource,
+      ...(context.importedPerformance || {}),
+    };
+  }
+  const current = products.find((product) =>
+    product.id === context.productId || product.title === context.productTitle,
+  );
+  return current
+    ? { title: context.productTitle || current.title, source: "none" }
+    : { title: context.productTitle || "Evidence snapshot", source: "none" };
 }

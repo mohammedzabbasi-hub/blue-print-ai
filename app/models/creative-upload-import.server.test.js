@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { after, describe, it } from "node:test";
 import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import db from "../db.server.js";
 import {
+  buildCreatorPerformancePreview,
   buildCreativeUploadPreview,
   CREATIVE_VIDEO_FILE_FIELD,
   getUploadedVideoFiles,
+  importCreatorPerformanceRows,
   importMatchedCreativeRows,
 } from "./creative-upload-import.server.js";
 import {
@@ -29,6 +32,10 @@ after(async () => {
         recursive: true,
       }),
       rm(resolve("build", "client", "uploads", "creative-library", shop), {
+        force: true,
+        recursive: true,
+      }),
+      rm(resolve(".data", "private-media", shop), {
         force: true,
         recursive: true,
       }),
@@ -90,6 +97,18 @@ describe("creative upload performance import", () => {
       ["TTAD1.mp4", "ttad2.MP4"],
     );
     assert.deepEqual(preview.rows.map((row) => row.creativeUploadStatus), ["Ready", "Ready"]);
+  });
+
+  it("preserves filename matching for TTAD1.mp4 through TTAD5.mp4", () => {
+    const names = Array.from({ length: 5 }, (_, index) => `TTAD${index + 1}.mp4`);
+    const preview = previewFor(
+      names.map((name, index) => csvRow(`ttad-${index + 1}`, name, name)),
+      names.map((name) => videoFile(name, name)),
+    );
+
+    assert.equal(preview.summary.uploadedFilesMatched, 5);
+    assert.deepEqual(preview.rows.map((row) => row.matchedUploadedFile), names);
+    assert.ok(preview.rows.every((row) => row.status === "ready"));
   });
 
   it("detects duplicate, unsupported, unmatched, and unsafe filenames", () => {
@@ -159,7 +178,7 @@ describe("creative upload performance import", () => {
     assert.equal(library.records.length, 2);
     assert.equal(result.assignedCampaignId, campaign.id);
     assert.equal(assignedCampaign.creativeCount, 2);
-    assert.ok(performanceRows.every((record) => record.videoUrl?.startsWith(`/uploads/creative-library/${shop}/`)));
+    assert.ok(performanceRows.every((record) => record.videoUrl?.startsWith("/app/media/creative-library/")));
     assert.ok(performanceRows.every((record) => record.videoUrl?.endsWith(".mp4")));
     assert.ok(library.records.every((record) => record.videoUrl?.endsWith(".mp4")));
     assert.deepEqual(
@@ -310,7 +329,7 @@ describe("creative upload performance import", () => {
     assert.match(routeSource, /formatOptionalCurrency\(creator\.sales/);
   });
 
-  it("shows creator detection, new/update, missing identity, and merged-row counts in preview", async () => {
+  it("keeps creator parsing details while omitting the creator attribution preview card", async () => {
     const csv = [
       CREATOR_CSV_HEADER,
       creatorRow("preview-1", "@preview", "Preview Creator", "10", "1", "30", ""),
@@ -334,8 +353,189 @@ describe("creative upload performance import", () => {
       },
       { detected: 1, duplicates: 1, missing: 1, newCreators: 1, updatedCreators: 0 },
     );
-    assert.match(routeSource, /Creators detected/);
+    assert.doesNotMatch(routeSource, /Creator data is read from optional CSV columns/);
+    assert.doesNotMatch(routeSource, /Apply one creator to all imported rows/);
+    assert.doesNotMatch(routeSource, /Creators detected from CSV/);
+    assert.doesNotMatch(routeSource, /Using default creator/);
+    assert.doesNotMatch(routeSource, /Rows without attribution/);
+    for (const field of [
+      "creator_name",
+      "creator_handle",
+      "creator_platform",
+      "creator_profile_url",
+      "creator_type",
+      "creator_clicks",
+      "creator_orders",
+      "creator_revenue",
+      "creator_commission",
+      "creator_notes",
+    ]) {
+      assert.match(routeSource, new RegExp(`"${field}"`));
+    }
     assert.match(routeSource, /Duplicate rows merged/);
+  });
+
+  it("uses a default creator only for rows without CSV creator identity", async () => {
+    const shop = testShop("creator-default");
+    const csv = [
+      CREATOR_CSV_HEADER,
+      creatorRow("csv-creator", "@rowcreator", "Row Creator", "10", "1", "30", ""),
+      creatorRow("default-creator", "", "", "15", "2", "50", ""),
+    ].join("\n");
+    const preview = buildCreativeUploadPreview({
+      csvText: csv,
+      defaultCreator: {
+        creatorHandle: "@defaultcreator",
+        creatorName: "Default Creator",
+        creatorPlatform: "Instagram",
+        creatorProfileUrl: "https://instagram.com/defaultcreator",
+      },
+      parsePublicEngagementCsv,
+      uploadedVideos: [],
+    });
+
+    testShops.add(shop);
+
+    assert.equal(preview.rows[0].creatorAttributionSource, "csv");
+    assert.equal(preview.rows[0].record.creatorHandle, "@rowcreator");
+    assert.equal(preview.rows[0].record.creatorPlatform, "TikTok");
+    assert.equal(preview.rows[1].creatorAttributionSource, "default");
+    assert.equal(preview.rows[1].record.creatorHandle, "@defaultcreator");
+    assert.equal(preview.rows[1].record.creatorPlatform, "Instagram");
+    assert.equal(preview.summary.creatorsDetectedFromCsv, 1);
+    assert.equal(preview.summary.rowsUsingDefaultCreator, 1);
+    assert.equal(preview.summary.rowsWithoutCreatorAttribution, 0);
+
+    await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: [],
+      upsertPublicEngagementRecord,
+    });
+    const creators = await listCreatorProfiles(shop);
+
+    assert.equal(creators.length, 2);
+    assert.ok(creators.some((creator) => creator.normalizedHandle === "rowcreator"));
+    assert.ok(creators.some((creator) => creator.normalizedHandle === "defaultcreator"));
+  });
+
+  it("imports rows without creator attribution when no default is provided", async () => {
+    const shop = testShop("creator-optional");
+    const preview = buildCreativeUploadPreview({
+      csvText: [CREATOR_CSV_HEADER, creatorRow("optional", "", "", "", "", "", "")].join("\n"),
+      parsePublicEngagementCsv,
+      uploadedVideos: [],
+    });
+
+    testShops.add(shop);
+
+    assert.equal(preview.summary.rowsWithoutCreatorAttribution, 1);
+    const result = await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: [],
+      upsertPublicEngagementRecord,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(await db.creator.count({ where: { shop } }), 0);
+    assert.equal(await db.creativePerformance.count({ where: { shop } }), 1);
+  });
+});
+
+describe("creator performance import mode", () => {
+  it("previews creator rows without requiring creative, platform, date, or video fields", () => {
+    const preview = creatorPerformancePreview([
+      creatorPerformanceRow("@maya", "Maya Chen", "12", "2", "80", "20", "7.5", "Launch", "Ice Roller", "Morning proof"),
+      creatorPerformanceRow("maya", "Maya Chen", "8", "1", "40", "10", "", "", "", ""),
+      creatorPerformanceRow("", "", "", "", "", "", "", "", "", ""),
+    ]);
+
+    assert.equal(preview.summary.creatorsDetected, 1);
+    assert.equal(preview.summary.newCreators, 1);
+    assert.equal(preview.summary.duplicateCreatorRowsMerged, 1);
+    assert.equal(preview.summary.missingCreatorIdentity, 1);
+    assert.equal(preview.summary.rowsWithCampaignData, 1);
+    assert.equal(preview.summary.rowsWithProductData, 1);
+    assert.equal(preview.summary.rowsWithAngleData, 1);
+    assert.equal(preview.summary.ready, 2);
+    assert.equal(preview.rows[0].creativeUploadStatus, "Creator ready");
+  });
+
+  it("imports creator-only rows without creating fake SavedCreative records", async () => {
+    const shop = testShop("creator-only-mode");
+    testShops.add(shop);
+    const preview = creatorPerformancePreview([
+      creatorPerformanceRow("@maya", "Maya Chen", "120", "6", "360", "90", "7.5", "Creator Launch", "Ice Roller", "Morning proof"),
+    ]);
+    const result = await importCreatorPerformanceRows({
+      preview,
+      shop,
+      upsertPublicEngagementRecord,
+    });
+    const performance = await db.creativePerformance.findFirst({ where: { shop } });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.summary.created, 1);
+    assert.equal(await db.creator.count({ where: { shop } }), 1);
+    assert.equal(await db.creatorAttribution.count({ where: { shop } }), 1);
+    assert.equal(await db.savedCreative.count({ where: { shop } }), 0);
+    assert.equal(performance.sourceRecordType, "creator_performance_import");
+    assert.equal(performance.adName, null);
+  });
+
+  it("deduplicates creator-only imports by normalized handle and name fallback", async () => {
+    const shop = testShop("creator-only-dedupe");
+    testShops.add(shop);
+    const preview = creatorPerformancePreview([
+      creatorPerformanceRow("@SameCreator", "Original Name", "10", "1", "25", "5", "", "", "", ""),
+      creatorPerformanceRow("samecreator", "Updated Name", "15", "2", "50", "10", "", "", "", ""),
+      creatorPerformanceRow("", "Ari Brooks", "20", "2", "70", "", "", "", "", ""),
+      creatorPerformanceRow("", " ari  brooks ", "25", "3", "90", "", "", "", "", ""),
+    ]);
+    await importCreatorPerformanceRows({ preview, shop, upsertPublicEngagementRecord });
+    const creators = await listCreatorProfiles(shop);
+
+    assert.equal(creators.length, 2);
+    assert.equal(creators.find((creator) => creator.normalizedHandle === "samecreator")?.name, "Updated Name");
+    assert.equal(creators.find((creator) => creator.normalizedName === "aribrooks")?.attributions.length, 2);
+  });
+
+  it("exposes null-safe creator metrics, product, angle, and notes to the Creators data source", async () => {
+    const shop = testShop("creator-only-metrics");
+    testShops.add(shop);
+    const preview = creatorPerformancePreview([
+      creatorPerformanceRow("@metric", "Metric Creator", "80", "4", "240", "60", "6.4", "", "QA Product", "Fast demo"),
+    ]);
+    await importCreatorPerformanceRows({ preview, shop, upsertPublicEngagementRecord });
+    const performance = await listCreativePerformance({ shop });
+    const record = performance.records.find((item) => item.creatorHandle === "@metric");
+
+    assert.equal(record.clicks, 80);
+    assert.equal(record.orders, 4);
+    assert.equal(record.revenue, 240);
+    assert.equal(record.roas, 4);
+    assert.equal(record.conversionRate, 5);
+    assert.equal(record.engagementRate, 6.4);
+    assert.equal(record.productTitle, "QA Product");
+    assert.equal(record.angle, "Fast demo");
+    assert.equal(record.creatorNotes, "Creator import note");
+  });
+
+  it("omits sample downloads and keeps the Creators page import link", async () => {
+    const [importSource, creatorsSource] = await Promise.all([
+      readFile(resolve("app", "routes", "app.data-import.jsx"), "utf8"),
+      readFile(resolve("app", "routes", "app.creators.jsx"), "utf8"),
+    ]);
+
+    assert.doesNotMatch(importSource, /Download sample CSV/);
+    assert.doesNotMatch(importSource, /blueprintai-creator-performance-sample\.csv/);
+    assert.match(importSource, /creator_engagement_rate/);
+    assert.match(importSource, /Creative\/ad performance/);
+    assert.match(importSource, /Creator performance/);
+    assert.equal((importSource.match(/id="creative-upload-csv"/g) || []).length, 1);
+    assert.match(creatorsSource, /Import creator CSV/);
+    assert.match(creatorsSource, /\/app\/data-import\?type=creators/);
   });
 });
 
@@ -355,7 +555,12 @@ function csvRow(id, filename, title) {
 }
 
 function videoFile(name, contents, type = "video/mp4") {
-  return new File([contents], name, { type });
+  if (type === "video/webm") {
+    return new File([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), contents], name, { type });
+  }
+  if (type === "video/x-msvideo") return new File([contents], name, { type });
+  const header = Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
+  return new File([header, contents], name, { type });
 }
 
 const CREATOR_CSV_HEADER =
@@ -383,4 +588,18 @@ async function importCreatorCsv(shop, rows, { campaignId = "", existingCreators 
 
 function testShop(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}.myshopify.com`;
+}
+
+const CREATOR_PERFORMANCE_HEADER =
+  "creator_handle,creator_name,creator_platform,creator_clicks,creator_orders,creator_revenue,creator_spend,creator_engagement_rate,creator_notes,campaign_name,product_name,best_angle";
+
+function creatorPerformanceRow(handle, name, clicks, orders, revenue, spend, engagement, campaign, product, angle) {
+  return `${handle},${name},TikTok,${clicks},${orders},${revenue},${spend},${engagement},Creator import note,${campaign},${product},${angle}`;
+}
+
+function creatorPerformancePreview(rows) {
+  return buildCreatorPerformancePreview({
+    csvText: [CREATOR_PERFORMANCE_HEADER, ...rows].join("\n"),
+    parsePublicEngagementCsv,
+  });
 }

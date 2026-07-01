@@ -6,9 +6,11 @@ import {
   useFetcher,
   useLoaderData,
   useLocation,
+  useNavigate,
 } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
 import {
+  deleteCreativePerformanceRecord,
   deleteVideoAnalysisRecord,
   deleteSavedCreative,
   getWorkspaceProfile,
@@ -21,9 +23,9 @@ import {
   saveManualCreativePerformance,
 } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
-import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { generateCreativeTitleAndSummary } from "../utils/creative-display.server";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server";
+import { assertUploadRequestSize } from "../utils/upload-storage.server";
 import { assignCampaignRecords, listCampaigns } from "../models/campaign.server";
 
 export const meta = () => {
@@ -43,7 +45,9 @@ export const loader = async ({ request }) => {
   ]);
 
   return {
-    creatives: performance.records.map(toCreativeCard),
+    creatives: performance.records
+      .filter((record) => record.sourceRecordType !== "creator_performance_import")
+      .map(toCreativeCard),
     campaigns: campaigns.map(({ id, name }) => ({ id, name })),
     deleted: url.searchParams.get("deleted") === "1",
     hasDemoPerformanceData: performance.hasDemoPerformanceData,
@@ -57,6 +61,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
+  assertUploadRequestSize(request);
   const { merchantData, session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "save");
@@ -86,7 +91,7 @@ export const action = async ({ request }) => {
       return { error: "Choose a creative record to delete.", ok: false };
     }
 
-    if (!["saved_creative", "video_analysis"].includes(recordType)) {
+    if (!["creative_performance", "saved_creative", "video_analysis"].includes(recordType)) {
       return {
         error: "This creative source cannot be deleted from the Creative Library.",
         ok: false,
@@ -97,6 +102,8 @@ export const action = async ({ request }) => {
       const deleted =
         recordType === "video_analysis"
           ? await deleteVideoAnalysisRecord(session.shop, recordId)
+          : recordType === "creative_performance"
+            ? await deleteCreativePerformanceRecord(session.shop, recordId)
           : await deleteSavedCreative(session.shop, recordId);
 
       if (!deleted) {
@@ -127,6 +134,9 @@ export const action = async ({ request }) => {
 
   const videoFile = formData.get("video_file");
   const videoUrl = String(formData.get("video_url") || "").trim();
+  if (!videoUrl && (!videoFile || !videoFile.name || !videoFile.size)) {
+    return { error: "Choose a video file or enter a video URL before saving." };
+  }
   const productTitle = String(formData.get("product") || "").trim() || "Uploaded Product";
   const profile = await getWorkspaceProfile(session.shop);
   const product =
@@ -316,16 +326,16 @@ function newestCreativesFirst(creatives) {
 }
 
 function toCreativeCard(record) {
-  const recordType = record.sourceRecordType || "saved_creative";
+  const recordType = record.storageRecordType || "";
   const recordId =
-    record.sourceRecordId ||
+    record.storageRecordId ||
     (recordType === "video_analysis"
       ? String(record.id || "").replace(/^analysis-/, "")
       : record.id);
 
   return {
     id: record.id,
-    canDelete: ["saved_creative", "video_analysis"].includes(recordType),
+    canDelete: ["creative_performance", "saved_creative", "video_analysis"].includes(recordType),
     title: record.creativeTitle,
     product: record.productTitle,
     creator: record.creatorHandle || record.creatorName || "Manual Creator",
@@ -401,11 +411,16 @@ export default function CreativeLibraryRoute() {
     selectedProductId,
     shop,
   } = useLoaderData();
+  const location = useLocation();
+  const navigate = useNavigate();
   const actionData = useActionData();
   const uploadFetcher = useFetcher();
   const [search, setSearch] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("all");
   const [deletedCreativeIds, setDeletedCreativeIds] = useState([]);
+  const [selectedCreativeId, setSelectedCreativeId] = useState(() =>
+    new URLSearchParams(location.search).get("creativeId"),
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState(emptyCreativeForm);
   const uploadSaving = uploadFetcher.state !== "idle";
@@ -421,6 +436,12 @@ export default function CreativeLibraryRoute() {
     setUploadForm(emptyCreativeForm);
     setUploadOpen(false);
   }, [uploadFetcher.data]);
+
+  useEffect(() => {
+    const creativeId = new URLSearchParams(location.search).get("creativeId");
+
+    if (creativeId) setSelectedCreativeId(creativeId);
+  }, [location.search]);
 
   function updateUploadField(field, value) {
     setUploadForm((current) => ({
@@ -471,6 +492,21 @@ export default function CreativeLibraryRoute() {
           (campaignFilter === "unassigned" ? !creative.campaignId : creative.campaignId === campaignFilter));
     });
   }, [campaignFilter, visibleCreatives, search]);
+  const selectedCreative = creatives.find(
+    (creative) =>
+      String(creative.id) === String(selectedCreativeId) ||
+      String(creative.recordId) === String(selectedCreativeId),
+  );
+  const requestedCreativeMissing = Boolean(selectedCreativeId && !selectedCreative);
+
+  function closeCreativeDetails() {
+    setSelectedCreativeId(null);
+    const query = new URLSearchParams(location.search);
+    query.delete("creativeId");
+    navigate(query.size ? `${location.pathname}?${query}` : location.pathname, {
+      replace: true,
+    });
+  }
 
   return (
     <div className="space-y-8">
@@ -510,6 +546,19 @@ export default function CreativeLibraryRoute() {
         >
           {uploadError || actionError || uploadSuccess || actionSuccess}
         </div>
+      )}
+
+      {requestedCreativeMissing && (
+        <section className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100" role="status">
+          <h2 className="font-display text-xl font-semibold">Creative detail unavailable</h2>
+          <p className="mt-2 text-sm leading-6">
+            This creative does not exist in this shop, or it was removed. The rest of
+            the Creative Library is still available.
+          </p>
+          <button type="button" className="bp-primary-cta mt-4" onClick={closeCreativeDetails}>
+            Back to Creative Library
+          </button>
+        </section>
       )}
 
       {uploadOpen && (
@@ -557,7 +606,7 @@ export default function CreativeLibraryRoute() {
                   >
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
-                        {product.title}
+                        {product.title}{product.source === "demo" ? " · Demo product" : product.source === "imported" ? " · Imported product context" : " · Shopify product"}
                       </option>
                     ))}
                   </select>
@@ -782,7 +831,7 @@ export default function CreativeLibraryRoute() {
         </div>
       )}
 
-      {filtered.length === 0 && (
+      {visibleCreatives.length === 0 && (
         <EmptyWorkspaceState
           title="No creatives yet"
           description="Analyze a video or save a manual creative record to begin building this shop's Creative Library. TikTok sync and imported performance data are not active yet."
@@ -793,7 +842,7 @@ export default function CreativeLibraryRoute() {
         />
       )}
 
-      {filtered.length > 0 && (
+      {visibleCreatives.length > 0 && (
         <>
           <div className="glass grid gap-3 rounded-2xl p-3 md:grid-cols-[1fr_260px]">
             <input
@@ -809,6 +858,17 @@ export default function CreativeLibraryRoute() {
             </select>
           </div>
 
+          {filtered.length === 0 && (
+            <div className="glass rounded-2xl p-6 text-center">
+              <h2 className="text-lg font-semibold text-foreground">
+                No creatives match these filters
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Choose All campaigns, select another campaign, or adjust your search.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-8">
             {filtered.map((creative) => (
               <CreativeCard
@@ -816,17 +876,24 @@ export default function CreativeLibraryRoute() {
                 creative={creative}
                 campaigns={campaigns}
                 onDeleted={markCreativeDeleted}
+                onViewDetails={() => setSelectedCreativeId(creative.id)}
               />
             ))}
           </div>
         </>
       )}
+
+      {selectedCreative && (
+        <CreativeDetailsModal
+          creative={selectedCreative}
+          onClose={closeCreativeDetails}
+        />
+      )}
     </div>
   );
 }
 
-function CreativeCard({ campaigns, creative, onDeleted }) {
-  const location = useLocation();
+function CreativeCard({ campaigns, creative, onDeleted, onViewDetails }) {
   const deleteFetcher = useFetcher();
   const videoCandidate =
     creative.video_url ||
@@ -949,12 +1016,6 @@ function CreativeCard({ campaigns, creative, onDeleted }) {
           </p>
         )}
 
-        {creative.hasPerformanceMetrics ? (
-          <PerformanceMetricGrid creative={creative} />
-        ) : (
-          <PlanningMetricGrid creative={creative} />
-        )}
-
         <p className="text-muted-foreground mt-7 text-sm">
           {creative.insight ||
             creative.transcript_summary ||
@@ -968,15 +1029,13 @@ function CreativeCard({ campaigns, creative, onDeleted }) {
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <Link
-            to={withEmbeddedRouteParams(
-              `/app/creative-library/${creative.id}`,
-              location.search,
-            )}
-            className="inline-block text-primary font-semibold"
+          <button
+            type="button"
+            onClick={onViewDetails}
+            className="inline-block bg-transparent p-0 text-left font-semibold text-primary"
           >
             View creative details →
-          </Link>
+          </button>
 
           {!creative.canDelete ? null : confirmingDelete ? (
             <deleteFetcher.Form method="post" className="flex flex-wrap items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2">
@@ -985,7 +1044,7 @@ function CreativeCard({ campaigns, creative, onDeleted }) {
               <input name="recordId" type="hidden" value={creative.recordId} />
               <input name="recordType" type="hidden" value={creative.recordType} />
               <span className="w-full text-xs font-semibold text-red-100 sm:w-auto">
-                Delete this creative from this workspace?
+                Remove this creative from BluePrintAI? External ad platform data will not be deleted.
               </span>
               <button
                 type="button"
@@ -1024,6 +1083,151 @@ function CreativeCard({ campaigns, creative, onDeleted }) {
   );
 }
 
+function CreativeDetailsModal({ creative, onClose }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+    }
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  const videoCandidate =
+    creative.video_url ||
+    creative.videoUrl ||
+    creative.asset_url ||
+    creative.assetUrl ||
+    creative.source_url ||
+    creative.sourceUrl ||
+    "";
+  const videoUrl = isPlayableVideoUrl(videoCandidate)
+    ? resolveMediaUrl(videoCandidate)
+    : "";
+  const posterUrl = resolveMediaUrl(
+    creative.thumbnail || creative.thumbnail_url || "",
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-md sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      role="presentation"
+    >
+      <section
+        aria-labelledby="creative-details-title"
+        aria-modal="true"
+        className="glass-strong relative max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-cyan-400/20 p-5 shadow-2xl shadow-cyan-950/40 sm:p-7"
+        role="dialog"
+      >
+        <button
+          aria-label="Close creative details"
+          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-xl text-slate-200 transition hover:border-cyan-400/50 hover:text-white"
+          onClick={onClose}
+          type="button"
+        >
+          ×
+        </button>
+
+        <div className="pr-12">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">
+            {creative.sourceLabel || "Creative details"}
+          </p>
+          <h2
+            className="mt-2 font-display text-2xl font-semibold text-white sm:text-3xl"
+            id="creative-details-title"
+          >
+            {creative.title || "Untitled Creative"}
+          </h2>
+          <p className="mt-2 text-sm text-slate-400">
+            {creative.product || "Product"} · {creative.creator || "Creator"}
+          </p>
+        </div>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
+          <div className="space-y-4">
+            {videoUrl ? (
+              <video
+                className="aspect-video w-full rounded-2xl bg-black object-contain"
+                controls
+                poster={posterUrl || undefined}
+                preload="metadata"
+                src={videoUrl}
+              >
+                <track kind="captions" />
+              </video>
+            ) : posterUrl ? (
+              <img
+                alt={creative.title || "Creative thumbnail"}
+                className="aspect-video w-full rounded-2xl bg-black object-cover"
+                src={posterUrl}
+              />
+            ) : (
+              <div className="flex aspect-video items-center justify-center rounded-2xl border border-slate-800 bg-black p-6 text-center text-sm text-slate-400">
+                No stored preview is available for this creative.
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <CreativeDetailValue label="Campaign" value={creative.campaignName || "Unassigned"} />
+              <CreativeDetailValue label="Hook" value={creative.hook || "Not available"} />
+              <CreativeDetailValue label="CTA" value={creative.cta || "Not available"} />
+              <CreativeDetailValue label="Angle" value={creative.angle || "Not available"} />
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            {creative.isDemoPerformanceData && (
+              <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-100">
+                Demo performance data
+              </p>
+            )}
+
+            <PerformanceMetricGrid creative={creative} />
+
+            {!creative.hasPerformanceMetrics && (
+              <PlanningMetricGrid creative={creative} />
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/45 p-5">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+            Insight
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-200">
+            {creative.insight ||
+              creative.transcript_summary ||
+              "No insight available."}
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CreativeDetailValue({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-100">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function PerformanceMetricGrid({ creative }) {
   const metrics = [
     ["Spend", formatOptionalCurrency(creative.spend)],
@@ -1035,12 +1239,12 @@ function PerformanceMetricGrid({ creative }) {
     ["CTR", formatOptionalRate(creative.ctr, "%")],
     ["CVR", formatOptionalRate(creative.conversionRate, "%")],
     ["Video views", formatOptionalNumber(creative.videoViews ?? creative.views)],
-    ["Completion", formatOptionalRate(creative.videoCompletionRate, "%")],
-    ["Engagement", formatOptionalRate(creative.engagementRate, "%")],
+    ["Completion", formatOptionalRate(creative.videoCompletionRate ?? creative.video100PercentWatched, "%")],
+    ["Engagement", hasOptionalValue(creative.engagementRate) ? formatOptionalRate(creative.engagementRate, "%") : formatOptionalNumber(creative.engagementCount)],
     ["Likes", formatOptionalNumber(creative.likes)],
     ["Comments", formatOptionalNumber(creative.comments)],
     ["Shares", formatOptionalNumber(creative.shares)],
-    ["Sync", formatSyncStatus(creative.syncStatus || creative.source_platform)],
+    ["Sync / import status", formatSyncStatus(creative.syncStatus || creative.importSource || creative.source_platform)],
   ];
 
   return (

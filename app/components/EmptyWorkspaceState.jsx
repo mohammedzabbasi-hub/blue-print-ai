@@ -1,18 +1,20 @@
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export default function EmptyWorkspaceState({
   eyebrow = "New Workspace",
   title = "No data yet",
-  description = "This new shop does not have data yet. Upload a creative or connect your TikTok Shop to begin.",
+  description = "This new shop does not have saved app data yet. Analyze a video or save a creative to populate this section.",
   primaryText,
   primaryLabel,
   primaryLink = "/app/video-analysis",
   secondaryText,
   secondaryLabel,
-  secondaryLink = "/app/settings",
+  secondaryLink = "/app/creative-library",
 }) {
+  const location = useLocation();
   const resolvedPrimaryLabel = primaryText || primaryLabel || "Upload Creative";
-  const resolvedSecondaryLabel = secondaryText || secondaryLabel || "Connect Shop";
+  const resolvedSecondaryLabel = secondaryText || secondaryLabel || "Open Creative Library";
 
   return (
     <div className="glass rounded-2xl p-8">
@@ -29,8 +31,8 @@ export default function EmptyWorkspaceState({
       <div className="flex flex-wrap gap-4 mt-8">
         {resolvedPrimaryLabel && primaryLink && (
           <Link
-            to={primaryLink}
-            className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground"
+            to={withEmbeddedRouteParams(primaryLink, location.search)}
+            className="bp-primary-cta"
           >
             {resolvedPrimaryLabel}
           </Link>
@@ -38,8 +40,8 @@ export default function EmptyWorkspaceState({
 
         {resolvedSecondaryLabel && secondaryLink && (
           <Link
-            to={secondaryLink}
-            className="rounded-lg border border-border-strong bg-surface-2/60 px-5 py-2.5 font-semibold text-foreground"
+            to={withEmbeddedRouteParams(secondaryLink, location.search)}
+            className="bp-primary-cta"
           >
             {resolvedSecondaryLabel}
           </Link>

@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { Link, useLoaderData } from "react-router";
+import { Link, useLoaderData, useLocation } from "react-router";
 import { authenticate } from "../shopify.server";
 import {
   buildCreators,
@@ -9,18 +9,13 @@ import {
   loadMerchantData,
 } from "../models/blueprint.server";
 import { EmptyState, Icon, Notice, PageHeader, ProductThumbnail } from "../components/blueprint-ui";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { getLocalDemoAccess } from "../utils/demo-access.server";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const query = String(url.searchParams.get("q") || "").trim();
-  const isLocalDemoHost = ["localhost", "127.0.0.1", "::1"].includes(
-    url.hostname,
-  );
-  const shouldUseDemoBypass =
-    isLocalDemoHost ||
-    process.env.NODE_ENV !== "production" ||
-    process.env.DEV_BYPASS_SHOPIFY_AUTH === "true" ||
-    url.searchParams.get("demo") === "1";
+  const { useDemoWorkspace: shouldUseDemoBypass } = getLocalDemoAccess(request);
 
   if (shouldUseDemoBypass) {
     return {
@@ -28,7 +23,7 @@ export const loader = async ({ request }) => {
       merchantData: {
         errors: query
           ? [
-              "Search is running in local demo mode. Start Shopify auth to search live merchant data.",
+              "Search is running in local demo mode. Start Shopify auth to search authenticated Shopify app data.",
             ]
           : [],
       },
@@ -48,7 +43,7 @@ export const loader = async ({ request }) => {
     listSavedBriefs(session.shop, 25),
     listSavedCreatives(session.shop, 25),
   ]);
-  const recommendations = buildRecommendations(merchantData.products, merchantData.orders);
+  const recommendations = buildRecommendations(merchantData.products);
   const creators = buildCreators(merchantData.products, creatives);
 
   if (!query) {
@@ -196,7 +191,7 @@ export default function SearchResults() {
                 <SearchResult
                   key={creator.id}
                   title={creator.name}
-                  subtitle={`${creator.handle} · ${creator.productTitle} · ${creator.fitScore}/100 fit`}
+                  subtitle={`Creator performance account · ${creator.productTitle} · ${creator.fitScore}/100 account score`}
                   href={`/app/creators/${encodeURIComponent(creator.id)}`}
                 />
               )}
@@ -223,8 +218,13 @@ function ResultGroup({ title, items, children }) {
 }
 
 function SearchResult({ title, subtitle, href, thumbnail }) {
+  const location = useLocation();
+
   return (
-    <Link className="bp-search-result" to={href}>
+    <Link
+      className="bp-search-result"
+      to={withEmbeddedRouteParams(href, location.search)}
+    >
       {thumbnail || (
         <span className="bp-search-result-icon">
           <Icon name="search" />
@@ -268,6 +268,5 @@ function buildResultActionUrl(item = {}) {
     return `/app/revenue-blueprint?${params.toString()}`;
   }
 
-  params.set("generate", "1");
   return `/app/ad-briefs?${params.toString()}`;
 }

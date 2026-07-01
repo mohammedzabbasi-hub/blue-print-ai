@@ -364,6 +364,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .bp-topbar {
@@ -496,6 +498,43 @@
   overflow: auto;
   padding: 34px 40px 48px;
   width: 100%;
+}
+
+.bp-legal-page {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.bp-legal-wrap {
+  margin: 0 auto;
+  max-width: 980px;
+  min-width: 0;
+  width: 100%;
+}
+
+.bp-legal-brand {
+  color: var(--bp-primary);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  margin-bottom: 24px;
+  text-decoration: none;
+}
+
+.bp-legal-card {
+  background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.02));
+  border: 1px solid var(--bp-border);
+  border-radius: 18px;
+  box-shadow: var(--bp-shadow);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 32px;
+}
+
+.bp-legal-card a,
+.bp-legal-card section {
+  min-width: 0;
 }
 
 .bp-page {
@@ -8604,4 +8643,439 @@ body {
 
 .bp-side-link-active .bp-shell-icon {
   color: var(--bp-primary);
+}
+
+/* Keep the sidebar workspace card visually compact without changing nav sizing. */
+.bp-sidebar-note {
+  align-self: center;
+  border-radius: 12px;
+  max-width: 196px;
+  padding: 12px;
+  width: 100%;
+}
+
+.bp-sidebar-note span {
+  font-size: 9px;
+  letter-spacing: .16em;
+}
+
+.bp-sidebar-note p {
+  font-size: 11px;
+  line-height: 1.42;
+  margin-top: 9px;
+}
+
+.bp-shell-icon svg {
+  display: block;
+  fill: none;
+  height: 1em;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.3;
+  width: 1em;
+}
+
+/* Match the model app's compact brand tile in the sidebar header. */
+.bp-brand {
+  align-items: center;
+  background: transparent;
+  border-radius: 10px;
+  gap: 8px;
+  min-height: 48px;
+  padding: 5px 7px;
+  width: 100%;
+}
+
+.bp-brand-mark {
+  background: linear-gradient(135deg, #19d4d5 0%, #1fc97e 100%);
+  border: 1px solid rgba(101, 217, 244, .28);
+  border-radius: 11px;
+  box-shadow: 0 18px 34px rgba(16, 185, 129, .24), 0 0 28px rgba(20, 184, 166, .34);
+  color: #03131d;
+  flex: 0 0 38px;
+  height: 38px;
+  width: 38px;
+}
+
+.bp-brand-mark .bp-shell-icon {
+  color: currentColor;
+  font-size: 0;
+  height: 17px;
+  width: 17px;
+}
+
+.bp-brand-mark .bp-shell-icon svg {
+  display: block;
+  fill: none;
+  height: 100%;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+  width: 100%;
+}
+
+.bp-brand strong {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.bp-brand small {
+  color: rgba(203, 213, 225, .86);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .16em;
+  margin-top: 3px;
+}
+
+@media (max-width: 640px) {
+  .bp-legal-page,
+  .bp-legal-wrap,
+  .bp-legal-card {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .bp-legal-page {
+    justify-items: start;
+    overflow-x: hidden;
+    width: calc(100vw - 32px) !important;
+  }
+
+  .bp-legal-wrap,
+  .bp-legal-card {
+    box-sizing: border-box;
+    max-width: calc(100vw - 32px) !important;
+    width: calc(100vw - 32px) !important;
+  }
+
+  .bp-legal-card {
+    border-radius: 16px;
+    padding: 22px 16px;
+  }
+
+  .bp-legal-card h1 {
+    font-size: 32px;
+    line-height: 1.08;
+  }
+
+  .bp-legal-card h2 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .bp-legal-card a,
+  .bp-legal-card p,
+  .bp-legal-card span {
+    overflow-wrap: anywhere;
+  }
+
+  .bp-legal-card a,
+  .bp-legal-card section {
+    box-sizing: border-box;
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
+.bp-legal-page-embedded,
+.bp-legal-wrap-embedded,
+.bp-legal-card-embedded {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.bp-legal-wrap-embedded {
+  margin-left: auto;
+  margin-right: auto;
+  width: min(980px, 100%);
+}
+
+.bp-legal-card-embedded {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .bp-shell:has(.bp-legal-page-embedded) {
+    overflow-x: hidden;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bp-legal-page-embedded,
+  .bp-legal-wrap-embedded,
+  .bp-legal-card-embedded {
+    max-width: calc(100vw - 96px) !important;
+    width: calc(100vw - 96px) !important;
+  }
+
+  .bp-legal-card-embedded h1 {
+    font-size: 24px;
+    line-height: 1.12;
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
+.bp-primary-cta,
+.bp-button-primary {
+  align-items: center;
+  background:
+    linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%) left / 0 100% no-repeat,
+    #0b1830;
+  border: 1px solid rgba(59, 130, 246, .58);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 0 0 1px rgba(147, 197, 253, .08),
+    0 14px 34px rgba(37, 99, 235, .18);
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 18px;
+  font-weight: 800;
+  justify-content: center;
+  line-height: 1.1;
+  min-height: 54px;
+  padding: 16px 28px;
+  text-align: center;
+  text-decoration: none;
+  transition:
+    background-size .34s ease,
+    border-color .16s ease,
+    box-shadow .16s ease,
+    transform .16s ease,
+    opacity .16s ease;
+  white-space: nowrap;
+}
+
+.bp-primary-cta:hover:not(:disabled),
+.bp-primary-cta:focus-visible,
+.bp-button-primary:hover:not(:disabled),
+.bp-button-primary:focus-visible {
+  background-size: 100% 100%, 100% 100%;
+  border-color: rgba(96, 165, 250, .82);
+  box-shadow:
+    inset 0 0 0 1px rgba(191, 219, 254, .14),
+    0 18px 38px rgba(37, 99, 235, .26);
+  outline: 0;
+  transform: translateY(-1px);
+}
+
+.bp-primary-cta:disabled,
+.bp-primary-cta[aria-disabled="true"],
+.bp-button-primary:disabled,
+.bp-button-primary[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: .58;
+  transform: none;
+}
+
+@media (max-width: 520px) {
+  .bp-primary-cta,
+  .bp-button-primary {
+    font-size: 16px;
+    min-height: 50px;
+    padding: 14px 22px;
+    white-space: normal;
+  }
+}
+
+/* Collapsible BluePrintAI sidebar. Kept last so it wins over legacy shell passes. */
+.bp-app-frame {
+  --bp-sidebar-closed: 84px;
+  --bp-sidebar-open: 304px;
+  --bp-sidebar-width: var(--bp-sidebar-closed);
+  grid-template-columns: var(--bp-sidebar-width) minmax(0, 1fr);
+  margin: 0;
+  transition: grid-template-columns .24s ease;
+}
+
+.bp-app-frame.bp-sidebar-expanded {
+  --bp-sidebar-width: var(--bp-sidebar-open);
+}
+
+.bp-sidebar {
+  overflow-x: hidden;
+  padding: 20px 14px;
+  position: relative;
+  transition:
+    background .18s ease,
+    border-color .18s ease,
+    padding .24s ease,
+    width .24s ease;
+  width: var(--bp-sidebar-width);
+  z-index: 20;
+}
+
+.bp-brand {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  overflow: hidden;
+  text-align: left;
+  transition:
+    box-shadow .18s ease,
+    justify-content .24s ease,
+    padding .24s ease;
+}
+
+.bp-brand:focus-visible {
+  box-shadow: 0 0 0 2px rgba(101, 217, 244, .42);
+  outline: 0;
+}
+
+.bp-brand-copy,
+.bp-side-label,
+.bp-sidebar-note,
+.bp-sidebar-footer-links,
+.bp-sidebar-logout-form {
+  transition:
+    max-height .24s ease,
+    max-width .24s ease,
+    opacity .18s ease,
+    transform .24s ease,
+    visibility .18s ease;
+}
+
+.bp-brand-copy {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.bp-sidebar-collapsed .bp-sidebar {
+  align-items: center;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.bp-sidebar-collapsed .bp-brand {
+  background: transparent;
+  justify-content: center;
+  min-height: 54px;
+  padding: 6px;
+}
+
+.bp-sidebar-collapsed .bp-brand-mark {
+  flex-basis: 42px;
+  height: 42px;
+  width: 42px;
+}
+
+.bp-sidebar-collapsed .bp-brand-copy,
+.bp-sidebar-collapsed .bp-side-label {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateX(-6px);
+  visibility: hidden;
+}
+
+.bp-sidebar-collapsed .bp-side-nav {
+  align-items: center;
+  width: 100%;
+}
+
+.bp-sidebar-collapsed .bp-side-link {
+  border-radius: 14px;
+  gap: 0;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  width: 52px;
+}
+
+.bp-sidebar-collapsed .bp-side-link .bp-shell-icon {
+  flex-basis: 22px;
+  font-size: 19px;
+  height: 22px;
+  width: 22px;
+}
+
+.bp-sidebar-collapsed .bp-side-link-active {
+  background: rgba(36, 47, 66, .78);
+  box-shadow: inset 0 0 0 1px rgba(101, 217, 244, .10);
+}
+
+.bp-sidebar-collapsed .bp-side-link-active::before {
+  height: 24px;
+  left: -12px;
+  width: 3px;
+}
+
+.bp-sidebar-collapsed .bp-sidebar-note,
+.bp-sidebar-collapsed .bp-sidebar-footer-links,
+.bp-sidebar-collapsed .bp-sidebar-logout-form {
+  max-height: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-8px);
+  visibility: hidden;
+}
+
+.bp-sidebar-expanded .bp-brand-copy,
+.bp-sidebar-expanded .bp-side-label {
+  max-width: 210px;
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.bp-sidebar-expanded .bp-sidebar-note,
+.bp-sidebar-expanded .bp-sidebar-footer-links,
+.bp-sidebar-expanded .bp-sidebar-logout-form {
+  max-height: 260px;
+  max-width: 100%;
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.bp-sidebar-expanded .bp-side-link {
+  transition:
+    background .18s ease,
+    box-shadow .18s ease,
+    color .18s ease,
+    width .24s ease;
+}
+
+@media (max-width: 1180px) {
+  .bp-app-frame,
+  .bp-app-frame.bp-sidebar-expanded,
+  .bp-app-frame.bp-sidebar-collapsed {
+    grid-template-columns: var(--bp-sidebar-width) minmax(0, 1fr);
+  }
+
+  .bp-app-frame > .bp-sidebar {
+    display: flex;
+  }
+
+  .bp-topbar-menu,
+  .bp-mobile-nav-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .bp-app-frame {
+    --bp-sidebar-closed: 76px;
+    --bp-sidebar-open: min(284px, 72vw);
+  }
+
+  .bp-sidebar {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .bp-sidebar-collapsed .bp-side-link {
+    width: 48px;
+  }
 }

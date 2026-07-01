@@ -1,0 +1,11 @@
+email,firstName,lastName,phone,address1,city,province,country,zip,tags
+customer1@example.com,Avery,Stone,,118 Demo Market St,Austin,Texas,United States,78701,"vip-demo,skincare buyer"
+customer2@example.com,Maya,Chen,,42 Sample Cedar Ave,Seattle,Washington,United States,98101,"repeat-demo,lash care"
+customer3@example.com,Jordan,Rivera,,905 Test Maple Dr,Denver,Colorado,United States,80202,"creator-inspired,beauty tools"
+customer4@example.com,Sofia,Bennett,,77 Review Lane,Miami,Florida,United States,33130,"bundle buyer,ugc audience"
+customer5@example.com,Harper,Patel,,16 Example Park Pl,Chicago,Illinois,United States,60601,"first purchase,skincare prep"
+customer6@example.com,Riley,Nguyen,,230 Seed Sunset Blvd,Los Angeles,California,United States,90028,"high intent,facial sculptor"
+customer7@example.com,Emery,Johnson,,64 Demo Birch Ct,Nashville,Tennessee,United States,37203,"discount demo,beauty accessory"
+customer8@example.com,Quinn,Martinez,,501 Sample Harbor Rd,Portland,Oregon,United States,97205,"returning demo,glass skin"
+customer9@example.com,Isla,Robinson,,830 Review Walnut Way,Atlanta,Georgia,United States,30303,"campaign demo,routine bundle"
+customer10@example.com,Nora,Kim,,29 Test Grove St,Boston,Massachusetts,United States,02108,"creator demo,lash lift"

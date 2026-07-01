@@ -24,7 +24,7 @@ export const PERFORMANCE_EMPTY_STATE =
 export const DEMO_PERFORMANCE_EMPTY_STATE =
   "This page is currently using demo performance data.";
 export const SHOPIFY_PRODUCTS_ONLY_STATE =
-  "Shopify products are connected, but orders/ad platforms are not connected yet.";
+  "Product context is available, but orders/ad platforms are not connected yet.";
 
 export const SOURCE_PLATFORMS = [
   "manual",
@@ -99,6 +99,7 @@ const NUMERIC_IMPORT_FIELDS = [
   "creator_orders",
   "creator_revenue",
   "creator_spend",
+  "creator_engagement_rate",
 ];
 const ZERO_DEFAULT_FIELDS = ["likes", "comments", "shares", "saves", "reposts"];
 const OPTIONAL_PERFORMANCE_FIELDS = [
@@ -133,6 +134,7 @@ const OPTIONAL_PERFORMANCE_FIELDS = [
   "creator_orders",
   "creator_revenue",
   "creator_spend",
+  "creator_engagement_rate",
 ];
 const DEEPER_PERFORMANCE_KEYS = [
   "impressions",
@@ -173,19 +175,27 @@ const DEMO_CREATIVE_VIDEO_PATHS = {
   "morning puffiness fix in 10 seconds": "/demo-videos/morning-puffiness.mp4",
 };
 
-export function buildIntegrationStatuses() {
+export function buildIntegrationStatuses({
+  connectedPlatforms = [],
+  hasShopifyProducts = false,
+} = {}) {
+  const connected = new Set(connectedPlatforms);
   return [
     {
       id: "shopify_products",
       label: "Shopify Products",
-      status: "Connected",
-      tone: "connected",
+      status: hasShopifyProducts ? "Active" : "No products loaded",
+      tone: hasShopifyProducts ? "connected" : "pending",
+      description: hasShopifyProducts
+        ? "Real Shopify catalog products available"
+        : "Add a product in Shopify or use imported product context",
     },
     {
       id: "shopify_orders",
       label: "Shopify Orders",
-      status: "Not connected yet",
+      status: "Optional",
       tone: "pending",
+      description: "Optional — connect to import order data",
       // TODO: Shopify Orders connector - request read_orders only when the
       // product is ready to ingest order attribution and revenue data.
       todo: "Future connector: Shopify Orders connector with read_orders support.",
@@ -193,8 +203,11 @@ export function buildIntegrationStatuses() {
     {
       id: "meta_ads",
       label: "Meta Ads",
-      status: "Not connected yet",
-      tone: "pending",
+      status: connected.has("meta") ? "Connected" : "Optional",
+      tone: connected.has("meta") ? "connected" : "pending",
+      description: connected.has("meta")
+        ? "Connected ad metrics source"
+        : "Optional — connect to sync ad metrics",
       // TODO: Meta Ads connector - sync campaign, creative, spend, click,
       // conversion, and revenue metrics into CreativePerformance.
       todo: "Future connector: Meta Ads connector.",
@@ -202,8 +215,11 @@ export function buildIntegrationStatuses() {
     {
       id: "tiktok_ads",
       label: "TikTok Ads",
-      status: "Not connected yet",
-      tone: "pending",
+      status: connected.has("tiktok") ? "Connected" : "Optional",
+      tone: connected.has("tiktok") ? "connected" : "pending",
+      description: connected.has("tiktok")
+        ? "Connected ad metrics source"
+        : "Optional — connect to sync ad metrics",
       // TODO: TikTok Ads connector - sync ad creative and performance metrics
       // into CreativePerformance.
       todo: "Future connector: TikTok Ads connector.",
@@ -211,17 +227,28 @@ export function buildIntegrationStatuses() {
     {
       id: "tiktok_shop",
       label: "TikTok Shop Affiliate",
-      status: "Not connected yet",
+      status: "Optional",
       tone: "pending",
+      description: "Optional — connect for affiliate and GMV insights",
       // TODO: TikTok Shop Affiliate connector - sync affiliate creator,
       // product, GMV, orders, and video attribution into CreativePerformance.
       todo: "Future connector: TikTok Shop Affiliate connector.",
     },
     {
+      id: "google_ads",
+      label: "Google Ads",
+      status: connected.has("google") ? "Connected" : "Optional",
+      tone: connected.has("google") ? "connected" : "pending",
+      description: connected.has("google")
+        ? "Connected Google Ads campaign metrics"
+        : "Optional — connect to sync ad metrics",
+    },
+    {
       id: "manual_uploads",
       label: "Manual Uploads",
-      status: "Available",
+      status: "Manual upload available",
       tone: "available",
+      description: "Upload creatives or import a CSV at any time",
     },
   ];
 }
@@ -232,7 +259,14 @@ export async function listCreativePerformance({
   includeDemo = false,
   limit = 500,
 } = {}) {
-  const [savedCreatives, videoAnalyses, dbPerformanceRecords, campaignAssignments] = await Promise.all([
+  const [
+    savedCreatives,
+    videoAnalyses,
+    dbPerformanceRecords,
+    campaignAssignments,
+    platformDailyRecords,
+    platformConnections,
+  ] = await Promise.all([
     shop ? listSavedCreatives(shop, limit) : [],
     shop ? listVideoAnalyses(shop, limit) : [],
     shop
@@ -247,6 +281,19 @@ export async function listCreativePerformance({
           where: { shop },
           include: { campaign: true },
           orderBy: { createdAt: "desc" },
+        })
+      : [],
+    shop
+      ? db.adPerformanceDaily.findMany({
+          where: { shop },
+          orderBy: [{ reportingDate: "desc" }, { createdAt: "desc" }],
+          take: limit,
+        })
+      : [],
+    shop
+      ? db.adPlatformConnection.findMany({
+          where: { shop },
+          select: { platform: true },
         })
       : [],
   ]);
@@ -267,8 +314,32 @@ export async function listCreativePerformance({
           demoCreativeToPerformance(creative, index, merchantData.products || []),
         )
       : [];
-  const dailyRecords =
-    includeDemo && savedRecords.length === 0 ? buildDemoPerformanceSeries(30) : [];
+  const connectedDailyRecords = platformDailyRecords.map((record) => ({
+    id: record.id,
+    creativeId: record.campaignId || record.rowKey,
+    campaignId: record.campaignId,
+    campaignName: record.campaignName,
+    adGroupId: record.adGroupId,
+    adGroupName: record.adGroupName,
+    adId: record.adId,
+    adName: record.adName,
+    date: record.reportingDate,
+    reportingDate: record.reportingDate,
+    impressions: record.impressions,
+    clicks: record.clicks,
+    spend: record.spend,
+    conversions: record.conversions,
+    revenue: record.revenue,
+    engagements: record.engagements,
+    videoViews: record.videoViews,
+    platform: record.platform === "google" ? "Google Ads" : record.platform,
+    sourcePlatform: record.platform,
+  }));
+  const dailyRecords = connectedDailyRecords.length
+    ? connectedDailyRecords
+    : includeDemo && savedRecords.length === 0
+      ? buildDemoPerformanceSeries(30)
+      : [];
   const assignmentByPerformance = new Map();
   const assignmentBySaved = new Map();
   campaignAssignments.forEach((assignment) => {
@@ -296,11 +367,20 @@ export async function listCreativePerformance({
     hasDemoPerformanceData: records.some(
       (record) => record.sourcePlatform === "shopify_demo",
     ),
-    hasMeasuredPerformanceData: records.some(
+    hasImportedPerformanceData: records.some((record) => {
+      const source = `${record.importSource || ""} ${record.sourceRecordType || ""} ${record.sourceType || ""}`.toLowerCase();
+      return source.includes("import") || source.includes("csv");
+    }),
+    hasMeasuredPerformanceData: connectedDailyRecords.length > 0 || records.some(
       (record) =>
         record.sourcePlatform !== "shopify_demo" && hasPerformanceMetrics(record),
     ),
-    integrationStatuses: buildIntegrationStatuses(),
+    integrationStatuses: buildIntegrationStatuses({
+      connectedPlatforms: platformConnections.map(({ platform }) => platform),
+      hasShopifyProducts: (merchantData.products || []).some(
+        (product) => product?.source !== "demo",
+      ),
+    }),
     dailyRecords,
     records,
   };
@@ -362,6 +442,7 @@ function creativePerformanceDbRecordToPerformance(record = {}, index = 0) {
     cvr: record.cvr,
     creativeId: record.creativeId ?? payload.creativeId,
     creativeTitle: record.adName ?? payload.creativeTitle ?? payload.creativeName,
+    creativeLaunchDate: payload.creativeLaunchDate ?? payload.launchDate ?? payload.firstSeenDate,
     creatorHandle:
       record.creatorAttribution?.creator?.handle ?? record.creatorHandle ?? payload.creatorHandle,
     creatorName:
@@ -402,6 +483,8 @@ function creativePerformanceDbRecordToPerformance(record = {}, index = 0) {
     sourcePlatform: normalizeImportPlatform(record.platform || record.sourceType || "csv"),
     sourceRecordId: record.sourceRecordId,
     sourceRecordType: record.sourceRecordType || "creative_performance",
+    storageRecordId: record.id,
+    storageRecordType: "creative_performance",
     sourceType: record.sourceType,
     sourceUrl: record.sourceUrl,
     spend: record.spend,
@@ -488,7 +571,7 @@ export async function saveManualCreativePerformance({
   return creativeRecordToPerformance(saved);
 }
 
-export function parsePublicEngagementCsv(csvText = "") {
+export function parsePublicEngagementCsv(csvText = "", { importType = "creative" } = {}) {
   const safeText = String(csvText || "").replace(/^\uFEFF/, "");
 
   if (!safeText.trim()) {
@@ -535,12 +618,14 @@ export function parsePublicEngagementCsv(csvText = "") {
   const dataRows = parsedRows
     .slice(1)
     .filter((row) => row.some((cell) => String(cell || "").trim()));
-  const rows = dataRows.slice(0, MAX_PUBLIC_IMPORT_ROWS).map((row, index) =>
+  const validatedRows = dataRows.slice(0, MAX_PUBLIC_IMPORT_ROWS).map((row, index) =>
     validatePublicEngagementRow(
       Object.fromEntries(headers.map((header, cellIndex) => [header, sanitizeCsvValue(row[cellIndex])])),
       index + 2,
+      importType,
     ),
   );
+  const { duplicateRowsMerged, rows } = mergeDuplicateImportRows(validatedRows);
   const errors = [];
 
   if (dataRows.length > MAX_PUBLIC_IMPORT_ROWS) {
@@ -550,9 +635,43 @@ export function parsePublicEngagementCsv(csvText = "") {
   return {
     errors,
     headers,
+    duplicateRowsMerged,
     rows,
     totalRows: dataRows.length,
   };
+}
+
+function mergeDuplicateImportRows(rows = []) {
+  const merged = new Map();
+  let duplicateRowsMerged = 0;
+
+  rows.forEach((row) => {
+    const key = row.status === "error" ? `row:${row.rowNumber}` : row.record?.importKey;
+    const current = key ? merged.get(key) : null;
+    if (!current) {
+      merged.set(key || `row:${row.rowNumber}`, row);
+      return;
+    }
+
+    duplicateRowsMerged += 1;
+    const record = { ...current.record };
+    Object.entries(row.record || {}).forEach(([field, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      if (typeof value === "number" && typeof record[field] === "number") {
+        record[field] = Math.max(record[field], value);
+      } else if (record[field] === null || record[field] === undefined || record[field] === "") {
+        record[field] = value;
+      }
+    });
+    merged.set(key, {
+      ...current,
+      record,
+      status: "warning",
+      warnings: [...new Set([...(current.warnings || []), ...(row.warnings || []), "Duplicate creative/date row merged."])],
+    });
+  });
+
+  return { duplicateRowsMerged, rows: [...merged.values()] };
 }
 
 export async function importPublicEngagementRows({ csvText = "", shop }) {
@@ -652,7 +771,7 @@ export async function upsertPublicEngagementRecord(shop, row) {
     shopifyProductId: productId,
     productTitle,
     creativeTitle: title,
-    firstSeenAt: reportingDate.toISOString(),
+    firstSeenAt: record.creativeLaunchDate || reportingDate.toISOString(),
     lastSyncedAt: new Date().toISOString(),
     syncStatus: "imported_public_engagement",
     sourceRecordId: sourceId,
@@ -892,6 +1011,7 @@ export function normalizeCreativePerformance(input = {}) {
     creatorSpend: nullableNumber(aliased.creatorSpend),
     creatorNotes: cleanText(aliased.creatorNotes),
     creativeTitle: cleanText(aliased.creativeTitle || aliased.adName || aliased.title),
+    creativeLaunchDate: aliased.creativeLaunchDate || "",
     hook: cleanText(aliased.hook),
     angle: cleanText(aliased.angle),
     cta: cleanText(aliased.cta),
@@ -968,6 +1088,8 @@ export function normalizeCreativePerformance(input = {}) {
     utmCampaign: cleanText(aliased.utmCampaign),
     sourceRecordId: cleanText(aliased.sourceRecordId),
     sourceRecordType: cleanText(aliased.sourceRecordType),
+    storageRecordId: cleanText(aliased.storageRecordId),
+    storageRecordType: cleanText(aliased.storageRecordType),
   };
 }
 
@@ -1092,6 +1214,8 @@ function creativeRecordToPerformance(record = {}, index = 0) {
     id: record.id || `saved-${index}`,
     sourceRecordId: record.id || "",
     sourceRecordType: "saved_creative",
+    storageRecordId: record.id || "",
+    storageRecordType: "saved_creative",
     wasCreated: record.wasCreated,
   });
 }
@@ -1123,6 +1247,8 @@ function videoAnalysisToPerformance(record = {}, index = 0) {
     sourcePlatform: "manual",
     sourceRecordId: record.id || "",
     sourceRecordType: "video_analysis",
+    storageRecordId: record.id || "",
+    storageRecordType: "video_analysis",
     syncStatus: "analysis_only",
     thumbnailUrl: "",
     transcript: result.transcript?.full_text || payload.brief || "",
@@ -1243,13 +1369,18 @@ export function normalizeCreativePerformanceRecord(input = {}, sourceType = "") 
     averageWatchTime: pickFirst(normalized.averageWatchTime, normalized.avgWatchTime),
     campaignId: pickFirst(normalized.campaignId, normalized.sourceCampaignId),
     campaignName: pickFirst(normalized.campaignName, normalized.campaign),
+    creativeLaunchDate: pickFirst(
+      normalized.creativeLaunchDate,
+      normalized.launchDate,
+      normalized.firstSeenDate,
+    ),
     conversionRate: pickFirst(normalized.conversionRate, normalized.cvr),
     conversionValue: pickFirst(normalized.conversionValue, normalized.purchaseValue),
     conversions: pickFirst(normalized.conversions, normalized.purchases),
     creativeId: pickFirst(normalized.creativeId, normalized.sourceCreativeId),
     creativeTitle: pickFirst(normalized.creativeTitle, normalized.creativeName, normalized.adName),
     creatorHandle: pickFirst(normalized.creatorHandle, normalized.handle, normalized.promoterHandle, normalized.influencerHandle),
-    date: pickFirst(normalized.date, normalized.reportingDate),
+    date: pickFirst(normalized.date, normalized.performanceDate, normalized.reportingDate, normalized.day),
     engagementCount: pickFirst(normalized.engagementCount, normalized.engagements),
     importedAt: pickFirst(normalized.importedAt, normalized.createdAt),
     orders: pickFirst(normalized.orders, normalized.orderCount),
@@ -1277,7 +1408,8 @@ export function normalizeCreativePerformanceRecord(input = {}, sourceType = "") 
   };
 }
 
-function validatePublicEngagementRow(input, rowNumber) {
+function validatePublicEngagementRow(input, rowNumber, importType = "creative") {
+  const creatorMode = importType === "creator";
   const row = {
     ...input,
     ad_group_id: input.ad_group_id || input.adset_id,
@@ -1293,8 +1425,21 @@ function validatePublicEngagementRow(input, rowNumber) {
     creator_name:
       input.creator_name ||
       (String(input.creator || "").trim().startsWith("@") ? "" : input.creator),
-    date: input.date || input.reporting_date || input.first_seen_at || input.created_at,
+    date:
+      input.date ||
+      input.performance_date ||
+      input.reporting_date ||
+      input.day ||
+      input.created_at ||
+      input.first_seen_at,
+    creative_launch_date:
+      input.creative_launch_date ||
+      input.launch_date ||
+      input.first_seen_date ||
+      input.first_seen_at,
     engagement_rate: input.engagement_rate || input.engagementrate,
+    creator_engagement_rate:
+      input.creator_engagement_rate || input.engagement_rate || input.engagementrate,
     platform: input.platform || input.source_platform || input.channel,
     product_id: input.product_id || input.shopify_product_id,
     product_handle: input.product_handle,
@@ -1325,12 +1470,13 @@ function validatePublicEngagementRow(input, rowNumber) {
   );
   const platform = cleanImportText(row.platform);
   const date = parseImportDate(row.date);
+  const creativeLaunchDate = parseImportDate(row.creative_launch_date);
   const metrics = {};
 
   for (const field of NUMERIC_IMPORT_FIELDS) {
     const rawValue = row[field];
 
-    if (ZERO_DEFAULT_FIELDS.includes(field) && !String(rawValue || "").trim()) {
+    if (!creatorMode && ZERO_DEFAULT_FIELDS.includes(field) && !String(rawValue || "").trim()) {
       metrics[field] = 0;
       continue;
     }
@@ -1346,25 +1492,35 @@ function validatePublicEngagementRow(input, rowNumber) {
     metrics[field] = parsed.value;
   }
 
-  for (const field of REQUIRED_IMPORT_FIELDS) {
+  if (!creatorMode) for (const field of REQUIRED_IMPORT_FIELDS) {
     if (!cleanImportText(row[field])) errors.push(`${field} is required.`);
   }
 
-  if (!creativeName && !videoUrl) {
+  if (!creatorMode && !creativeName && !videoUrl) {
     errors.push("creative_name or video_url/post_url is required.");
   }
 
-  if (!date) errors.push("date must be a valid date.");
-
-  if (!cleanImportText(row.creator_handle) && !cleanImportText(row.creator_name)) {
-    warnings.push("creator_handle or creator_name is recommended for creator attribution.");
+  if (!creatorMode && !date) errors.push("date must be a valid date.");
+  if (cleanImportText(row.creative_launch_date) && !creativeLaunchDate) {
+    errors.push("creative_launch_date must be a valid date when provided.");
+  }
+  if (creatorMode && cleanImportText(row.date) && !date) {
+    errors.push("reporting_date must be a valid date when provided.");
   }
 
-  if (!cleanImportText(row.product_handle) && !cleanImportText(row.product_name)) {
+  if (!cleanImportText(row.creator_handle) && !cleanImportText(row.creator_name)) {
+    (creatorMode ? errors : warnings).push(
+      creatorMode
+        ? "creator_handle or creator_name is required."
+        : "creator_handle or creator_name is recommended for creator attribution.",
+    );
+  }
+
+  if (!creatorMode && !cleanImportText(row.product_handle) && !cleanImportText(row.product_name)) {
     warnings.push("product_handle or product_name is recommended for product planning.");
   }
 
-  for (const field of RECOMMENDED_IMPORT_FIELDS) {
+  if (!creatorMode) for (const field of RECOMMENDED_IMPORT_FIELDS) {
     if (
       !["product_handle", "product_label"].includes(field) &&
       !String(row[field] || "").trim()
@@ -1373,9 +1529,18 @@ function validatePublicEngagementRow(input, rowNumber) {
     }
   }
 
+  const engagementParts = [
+    metrics.likes,
+    metrics.comments,
+    metrics.shares,
+    metrics.saves,
+    metrics.reposts,
+  ].filter((value) => value !== null && value !== undefined);
   const engagementCount =
     metrics.engagements ??
-    metrics.likes + metrics.comments + metrics.shares + metrics.saves + metrics.reposts;
+    (engagementParts.length
+      ? engagementParts.reduce((sum, value) => sum + Number(value), 0)
+      : null);
   const impressions = metrics.impressions;
   const clicks = metrics.clicks;
   const orders = metrics.orders ?? metrics.conversions;
@@ -1395,6 +1560,7 @@ function validatePublicEngagementRow(input, rowNumber) {
     adId: cleanImportText(row.ad_id),
     adName: cleanImportText(row.ad_name),
     creativeName,
+    creativeLaunchDate: creativeLaunchDate ? creativeLaunchDate.toISOString() : "",
     videoUrl,
     creatorHandle: normalizeHandle(row.creator_handle),
     creatorName: cleanImportText(row.creator_name),
@@ -1423,7 +1589,7 @@ function validatePublicEngagementRow(input, rowNumber) {
     saves: metrics.saves,
     reposts: metrics.reposts,
     engagementCount,
-    engagementRate: metrics.engagement_rate,
+    engagementRate: metrics.creator_engagement_rate ?? metrics.engagement_rate,
     clicks: clicks ?? metrics.creator_clicks,
     orders: orders ?? metrics.creator_orders,
     revenue: revenue ?? metrics.creator_revenue,
@@ -1455,14 +1621,15 @@ function validatePublicEngagementRow(input, rowNumber) {
     utmSource: cleanImportText(row.utm_source),
     utmMedium: cleanImportText(row.utm_medium),
     utmCampaign: cleanImportText(row.utm_campaign),
-    notes: cleanImportText(row.notes || row.insight),
+    angle: cleanImportText(row.best_angle || row.angle),
+    notes: cleanImportText(row.notes || row.insight || row.creator_notes),
   });
 
   // Preserve the normalized CSV platform instead of allowing the generic CSV
   // source type to collapse a recognized ad platform to "manual".
   record.sourcePlatform = sourcePlatform;
 
-  record.importKey = buildPublicEngagementImportKey(record);
+  record.importKey = buildPublicEngagementImportKey(record, creatorMode ? "creator-performance" : "public-engagement");
   if (!hasImportedPerformanceFields(record)) {
     warnings.push(
       "Deeper performance metrics were not included, so revenue/spend/order metrics will show as not imported.",
@@ -1574,6 +1741,11 @@ function normalizeHeader(value) {
     creative_id: "creative_id",
     creativeid: "creative_id",
     creative_title: "creative_name",
+    day: "date",
+    performance_date: "date",
+    reporting_date: "date",
+    launch_date: "creative_launch_date",
+    first_seen_date: "creative_launch_date",
     cvr: "conversion_rate",
     engagementrate: "engagement_rate",
     external_creative_id: "creative_id",
@@ -1667,8 +1839,8 @@ function normalizeImportPlatform(value) {
   return normalized || "public_engagement_import";
 }
 
-function buildPublicEngagementImportKey(record) {
-  return `public-engagement:${crypto
+function buildPublicEngagementImportKey(record, prefix = "public-engagement") {
+  return `${prefix}:${crypto
     .createHash("sha256")
     .update(
       [
@@ -1678,7 +1850,10 @@ function buildPublicEngagementImportKey(record) {
         record.videoUrl,
         record.creativeName,
         record.creatorHandle,
+        record.creatorName,
+        record.campaignName,
         record.productHandle || record.productLabel,
+        record.angle,
         record.date?.slice(0, 10),
       ]
         .join("|")
