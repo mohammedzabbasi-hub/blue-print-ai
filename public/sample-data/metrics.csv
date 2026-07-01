@@ -1,0 +1,6 @@
+id,date,scope,ref_id,views,clicks,orders,revenue,spend
+metric-1,2026-06-01,account,,45000,1200,80,3800,900
+metric-2,2026-06-02,account,,52000,1400,95,4600,950
+metric-3,2026-06-03,account,,61000,1800,120,5700,1000
+metric-4,2026-06-04,account,,58000,1650,110,5300,975
+metric-5,2026-06-05,account,,67000,1950,135,6200,1025

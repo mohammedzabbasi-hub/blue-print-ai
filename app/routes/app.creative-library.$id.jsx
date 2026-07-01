@@ -1,71 +1,97 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
-import {
-  API_BASE,
-  getAuthHeaders,
-  getSelectedShopId,
-} from "../lib/accountContext";
+import { Link, useLoaderData } from "react-router";
+import { authenticate } from "../shopify.server";
+import { findImportedCreative } from "../models/importedData.server";
+import { findSavedCreative } from "../models/blueprint.server";
 
 export const meta = () => {
   return [{ title: "Creative Detail | BluePrintAI" }];
 };
 
 function formatMetric(value) {
-  const number = Number(value || 0);
-  return Number.isFinite(number) ? number.toLocaleString() : value || 0;
+  if (value === null || value === undefined) return "—";
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString() : "—";
 }
 
-export default function CreativeDetailRoute() {
-  const { id } = useParams();
-  const [shopId, setShopId] = useState("");
-  const [creative, setCreative] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+function normalizeImportedCreative(creative) {
+  const tags = [];
+  if (creative.hookType) tags.push({ label: creative.hookType });
+  if (creative.platform) tags.push({ label: creative.platform });
 
-  useEffect(() => {
-    setShopId(getSelectedShopId());
-  }, []);
+  const insightParts = [];
+  if (creative.hookType) insightParts.push(`Hook: ${creative.hookType}`);
+  if (creative.platform) insightParts.push(creative.platform);
 
-  useEffect(() => {
-    if (!id || !shopId) return;
+  return {
+    id: creative.id,
+    source: "imported",
+    title: creative.title,
+    product: creative.productTitle,
+    creator: creative.creatorHandle,
+    views: creative.views,
+    likes: creative.likes,
+    shares: creative.shares,
+    clicks: creative.clicks,
+    orders: creative.orders,
+    ctr: creative.ctr,
+    videoUrl: creative.mediaUrl,
+    insight: insightParts.length ? insightParts.join(" · ") : null,
+    createdAt: creative.createdAt,
+    tags,
+  };
+}
 
-    async function loadCreative() {
-      setLoading(true);
-      setError("");
+function normalizeSavedCreative(creative) {
+  const analysis = creative.payload?.analysis || {};
+  const tags = [];
 
-      const res = await fetch(
-        `${API_BASE}/personalized/creatives/${encodeURIComponent(
-          id
-        )}?shop_id=${encodeURIComponent(shopId)}`,
-        { headers: getAuthHeaders() }
-      );
+  if (analysis.hookType) tags.push({ label: analysis.hookType });
+  if (analysis.retentionRisk) {
+    tags.push({ label: `Retention risk: ${analysis.retentionRisk}` });
+  }
+  if (creative.angle) tags.push({ label: creative.angle });
 
-      if (!res.ok) {
-        throw new Error("Creative not found");
-      }
+  return {
+    id: creative.id,
+    source: "saved",
+    title: creative.title,
+    product: creative.productTitle,
+    creator: creative.angle || "Saved analysis",
+    views: null,
+    likes: null,
+    shares: null,
+    clicks: null,
+    orders: null,
+    ctr: null,
+    videoUrl: creative.payload?.mediaUrl || null,
+    insight:
+      creative.payload?.analysis?.pacingNotes || creative.payload?.brief || null,
+    createdAt: creative.createdAt,
+    tags,
+  };
+}
 
-      const data = await res.json();
-      setCreative(data);
-    }
+export const loader = async ({ request, params }) => {
+  const { session } = await authenticate.admin(request);
 
-    loadCreative()
-      .catch((err) => {
-        console.error(err);
-        setCreative(null);
-        setError("Creative not found");
-      })
-      .finally(() => setLoading(false));
-  }, [id, shopId]);
-
-  if (loading) {
-    return (
-      <div className="p-8">
-        <h1 className="text-2xl font-bold">Loading creative...</h1>
-      </div>
-    );
+  const imported = await findImportedCreative(session.shop, params.id);
+  if (imported) {
+    return { creative: normalizeImportedCreative(imported) };
   }
 
-  if (!creative || error) {
+  const saved = await findSavedCreative(session.shop, params.id);
+  if (saved) {
+    return { creative: normalizeSavedCreative(saved) };
+  }
+
+  return { creative: null };
+};
+
+export default function CreativeDetailRoute() {
+  const { creative } = useLoaderData();
+
+  if (!creative) {
     return (
       <div className="p-8">
         <h1 className="text-2xl font-bold">Creative not found</h1>
@@ -79,19 +105,6 @@ export default function CreativeDetailRoute() {
       </div>
     );
   }
-
-  const videoUrl = creative.video_url || creative.videoUrl || "";
-  const hook = creative.hook_type || creative.hook || "No hook tag";
-  const creatorType =
-    creative.creator_type || creative.creatorType || "No creator tag";
-  const humor = creative.humor_style || creative.humor || "No humor tag";
-  const delivery =
-    creative.delivery_style || creative.delivery || "No delivery tag";
-  const insight =
-    creative.insight ||
-    creative.ai_summary ||
-    creative.transcript_summary ||
-    "No insight available.";
 
   return (
     <div className="min-h-screen bg-slate-50 p-8">
@@ -112,9 +125,9 @@ export default function CreativeDetailRoute() {
             {creative.product || "Product"} · {creative.creator || "Creator"}
           </p>
 
-          {videoUrl ? (
+          {creative.videoUrl ? (
             <video
-              src={videoUrl}
+              src={creative.videoUrl}
               controls
               className="mt-6 max-h-[600px] w-full rounded-xl border bg-black object-contain"
             >
@@ -126,23 +139,20 @@ export default function CreativeDetailRoute() {
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap gap-2">
-            <span className="rounded-full border px-3 py-1 text-sm">
-              {hook}
-            </span>
-            <span className="rounded-full border px-3 py-1 text-sm">
-              {creatorType}
-            </span>
-            <span className="rounded-full border px-3 py-1 text-sm">
-              {humor}
-            </span>
-            <span className="rounded-full border px-3 py-1 text-sm">
-              {delivery}
-            </span>
-          </div>
+          {creative.tags.length > 0 && (
+            <div className="mt-6 flex flex-wrap gap-2">
+              {creative.tags.map((tag) => (
+                <span
+                  key={tag.label}
+                  className="rounded-full border px-3 py-1 text-sm"
+                >
+                  {tag.label}
+                </span>
+              ))}
+            </div>
+          )}
 
-          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-6">
-            <Metric label="Score" value={formatMetric(creative.score)} />
+          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
             <Metric label="Views" value={formatMetric(creative.views)} />
             <Metric label="Likes" value={formatMetric(creative.likes)} />
             <Metric label="Shares" value={formatMetric(creative.shares)} />
@@ -155,7 +165,9 @@ export default function CreativeDetailRoute() {
               Creative Insight
             </h2>
 
-            <p className="mt-2 text-slate-700">{insight}</p>
+            <p className="mt-2 text-slate-700">
+              {creative.insight || "No insight available."}
+            </p>
           </div>
         </div>
       </div>

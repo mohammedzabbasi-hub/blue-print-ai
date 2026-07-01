@@ -344,6 +344,90 @@ export async function createWorkspaceRequest(shop, type, payload = {}) {
   });
 }
 
+const WORKSPACE_PROFILE_KEY = "workspace_profile";
+
+const EMPTY_WORKSPACE_PROFILE = {
+  brandTone: "",
+  category: "",
+  creativeGoal: "",
+  creativeSource: "",
+  mainProduct: "",
+  targetCustomer: "",
+  completed: false,
+  skipped: false,
+};
+
+export async function getWorkspaceProfile(shop) {
+  const record = await getWorkspaceSetting(shop, WORKSPACE_PROFILE_KEY);
+  const parsed = parsePayload(record?.value);
+
+  return {
+    ...EMPTY_WORKSPACE_PROFILE,
+    ...(parsed && typeof parsed === "object" ? parsed : {}),
+  };
+}
+
+export async function saveWorkspaceProfile(shop, profile) {
+  const value = {
+    brandTone: profile.brandTone || "",
+    category: profile.category || "",
+    creativeGoal: profile.creativeGoal || "",
+    creativeSource: profile.creativeSource || "",
+    mainProduct: profile.mainProduct || "",
+    targetCustomer: profile.targetCustomer || "",
+    completed: true,
+    skipped: false,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await upsertWorkspaceSetting(shop, WORKSPACE_PROFILE_KEY, JSON.stringify(value));
+
+  return value;
+}
+
+export async function skipWorkspaceProfile(shop) {
+  const current = await getWorkspaceProfile(shop);
+  const value = { ...current, skipped: true, updatedAt: new Date().toISOString() };
+
+  await upsertWorkspaceSetting(shop, WORKSPACE_PROFILE_KEY, JSON.stringify(value));
+
+  return value;
+}
+
+export async function getWorkspaceSettingsMap(shop, defaults = {}) {
+  const keys = Object.keys(defaults);
+
+  if (keys.length === 0) return { ...defaults };
+
+  const records = await db.workspaceSetting.findMany({
+    where: { shop, key: { in: keys } },
+  });
+  const byKey = Object.fromEntries(records.map((record) => [record.key, record.value]));
+
+  return { ...defaults, ...byKey };
+}
+
+export async function upsertWorkspaceSettings(shop, values = {}) {
+  await Promise.all(
+    Object.entries(values).map(([key, value]) => upsertWorkspaceSetting(shop, key, String(value))),
+  );
+
+  return getWorkspaceSettingsMap(shop, values);
+}
+
+export async function createActivityLogRecord(
+  shop,
+  { type = "activity", title = "", description = "", relatedType = "", relatedId = "", payload = {} } = {},
+) {
+  return createWorkspaceRequest(shop, type, {
+    title,
+    description,
+    relatedType,
+    relatedId,
+    ...payload,
+  });
+}
+
 export async function upsertWorkspaceSetting(shop, key, value) {
   return db.workspaceSetting.upsert({
     where: {
@@ -711,67 +795,6 @@ export function buildRecommendations(products, orders = []) {
   }));
 }
 
-export function buildCreators(products = [], creatives = []) {
-  const specialties = [
-    "UGC product demos",
-    "Founder-style explainers",
-    "Problem-solution hooks",
-    "Before-and-after proof",
-    "Offer and CTA testing",
-  ];
-
-  const creatorNames = [
-    "Maya Chen",
-    "Jordan Ellis",
-    "Avery Brooks",
-    "Sam Rivera",
-    "Nora Patel",
-    "Kai Morgan",
-  ];
-
-  const seedProducts = products.length ? products : DEMO_PRODUCTS;
-
-  return seedProducts.slice(0, 6).map((product, index) => {
-    const savedForProduct = creatives.filter(
-      (creative) => creative.productId === product.id,
-    );
-    const score = Math.min(98, 78 + ((index * 7) % 17) + savedForProduct.length * 2);
-
-    return {
-      id: `creator-${slugify(product.id || product.title || index)}`,
-      name: creatorNames[index % creatorNames.length],
-      handle: `@${creatorNames[index % creatorNames.length].toLowerCase().replace(/\s+/g, "")}`,
-      status: index < 2 ? "Active" : index === 2 ? "Reviewing" : "Available",
-      specialty: specialties[index % specialties.length],
-      productId: product.id,
-      productTitle: product.title,
-      fitScore: score,
-      avgHookScore: Math.min(99, score + 3),
-      responseRate: `${72 + ((index * 5) % 19)}%`,
-      creativeCount: Math.max(1, savedForProduct.length + 2 + (index % 3)),
-      projectedImpact:
-        index % 2 === 0
-          ? "Strong match for fast demo creative and first-frame product proof."
-          : "Best used for objection handling, story-led hooks, and offer clarity.",
-      notes: [
-        `Pair with ${product.title} for a product-led creative test.`,
-        "Use one hook, one proof shot, and one direct CTA per concept.",
-        "Keep claims grounded in Shopify product details and visible usage.",
-      ],
-      creatives: savedForProduct.map((creative) => ({
-        id: creative.id,
-        title: creative.title,
-        angle: creative.angle || "Saved analysis",
-        href: `/app/creative-library?creativeId=${encodeURIComponent(creative.id)}`,
-      })),
-    };
-  });
-}
-
-export function findCreator(creators = [], creatorId = "") {
-  return creators.find((creator) => creator.id === creatorId) || creators[0] || null;
-}
-
 export function buildDataImportJobs(merchantData, requests = []) {
   const productCount = merchantData.products?.length || 0;
   const orderCount = merchantData.orders?.length || 0;
@@ -917,14 +940,6 @@ export function buildBrief(product, context = {}) {
     creatorDirection:
       `${sourceLabel} Use natural, specific language. Avoid unsupported performance guarantees and keep claims tied to visible product benefits.`,
   };
-}
-
-function slugify(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 64) || "creator";
 }
 
 export function buildActionUrl(item = {}) {

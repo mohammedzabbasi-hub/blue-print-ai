@@ -1,0 +1,4 @@
+id,title,price,currency,inventory,status,image_url,category
+prod-1,Hydrating Barrier Serum,38.00,USD,128,ACTIVE,,Skincare
+prod-2,Compact Recovery Massager,74.00,USD,42,ACTIVE,,Recovery
+prod-3,Everyday Leakproof Travel Cup,29.00,USD,210,ACTIVE,,Home

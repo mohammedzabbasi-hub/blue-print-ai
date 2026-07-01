@@ -2,12 +2,12 @@
 import { Link, useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import {
-  buildCreators,
   buildRecommendations,
   listSavedBriefs,
   listSavedCreatives,
   loadMerchantData,
 } from "../models/blueprint.server";
+import { buildImportedCreators } from "../models/importedData.server";
 import { EmptyState, Icon, Notice, PageHeader, ProductThumbnail } from "../components/blueprint-ui";
 
 export const loader = async ({ request }) => {
@@ -44,12 +44,12 @@ export const loader = async ({ request }) => {
 
   const { admin, session } = await authenticate.admin(request);
   const merchantData = await loadMerchantData(admin, session);
-  const [briefs, creatives] = await Promise.all([
+  const [briefs, creatives, creators] = await Promise.all([
     listSavedBriefs(session.shop, 25),
     listSavedCreatives(session.shop, 25),
+    buildImportedCreators(session.shop),
   ]);
   const recommendations = buildRecommendations(merchantData.products, merchantData.orders);
-  const creators = buildCreators(merchantData.products, creatives);
 
   if (!query) {
     return {
@@ -103,13 +103,7 @@ export const loader = async ({ request }) => {
         ]),
       ),
       creators: creators.filter((creator) =>
-        matcher([
-          creator.name,
-          creator.handle,
-          creator.specialty,
-          creator.productTitle,
-          creator.projectedImpact,
-        ]),
+        matcher([creator.name, creator.handle, creator.platform, creator.notes]),
       ),
     },
   };
@@ -196,7 +190,15 @@ export default function SearchResults() {
                 <SearchResult
                   key={creator.id}
                   title={creator.name}
-                  subtitle={`${creator.handle} · ${creator.productTitle} · ${creator.fitScore}/100 fit`}
+                  subtitle={[
+                    creator.handle,
+                    creator.totalOrders != null ? `${creator.totalOrders} orders` : null,
+                    creator.engagementRate != null
+                      ? `${creator.engagementRate.toFixed(1)}% engagement`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                   href={`/app/creators/${encodeURIComponent(creator.id)}`}
                 />
               )}

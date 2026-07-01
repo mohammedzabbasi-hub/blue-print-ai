@@ -55,7 +55,7 @@ export default function Terms() {
           <div className="mt-8 flex flex-wrap gap-4 text-sm font-bold text-cyan-200">
             <Link to="/privacy" className="hover:text-cyan-100">Privacy</Link>
             <Link to="/support" className="hover:text-cyan-100">Support</Link>
-            <Link to="/login" className="hover:text-cyan-100">Login</Link>
+            <Link to="/auth/login" className="hover:text-cyan-100">Login</Link>
           </div>
         </div>
       </div>

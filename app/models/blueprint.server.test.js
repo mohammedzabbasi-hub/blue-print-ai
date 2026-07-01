@@ -4,29 +4,12 @@ import {
   DEMO_PRODUCTS,
   analyzeVideoInput,
   buildActivityEvents,
-  buildCreators,
   buildDataImportJobs,
   buildRecommendations,
   buildRevenueBlueprint,
 } from "./blueprint.server.js";
 
 describe("BluePrintAI Shopify parity builders", () => {
-  it("builds creator matches from Shopify product context and saved creatives", () => {
-    const savedCreative = {
-      id: "creative-1",
-      productId: DEMO_PRODUCTS[0].id,
-      title: "Saved product demo",
-      angle: "Problem-solution demo",
-    };
-
-    const creators = buildCreators(DEMO_PRODUCTS, [savedCreative]);
-
-    assert.equal(creators.length, DEMO_PRODUCTS.length);
-    assert.equal(creators[0].productTitle, DEMO_PRODUCTS[0].title);
-    assert.equal(creators[0].creatives[0].href, "/app/creative-library?creativeId=creative-1");
-    assert.ok(creators[0].fitScore >= 80);
-  });
-
   it("maps Shopify import status without TikTok credentials", () => {
     const jobs = buildDataImportJobs({
       products: DEMO_PRODUCTS,

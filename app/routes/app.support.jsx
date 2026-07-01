@@ -51,8 +51,9 @@ export default function AppSupportRoute() {
           <h2 className="text-2xl font-black">Known Limitations</h2>
           <p className="mt-4 leading-7 text-slate-400">
             TikTok Shop OAuth, direct TikTok Shop API sync, creator CRM,
-            affiliate outreach, CSV/JSON bulk import, and email delivery are
-            not live in this Shopify app yet.
+            affiliate outreach, and email delivery are not live in this
+            Shopify app yet. CSV/JSON bulk import is live &mdash; see Data
+            Import in the app sidebar.
           </p>
         </section>
 

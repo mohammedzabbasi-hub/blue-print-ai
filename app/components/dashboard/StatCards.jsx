@@ -23,42 +23,48 @@ export default function StatCards({ data }) {
   const stats = [
     {
       label: "Total Creatives",
-      value: compactNumber(totals.creatives || totals.total_creatives),
+      raw: totals.creatives,
+      value: compactNumber(totals.creatives),
       icon: Video,
       accent: "text-sky-400",
       iconBg: "bg-sky-500/15",
     },
     {
       label: "Total Views",
-      value: compactNumber(totals.views || totals.total_views),
+      raw: totals.views,
+      value: compactNumber(totals.views),
       icon: Eye,
       accent: "text-emerald-400",
       iconBg: "bg-emerald-500/15",
     },
     {
       label: "Orders Generated",
-      value: compactNumber(totals.orders || totals.total_orders),
+      raw: totals.orders,
+      value: compactNumber(totals.orders),
       icon: ShoppingBag,
       accent: "text-amber-400",
       iconBg: "bg-amber-500/15",
     },
     {
       label: "Avg. CTR",
-      value: pct(totals.ctr || totals.avg_ctr),
+      raw: totals.ctr,
+      value: pct(totals.ctr),
       icon: MousePointer2,
       accent: "text-blue-400",
       iconBg: "bg-blue-500/15",
     },
     {
       label: "Avg. ROAS",
-      value: roas(totals.roas || totals.avg_roas),
+      raw: totals.roas,
+      value: roas(totals.roas),
       icon: TrendingUp,
       accent: "text-rose-400",
       iconBg: "bg-rose-500/15",
     },
     {
       label: "Recommendations",
-      value: compactNumber(totals.recommendations || totals.total_recommendations),
+      raw: totals.recommendations,
+      value: compactNumber(totals.recommendations),
       icon: Lightbulb,
       accent: "text-violet-400",
       iconBg: "bg-violet-500/15",
@@ -69,6 +75,7 @@ export default function StatCards({ data }) {
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
       {stats.map((stat) => {
         const Icon = stat.icon;
+        const hasData = Number(stat.raw || 0) > 0;
 
         return (
           <div
@@ -80,13 +87,17 @@ export default function StatCards({ data }) {
                 <Icon size={15} className={stat.accent} />
               </div>
 
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400">
-                Live
+              <span
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                  hasData ? "bg-sky-500/15 text-sky-400" : "bg-white/10 text-slate-400"
+                }`}
+              >
+                {hasData ? "Live" : "Not imported"}
               </span>
             </div>
 
             <p className="text-[22px] font-bold text-white leading-none mb-1 group-hover:text-sky-50 transition-colors">
-              {stat.value}
+              {hasData ? stat.value : "—"}
             </p>
 
             <p className="text-[11px] text-slate-500 font-medium">{stat.label}</p>

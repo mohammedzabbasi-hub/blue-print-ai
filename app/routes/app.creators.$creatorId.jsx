@@ -1,103 +1,41 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 
-import CreatorForm from "../components/CreatorForm";
+import { authenticate } from "../shopify.server";
 import {
-  deleteCreator,
-  getCreators,
-  getCreatorById,
-  updateCreator,
-} from "../services/creatorsApi";
+  computeCreatorEngagement,
+  findImportedCreator,
+} from "../models/importedData.server";
 
 export const meta = () => {
   return [{ title: "Creator Detail | BluePrintAI" }];
 };
 
-function readCreatorDemoId(creator) {
-  if (!creator?.notes) return "";
+export const loader = async ({ request, params }) => {
+  const { session } = await authenticate.admin(request);
+  const creator = await findImportedCreator(session.shop, params.creatorId);
 
-  try {
-    return JSON.parse(creator.notes).creator_id || "";
-  } catch {
-    return "";
-  }
-}
+  if (!creator) return { creator: null };
 
-async function resolveCreator(creatorId) {
-  if (/^\d+$/.test(String(creatorId))) {
-    return getCreatorById(creatorId);
-  }
+  return { creator: { ...creator, ...computeCreatorEngagement(creator) } };
+};
 
-  const creators = await getCreators();
+const formatNumber = (value) => {
+  if (value === null || value === undefined) return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return new Intl.NumberFormat("en-US").format(number);
+};
 
-  return creators.find((candidate) => {
-    return (
-      String(candidate.id) === String(creatorId) ||
-      readCreatorDemoId(candidate) === creatorId ||
-      candidate.tiktok_handle === creatorId
-    );
-  });
-}
+const formatMoney = (value) => {
+  if (value === null || value === undefined) return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `$${new Intl.NumberFormat("en-US").format(Math.round(number))}`;
+};
 
 export default function CreatorDetailRoute() {
-  const { creatorId } = useParams();
+  const { creator } = useLoaderData();
   const navigate = useNavigate();
-
-  const [creator, setCreator] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  async function loadCreator() {
-    try {
-      setLoading(true);
-
-      const data = await resolveCreator(creatorId);
-
-      if (!data) {
-        throw new Error("This creator is not available for the current shop.");
-      }
-
-      setCreator(data);
-      setError("");
-    } catch (err) {
-      setError(err.message || "Failed to load creator");
-      setCreator(null);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleUpdate(formData) {
-    try {
-      const updatedCreator = await updateCreator(
-        creator?.id || creatorId,
-        formData
-      );
-
-      setCreator(updatedCreator);
-      setEditing(false);
-    } catch (err) {
-      setError(err.message || "Failed to update creator");
-    }
-  }
-
-  async function handleDelete() {
-    try {
-      await deleteCreator(creator?.id || creatorId);
-      navigate("/app/creators");
-    } catch (err) {
-      setError(err.message || "Failed to delete creator");
-    }
-  }
-
-  useEffect(() => {
-    loadCreator();
-  }, [creatorId]);
-
-  if (loading) {
-    return <div className="p-6 text-gray-600">Loading creator...</div>;
-  }
 
   if (!creator) {
     return (
@@ -108,7 +46,8 @@ export default function CreatorDetailRoute() {
           </h1>
 
           <p className="mt-3 text-gray-600">
-            {error || "This creator is not available for the current shop."}
+            This creator was not found. It may have been removed by a data
+            reset.
           </p>
 
           <button
@@ -123,105 +62,107 @@ export default function CreatorDetailRoute() {
     );
   }
 
-  const engagement =
-    Number(creator.total_likes || 0) +
-    Number(creator.total_comments || 0) +
-    Number(creator.total_shares || 0);
+  const hasEngagementRate =
+    creator.engagementRate !== null && creator.engagementRate !== undefined;
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-5xl space-y-6">
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-            {error}
-          </div>
-        )}
-
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">
-                {creator.name}
+                {creator.name || "Unnamed creator"}
               </h1>
 
-              <p className="text-gray-500">@{creator.tiktok_handle}</p>
+              <p className="text-gray-500">
+                {creator.handle ? `@${creator.handle}` : "Not imported"}
+              </p>
 
               <p className="mt-3 text-gray-600">
                 {creator.notes || "No notes added yet."}
               </p>
             </div>
 
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setEditing((previous) => !previous)}
-                className="rounded-xl border border-gray-300 px-4 py-2 font-medium"
-              >
-                {editing ? "Cancel" : "Edit"}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="rounded-xl bg-red-600 px-4 py-2 font-medium text-white"
-              >
-                Delete
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/app/creators")}
+              className="rounded-xl border border-gray-300 px-4 py-2 font-medium"
+            >
+              Back to creators
+            </button>
           </div>
         </section>
-
-        {editing && (
-          <CreatorForm
-            initialData={creator}
-            onSubmit={handleUpdate}
-            submitLabel="Update Creator"
-          />
-        )}
 
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Followers</p>
             <p className="text-2xl font-bold">
-              {Number(creator.follower_count || 0).toLocaleString()}
+              {formatNumber(creator.followers)}
             </p>
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Views</p>
             <p className="text-2xl font-bold">
-              {Number(creator.total_views || 0).toLocaleString()}
+              {formatNumber(creator.totalViews)}
             </p>
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Engagement</p>
+            <p className="text-sm text-gray-500">Orders</p>
             <p className="text-2xl font-bold">
-              {engagement.toLocaleString()}
+              {formatNumber(creator.totalOrders)}
             </p>
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Revenue</p>
             <p className="text-2xl font-bold">
-              ${Number(creator.total_revenue || 0).toLocaleString()}
+              {formatMoney(creator.totalRevenue)}
+            </p>
+          </div>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-gray-500">Engagement actions</p>
+            <p className="text-2xl font-bold">
+              {formatNumber(creator.engagementActions)}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Likes + comments + shares from imported data.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-gray-500">Engagement rate</p>
+            <p className="text-2xl font-bold">
+              {hasEngagementRate
+                ? `${Number(creator.engagementRate).toFixed(1)}%`
+                : "—"}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              {hasEngagementRate
+                ? "Engagement actions as a share of total views."
+                : "Not enough imported data to compute an engagement rate."}
             </p>
           </div>
         </section>
 
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-gray-900">
-            AI Creator Summary
-          </h2>
+          <h2 className="text-xl font-bold text-gray-900">Summary</h2>
 
           <p className="mt-2 text-gray-600">
-            {creator.name} has generated{" "}
-            {Number(creator.total_views || 0).toLocaleString()} total views,{" "}
-            {Number(creator.total_conversions || 0).toLocaleString()}{" "}
-            conversions, and $
-            {Number(creator.total_revenue || 0).toLocaleString()} in tracked
-            revenue. This section can later connect to your AI analysis engine
-            to explain why this creator performs well.
+            {creator.name || "This creator"} has{" "}
+            {formatNumber(creator.totalViews)} imported views,{" "}
+            {formatNumber(creator.totalOrders)} orders, and{" "}
+            {formatMoney(creator.totalRevenue)} in imported revenue
+            {hasEngagementRate
+              ? `, with an engagement rate of ${Number(
+                  creator.engagementRate
+                ).toFixed(1)}%.`
+              : "."}
           </p>
         </section>
       </div>

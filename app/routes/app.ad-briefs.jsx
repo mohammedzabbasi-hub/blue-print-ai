@@ -1,31 +1,41 @@
-import { useEffect, useState } from "react";
+import { Form, redirect, useLoaderData, useNavigation } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
+import { authenticate } from "../shopify.server";
 import {
-  API_BASE,
-  getAuthHeaders,
-  getSelectedShopId,
-} from "../lib/accountContext";
+  buildBrief,
+  listSavedBriefs,
+  loadMerchantData,
+  saveBriefRecord,
+} from "../models/blueprint.server";
 
 export const meta = () => {
   return [{ title: "Ad Briefs | BluePrintAI" }];
 };
 
 function formatBriefDescription(brief) {
-  if (brief.description || brief.content || brief.summary) {
-    return brief.description || brief.content || brief.summary;
+  const payload = brief.payload || brief;
+
+  if (payload.description || payload.content || payload.summary) {
+    return payload.description || payload.content || payload.summary;
   }
 
-  if (brief.structure) return brief.structure;
+  if (payload.structure) return payload.structure;
 
-  if (Array.isArray(brief.script)) {
-    return brief.script
-      .map((scene) => scene.direction || scene.goal)
+  if (Array.isArray(payload.script)) {
+    return payload.script
+      .map((scene) =>
+        typeof scene === "string" ? scene : scene.direction || scene.goal,
+      )
       .filter(Boolean)
       .join(" ");
   }
 
-  if (brief.hook_type || brief.creator_type || brief.visual_style) {
-    return [brief.hook_type, brief.creator_type, brief.visual_style]
+  if (Array.isArray(payload.hooks) && payload.hooks.length) {
+    return payload.hooks[0];
+  }
+
+  if (payload.hook_type || payload.creator_type || payload.visual_style) {
+    return [payload.hook_type, payload.creator_type, payload.visual_style]
       .filter(Boolean)
       .join(" · ");
   }
@@ -33,28 +43,48 @@ function formatBriefDescription(brief) {
   return "";
 }
 
+export const loader = async ({ request }) => {
+  const { admin, session } = await authenticate.admin(request);
+  const merchantData = await loadMerchantData(admin, session);
+  const savedBriefs = await listSavedBriefs(session.shop, 25);
+
+  const briefs = savedBriefs.map((item) => ({
+    id: item.id,
+    title: item.angle || item.productTitle || "Ad Brief",
+    productTitle: item.productTitle,
+    createdAt: item.createdAt,
+    description: formatBriefDescription(item),
+  }));
+
+  return {
+    products: merchantData.products,
+    briefs,
+  };
+};
+
+export const action = async ({ request }) => {
+  const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const productId = String(formData.get("productId") || "");
+  const merchantData = await loadMerchantData(admin, session);
+  const product =
+    merchantData.products.find((item) => item.id === productId) ||
+    merchantData.products[0];
+
+  if (!product) {
+    return redirect("/app/ad-briefs");
+  }
+
+  const brief = buildBrief(product);
+  await saveBriefRecord(session.shop, product, brief);
+
+  return redirect("/app/ad-briefs");
+};
+
 export default function AdBriefsRoute() {
-  const [briefs, setBriefs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const shopId = getSelectedShopId();
-
-  useEffect(() => {
-    async function load() {
-      const res = await fetch(`${API_BASE}/briefs?shop_id=${shopId}`, {
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-
-      setBriefs(Array.isArray(data) ? data : data.briefs || []);
-      setLoading(false);
-    }
-
-    load().catch((err) => {
-      console.error(err);
-      setBriefs([]);
-      setLoading(false);
-    });
-  }, [shopId]);
+  const { products, briefs } = useLoaderData();
+  const navigation = useNavigation();
+  const isGenerating = navigation.state === "submitting";
 
   return (
     <div className="space-y-8">
@@ -72,9 +102,42 @@ export default function AdBriefsRoute() {
         </p>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading briefs...</p>}
+      {products.length > 0 && (
+        <div className="glass rounded-2xl p-6">
+          <h2 className="font-display text-xl font-semibold text-foreground">
+            Generate a new brief
+          </h2>
 
-      {!loading && briefs.length === 0 && (
+          <p className="text-muted-foreground mt-2 text-sm">
+            Pick a product from your catalog to generate hooks, script, and
+            CTA options.
+          </p>
+
+          <Form method="post" className="flex flex-col sm:flex-row gap-3 mt-5">
+            <select
+              name="productId"
+              className="flex-1 rounded-lg border border-border-strong bg-surface-2/60 px-4 py-2.5 text-sm text-foreground"
+              defaultValue={products[0]?.id}
+            >
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.title}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="submit"
+              disabled={isGenerating}
+              className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {isGenerating ? "Generating..." : "Generate Brief"}
+            </button>
+          </Form>
+        </div>
+      )}
+
+      {briefs.length === 0 && (
         <EmptyWorkspaceState
           title="No ad briefs yet"
           description="This shop does not have enough creative data to generate personalized ad briefs yet. Upload or analyze creatives first."
@@ -84,14 +147,20 @@ export default function AdBriefsRoute() {
       )}
 
       <div className="space-y-6">
-        {briefs.map((brief, index) => (
-          <div key={brief.id || index} className="glass rounded-2xl p-5">
+        {briefs.map((brief) => (
+          <div key={brief.id} className="glass rounded-2xl p-5">
             <h2 className="font-display text-2xl font-semibold text-foreground">
-              {brief.title || brief.brief_title || "Ad Brief"}
+              {brief.title}
             </h2>
 
+            {brief.productTitle && (
+              <p className="text-primary mt-1 text-xs font-semibold uppercase tracking-[0.14em]">
+                {brief.productTitle}
+              </p>
+            )}
+
             <p className="text-muted-foreground mt-3 text-sm">
-              {formatBriefDescription(brief)}
+              {brief.description}
             </p>
           </div>
         ))}

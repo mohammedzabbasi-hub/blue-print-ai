@@ -1,62 +1,84 @@
-import { useEffect, useState } from "react";
+import { useLoaderData } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
+import { authenticate } from "../shopify.server";
+import { buildRecommendations, loadMerchantData } from "../models/blueprint.server";
 import {
-  API_BASE,
-  getAuthHeaders,
-  getSelectedShopId,
-  isDemoAccount,
-} from "../lib/accountContext";
+  buildImportedCreatives,
+  buildImportedCreators,
+} from "../models/importedData.server";
 
 export const meta = () => {
   return [{ title: "Recommendations | BluePrintAI" }];
 };
 
-function getSafeShopId() {
-  if (typeof window === "undefined") return "1";
-  return getSelectedShopId();
+function buildImportedInsights(creatives, creators) {
+  const insights = [];
+
+  const creativesWithCtr = creatives.filter(
+    (creative) => creative.ctr !== null && creative.ctr !== undefined,
+  );
+
+  if (creativesWithCtr.length) {
+    const lowestCtrCreative = creativesWithCtr.reduce((lowest, creative) =>
+      creative.ctr < lowest.ctr ? creative : lowest,
+    );
+
+    insights.push({
+      id: `imported-lowest-ctr-${lowestCtrCreative.id}`,
+      title: `Test a new hook for ${lowestCtrCreative.title}`,
+      description: `${lowestCtrCreative.title} has a ${lowestCtrCreative.ctr.toFixed(
+        1,
+      )}% CTR, the lowest of your imported creatives — test a new hook.`,
+    });
+  }
+
+  const creatorsWithRevenue = creators.filter(
+    (creator) =>
+      creator.totalRevenue !== null && creator.totalRevenue !== undefined,
+  );
+
+  if (creatorsWithRevenue.length) {
+    const topRevenueCreator = creatorsWithRevenue.reduce((top, creator) =>
+      Number(creator.totalRevenue) > Number(top.totalRevenue) ? creator : top,
+    );
+
+    insights.push({
+      id: `imported-top-revenue-${topRevenueCreator.id}`,
+      title: `Brief ${topRevenueCreator.name} for another concept`,
+      description: `${topRevenueCreator.name} generated $${Number(
+        topRevenueCreator.totalRevenue,
+      ).toLocaleString("en-US")} in tracked revenue — brief them for another concept.`,
+    });
+  }
+
+  return insights.slice(0, 3);
 }
 
-function getSafeDemoAccount() {
-  if (typeof window === "undefined") return false;
-  return isDemoAccount();
-}
+export const loader = async ({ request }) => {
+  const { admin, session } = await authenticate.admin(request);
+  const merchantData = await loadMerchantData(admin, session);
+  const catalogRecommendations = buildRecommendations(
+    merchantData.products,
+    merchantData.orders,
+  );
+
+  const [importedCreatives, importedCreators] = await Promise.all([
+    buildImportedCreatives(session.shop),
+    buildImportedCreators(session.shop),
+  ]);
+
+  const importedInsights = buildImportedInsights(
+    importedCreatives,
+    importedCreators,
+  );
+
+  return {
+    items: [...catalogRecommendations, ...importedInsights],
+  };
+};
 
 export default function RecommendationsRoute() {
-  const [items, setItems] = useState([]);
-  const [shopId, setShopId] = useState("1");
-  const [demo, setDemo] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setShopId(getSafeShopId());
-    setDemo(getSafeDemoAccount());
-  }, []);
-
-  useEffect(() => {
-    if (!shopId) return;
-
-    async function load() {
-      const endpoint = demo
-        ? `${API_BASE}/recommendations?shop_id=${encodeURIComponent(shopId)}`
-        : `${API_BASE}/personalized/recommendations?shop_id=${encodeURIComponent(
-            shopId
-          )}`;
-
-      const res = await fetch(endpoint, {
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-
-      setItems(Array.isArray(data) ? data : data.recommendations || []);
-      setLoading(false);
-    }
-
-    load().catch((err) => {
-      console.error(err);
-      setItems([]);
-      setLoading(false);
-    });
-  }, [demo, shopId]);
+  const { items } = useLoaderData();
 
   return (
     <div className="space-y-8">
@@ -74,11 +96,7 @@ export default function RecommendationsRoute() {
         </p>
       </div>
 
-      {loading && (
-        <p className="text-muted-foreground">Loading recommendations...</p>
-      )}
-
-      {!loading && items.length === 0 && (
+      {items.length === 0 && (
         <EmptyWorkspaceState
           title="No recommendations yet"
           description="Recommendations will appear after this shop has uploaded creatives, video analyses, or connected TikTok Shop performance data."
@@ -91,19 +109,11 @@ export default function RecommendationsRoute() {
         {items.map((item, index) => (
           <div key={item.id || index} className="glass rounded-2xl p-5">
             <h2 className="font-display text-xl font-semibold text-foreground">
-              {item.title ||
-                item.name ||
-                item.recommendation ||
-                "Recommendation"}
+              {item.title || "Recommendation"}
             </h2>
 
             <p className="text-muted-foreground mt-3 text-sm">
-              {item.description ||
-                item.details ||
-                item.reason ||
-                item.action ||
-                item.evidence ||
-                ""}
+              {item.description || item.detail || item.nextAction || ""}
             </p>
           </div>
         ))}

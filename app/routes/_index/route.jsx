@@ -32,13 +32,13 @@ export default function LandingRoute() {
 
           <div className="flex items-center gap-3">
             <Link
-              to="/login"
+              to="/auth/login"
               className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-200 transition hover:border-cyan-400 hover:text-cyan-100"
             >
               Sign in
             </Link>
             <Link
-              to="/onboarding"
+              to="/auth/login"
               className="hidden rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-cyan-500/20 transition hover:scale-[1.02] sm:inline-flex"
             >
               Create account
@@ -67,14 +67,14 @@ export default function LandingRoute() {
 
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Link
-                to="/login"
+                to="/auth/login"
                 className="rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-8 py-4 text-center text-lg font-black text-white shadow-xl shadow-cyan-500/20 transition hover:scale-[1.02]"
               >
                 Sign in
               </Link>
 
               <Link
-                to="/onboarding"
+                to="/auth/login"
                 className="rounded-xl border border-slate-700 px-8 py-4 text-center text-lg font-black text-slate-200 transition hover:border-cyan-400 hover:text-cyan-100"
               >
                 Create account

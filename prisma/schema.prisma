@@ -113,3 +113,106 @@ model WorkspaceSetting {
 
   @@unique([shop, key])
 }
+
+// Imported data models: populated by the Data Import CSV/JSON pipeline
+// (app/routes/app.data-import.jsx + app/models/importedData.server.js).
+// This is the source of truth for real (non-demo) creative/ad performance
+// numbers shown across Dashboard, Creators, Creative Library,
+// Recommendations, and Revenue Blueprint.
+model ImportedProduct {
+  id         String   @id @default(cuid())
+  shop       String
+  externalId String
+  title      String
+  price      Float?
+  currency   String?
+  inventory  Int?
+  status     String?
+  imageUrl   String?
+  category   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([shop, externalId])
+  @@index([shop])
+}
+
+model ImportedOrder {
+  id                String    @id @default(cuid())
+  shop              String
+  externalId        String
+  productExternalId String?
+  productTitle      String?
+  amount            Float     @default(0)
+  currency          String?
+  orderedAt         DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@unique([shop, externalId])
+  @@index([shop])
+}
+
+model ImportedCreator {
+  id            String   @id @default(cuid())
+  shop          String
+  externalId    String
+  name          String
+  handle        String?
+  platform      String?
+  status        String?
+  followers     Int?
+  totalViews    Int?
+  totalLikes    Int?
+  totalComments Int?
+  totalShares   Int?
+  totalOrders   Int?
+  totalRevenue  Float?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([shop, externalId])
+  @@index([shop])
+}
+
+model ImportedCreative {
+  id                String   @id @default(cuid())
+  shop              String
+  externalId        String
+  title             String
+  productExternalId String?
+  productTitle      String?
+  creatorHandle     String?
+  platform          String?
+  views             Int?
+  likes             Int?
+  shares            Int?
+  clicks            Int?
+  orders            Int?
+  revenue           Float?
+  hookType          String?
+  mediaUrl          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([shop, externalId])
+  @@index([shop])
+}
+
+model ImportedMetric {
+  id         String    @id @default(cuid())
+  shop       String
+  externalId String
+  date       DateTime?
+  scope      String?
+  refId      String?
+  views      Int?
+  clicks     Int?
+  orders     Int?
+  revenue    Float?
+  spend      Float?
+  createdAt  DateTime  @default(now())
+
+  @@unique([shop, externalId])
+  @@index([shop])
+}

@@ -1,103 +1,56 @@
-import { useEffect, useState } from "react";
+import { useActionData, useLoaderData, useNavigation, Form } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
+import { authenticate } from "../shopify.server";
 import {
-  API_BASE,
-  getSelectedShopId,
-  getAuthHeaders,
-  isDemoAccount,
-} from "../lib/accountContext";
+  buildRevenueBlueprint,
+  listRevenueBlueprints,
+  loadMerchantData,
+  saveRevenueBlueprintRecord,
+} from "../models/blueprint.server";
 
 export const meta = () => {
   return [{ title: "Revenue Blueprint | BluePrintAI" }];
 };
 
-function getSafeShopId() {
-  if (typeof window === "undefined") return "1";
-  return getSelectedShopId();
-}
+export const loader = async ({ request }) => {
+  const { admin, session } = await authenticate.admin(request);
+  const merchantData = await loadMerchantData(admin, session);
+  const savedBlueprints = await listRevenueBlueprints(session.shop, 1);
+  const latestBlueprint = savedBlueprints[0] || null;
 
-function getSafeDemoAccount() {
-  if (typeof window === "undefined") return false;
-  return isDemoAccount();
-}
+  return {
+    merchantData,
+    blueprint: latestBlueprint ? latestBlueprint.payload : null,
+  };
+};
 
-export default function RevenueBlueprintRoute() {
-  const [blueprint, setBlueprint] = useState(null);
-  const [shopState, setShopState] = useState(null);
-  const [shopId, setShopId] = useState("1");
-  const [demo, setDemo] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
+export const action = async ({ request }) => {
+  const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") || "");
 
-  useEffect(() => {
-    setShopId(getSafeShopId());
-    setDemo(getSafeDemoAccount());
-  }, []);
+  if (intent === "generate") {
+    const merchantData = await loadMerchantData(admin, session);
+    const blueprint = buildRevenueBlueprint(merchantData);
+    await saveRevenueBlueprintRecord(session.shop, blueprint);
 
-  useEffect(() => {
-    if (!shopId) return;
-
-    async function load() {
-      try {
-        setLoading(true);
-
-        if (!demo) {
-          const stateRes = await fetch(
-            `${API_BASE}/personalized/shop-state?shop_id=${encodeURIComponent(
-              shopId
-            )}`,
-            {
-              headers: getAuthHeaders(),
-            }
-          );
-
-          if (stateRes.ok) {
-            const state = await stateRes.json();
-            setShopState(state);
-          }
-        }
-
-        const res = await fetch(
-          `${API_BASE}/blueprint/${encodeURIComponent(shopId)}/latest`,
-          {
-            headers: getAuthHeaders(),
-          }
-        );
-
-        if (res.ok) {
-          const data = await res.json();
-          setBlueprint(data);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    load();
-  }, [demo, shopId]);
-
-  async function generateBlueprint() {
-    try {
-      setGenerating(true);
-
-      const res = await fetch(`${API_BASE}/blueprint/generate`, {
-        method: "POST",
-        headers: getAuthHeaders(true),
-        body: JSON.stringify({ shop_id: shopId }),
-      });
-
-      const data = await res.json();
-      setBlueprint(data);
-    } catch (err) {
-      console.error("Failed to generate blueprint:", err);
-    } finally {
-      setGenerating(false);
-    }
+    return { blueprint };
   }
 
-  const newEmptyAccount = !demo && !shopState?.has_data && !blueprint;
+  return { blueprint: null };
+};
+
+export default function RevenueBlueprintRoute() {
+  const { merchantData, blueprint: loaderBlueprint } = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
+  const isGenerating =
+    navigation.state === "submitting" &&
+    navigation.formData?.get("intent") === "generate";
+
+  const blueprint = actionData?.blueprint || loaderBlueprint;
+  const hasCatalogData = merchantData.products.length > 0;
+  const newEmptyAccount = !hasCatalogData && !blueprint;
 
   return (
     <div className="space-y-8">
@@ -115,9 +68,7 @@ export default function RevenueBlueprintRoute() {
         </p>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading blueprint...</p>}
-
-      {!loading && newEmptyAccount && (
+      {newEmptyAccount && (
         <EmptyWorkspaceState
           title="No blueprint yet"
           description="This new shop does not have enough data for a strong revenue blueprint yet. Upload creatives or connect shop data first."
@@ -126,7 +77,7 @@ export default function RevenueBlueprintRoute() {
         />
       )}
 
-      {!loading && !newEmptyAccount && !blueprint && (
+      {!newEmptyAccount && !blueprint && (
         <div className="glass rounded-2xl p-8">
           <h2 className="font-display text-2xl font-semibold text-foreground">
             Generate your first blueprint
@@ -136,58 +87,124 @@ export default function RevenueBlueprintRoute() {
             This will create a shop-specific growth plan.
           </p>
 
-          <button
-            type="button"
-            onClick={generateBlueprint}
-            disabled={generating}
-            className="mt-7 rounded-lg bg-primary px-6 py-3 font-semibold text-primary-foreground disabled:opacity-50"
-          >
-            {generating ? "Generating..." : "Generate Blueprint"}
-          </button>
+          <Form method="post">
+            <input type="hidden" name="intent" value="generate" />
+            <button
+              type="submit"
+              disabled={isGenerating}
+              className="mt-7 rounded-lg bg-primary px-6 py-3 font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {isGenerating ? "Generating..." : "Generate Blueprint"}
+            </button>
+          </Form>
         </div>
       )}
 
-      {!loading && blueprint && (
+      {blueprint && (
         <div className="glass rounded-2xl p-8">
           <h2 className="font-display text-3xl font-semibold text-foreground">
-            {blueprint.title || "AI Growth Blueprint"}
+            AI Growth Blueprint
           </h2>
 
           <p className="text-muted-foreground mt-4 text-sm">
-            {blueprint.summary ||
-              blueprint.diagnosis ||
-              "Your blueprint is ready."}
+            {blueprint.diagnosis || "Your blueprint is ready."}
           </p>
 
-          <button
-            type="button"
-            onClick={generateBlueprint}
-            disabled={generating}
-            className="mt-7 rounded-lg bg-primary px-6 py-3 font-semibold text-primary-foreground disabled:opacity-50"
-          >
-            {generating ? "Generating..." : "Generate New Blueprint"}
-          </button>
+          <Form method="post">
+            <input type="hidden" name="intent" value="generate" />
+            <button
+              type="submit"
+              disabled={isGenerating}
+              className="mt-7 rounded-lg bg-primary px-6 py-3 font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {isGenerating ? "Generating..." : "Generate New Blueprint"}
+            </button>
+          </Form>
 
-          <div className="space-y-5 mt-8">
-            {(blueprint.steps || []).map((step, index) => (
-              <div
-                key={step.id || index}
-                className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6"
-              >
-                <p className="text-cyan-300 font-black">
-                  Step {step.step_number || index + 1}
-                </p>
+          {blueprint.positioning && (
+            <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
+              <p className="text-cyan-300 font-black">Positioning</p>
+              <p className="text-slate-400 mt-3">{blueprint.positioning}</p>
+            </div>
+          )}
 
-                <h3 className="text-2xl font-black mt-2">
-                  {step.title}
-                </h3>
+          {Array.isArray(blueprint.priorities) && blueprint.priorities.length > 0 && (
+            <div className="mt-6">
+              <h3 className="font-display text-xl font-semibold text-foreground">
+                Priorities
+              </h3>
 
-                <p className="text-slate-400 mt-3">
-                  {step.description || step.action}
-                </p>
+              <ul className="space-y-3 mt-4">
+                {blueprint.priorities.map((priority, index) => (
+                  <li
+                    key={index}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-slate-400"
+                  >
+                    {priority}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(blueprint.conversionIdeas) && blueprint.conversionIdeas.length > 0 && (
+            <div className="mt-6">
+              <h3 className="font-display text-xl font-semibold text-foreground">
+                Conversion ideas
+              </h3>
+
+              <ul className="space-y-3 mt-4">
+                {blueprint.conversionIdeas.map((idea, index) => (
+                  <li
+                    key={index}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-slate-400"
+                  >
+                    {idea}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(blueprint.creativePlan) && blueprint.creativePlan.length > 0 && (
+            <div className="mt-6">
+              <h3 className="font-display text-xl font-semibold text-foreground">
+                Creative plan
+              </h3>
+
+              <ul className="space-y-3 mt-4">
+                {blueprint.creativePlan.map((item, index) => (
+                  <li
+                    key={index}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 text-slate-400"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(blueprint.sevenDayPlan) && blueprint.sevenDayPlan.length > 0 && (
+            <div className="mt-8">
+              <h3 className="font-display text-xl font-semibold text-foreground">
+                7-day plan
+              </h3>
+
+              <div className="space-y-5 mt-4">
+                {blueprint.sevenDayPlan.map((step, index) => (
+                  <div
+                    key={index}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6"
+                  >
+                    <p className="text-cyan-300 font-black">Step {index + 1}</p>
+
+                    <p className="text-slate-400 mt-3">{step}</p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

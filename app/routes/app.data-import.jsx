@@ -1,188 +1,92 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Form, Link, useActionData, useLoaderData, useNavigation } from "react-router";
+import { authenticate } from "../shopify.server";
 import {
-  API_BASE,
-  getAuthHeaders,
-  getSelectedShopId,
-  getAccountLabel,
-} from "../lib/accountContext";
+  clearImportedData,
+  getImportSummary,
+  importCsvText,
+  importJsonBundleText,
+} from "../models/importedData.server";
+import { IMPORT_TABLES, IMPORT_TABLE_COLUMNS } from "../utils/importTables";
 
 export const meta = () => {
   return [{ title: "Data Import | BluePrintAI" }];
 };
 
-const tables = ["products", "orders", "creators", "creatives", "metrics"];
+export const loader = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const summary = await getImportSummary(session.shop);
 
-function getSafeShopId() {
-  if (typeof window === "undefined") return "1";
-  return getSelectedShopId();
-}
+  return { summary };
+};
 
-function getSafeAccountLabel() {
-  if (typeof window === "undefined") {
-    return { shopName: "BluePrintAI" };
+export const action = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") || "");
+
+  if (intent === "clear") {
+    await clearImportedData(session.shop);
+    return { message: "Imported data cleared for this shop.", summary: await getImportSummary(session.shop) };
   }
 
-  return getAccountLabel();
-}
+  if (intent === "upload_csv") {
+    const table = String(formData.get("table_name") || "");
+    const file = formData.get("file");
+
+    if (!(file instanceof File) || !file.size) {
+      return { error: "Choose a CSV file first." };
+    }
+
+    if (!IMPORT_TABLES.includes(table)) {
+      return { error: `"${table}" is not a valid table.` };
+    }
+
+    const text = await file.text();
+    const result = await importCsvText(session.shop, table, text);
+
+    return {
+      message: `Imported ${result.inserted} row(s) into ${table}. Skipped ${result.skipped} duplicate row(s).`,
+      errors: result.errors,
+      summary: await getImportSummary(session.shop),
+    };
+  }
+
+  if (intent === "upload_json") {
+    const file = formData.get("file");
+
+    if (!(file instanceof File) || !file.size) {
+      return { error: "Choose a JSON file first." };
+    }
+
+    const text = await file.text();
+    const { results, errors } = await importJsonBundleText(session.shop, text);
+
+    if (errors.length) {
+      return { error: errors[0] };
+    }
+
+    const inserted = results.reduce((sum, item) => sum + item.inserted, 0);
+    const skipped = results.reduce((sum, item) => sum + item.skipped, 0);
+    const byTable = Object.fromEntries(results.map((item) => [item.table, item]));
+
+    return {
+      message: `Imported ${inserted} new row(s) across ${results.length} table(s). Skipped ${skipped} duplicate row(s).`,
+      lastJsonResult: byTable,
+      summary: await getImportSummary(session.shop),
+    };
+  }
+
+  return { error: "No import action was selected." };
+};
 
 export default function DataImportRoute() {
-  const [shopId, setShopId] = useState("1");
-  const [account, setAccount] = useState({ shopName: "BluePrintAI" });
-
-  const [tableName, setTableName] = useState("products");
-  const [csvFile, setCsvFile] = useState(null);
-  const [jsonFile, setJsonFile] = useState(null);
-  const [summary, setSummary] = useState({});
-  const [lastJsonResult, setLastJsonResult] = useState(null);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { summary: loaderSummary } = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
-
-  useEffect(() => {
-    setShopId(getSafeShopId());
-    setAccount(getSafeAccountLabel());
-  }, []);
-
-  async function loadSummary() {
-    const res = await fetch(
-      `${API_BASE}/data-import/summary?shop_id=${encodeURIComponent(shopId)}`,
-      {
-        headers: getAuthHeaders(),
-      }
-    );
-
-    const data = await res.json();
-    setSummary(data.summary || {});
-  }
-
-  useEffect(() => {
-    if (!shopId) return;
-    loadSummary().catch(console.error);
-  }, [shopId]);
-
-  async function uploadCsv() {
-    if (!csvFile) {
-      setMessage("Choose a CSV file first.");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    const form = new FormData();
-    form.append("shop_id", shopId);
-    form.append("table_name", tableName);
-    form.append("file", csvFile);
-
-    const res = await fetch(`${API_BASE}/data-import/csv`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: form,
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      setMessage(data.detail || "CSV import failed.");
-    } else {
-      setMessage(`Imported ${data.inserted} rows into ${data.table}.`);
-      await loadSummary();
-    }
-
-    setLoading(false);
-  }
-
-  async function uploadJson() {
-    if (!jsonFile) {
-      setMessage("Choose a JSON file first.");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    const form = new FormData();
-    form.append("shop_id", shopId);
-    form.append("file", jsonFile);
-
-    const res = await fetch(`${API_BASE}/data-import/json`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: form,
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      setMessage(data.detail || "JSON import failed.");
-    } else {
-      setLastJsonResult({
-        inserted: data.inserted || {},
-        skipped: data.skipped_duplicates || data.skipped || {},
-      });
-
-      const insertedRaw =
-        data.inserted_total ??
-        data.inserted ??
-        data.total_inserted ??
-        data.inserted_rows ??
-        0;
-
-      const skippedRaw =
-        data.skipped_total ??
-        data.skipped_duplicates ??
-        data.duplicates_skipped ??
-        data.skipped_rows ??
-        0;
-
-      const sumValue = (value) => {
-        if (typeof value === "number") return value;
-
-        if (value && typeof value === "object") {
-          return Object.values(value).reduce(
-            (sum, item) => sum + Number(item || 0),
-            0
-          );
-        }
-
-        return Number(value || 0);
-      };
-
-      const inserted = sumValue(insertedRaw);
-      const skipped = sumValue(skippedRaw);
-
-      setMessage(
-        `JSON import complete. Imported ${inserted} new rows. Skipped ${skipped} duplicate rows.`
-      );
-
-      await loadSummary();
-    }
-
-    setLoading(false);
-  }
-
-  async function clearData() {
-    setLoading(true);
-    setConfirmClearOpen(false);
-
-    const res = await fetch(
-      `${API_BASE}/data-import/clear?shop_id=${encodeURIComponent(shopId)}`,
-      {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      }
-    );
-
-    const data = await res.json();
-
-    setMessage(
-      data.success ? "Shop import data cleared." : "Could not clear data."
-    );
-
-    await loadSummary();
-
-    setLoading(false);
-  }
+  const isSubmitting = navigation.state === "submitting";
+  const summary = actionData?.summary || loaderSummary;
 
   return (
     <div className="space-y-8">
@@ -191,10 +95,6 @@ export default function DataImportRoute() {
           <p className="text-primary uppercase tracking-[0.18em] font-semibold text-xs">
             Data Setup
           </p>
-
-          <span className="rounded-full border border-yellow-500/40 bg-yellow-500/10 px-4 py-1 text-xs font-black uppercase tracking-widest text-yellow-200">
-            Temporary MVP Only
-          </span>
         </div>
 
         <h1 className="font-display text-4xl font-semibold mt-3 text-foreground">
@@ -202,29 +102,51 @@ export default function DataImportRoute() {
         </h1>
 
         <p className="text-muted-foreground mt-3 text-sm sm:text-[15px]">
-          Temporary MVP tool: upload TikTok Shop CSV/JSON downloads into this
-          workspace until real TikTok Shop OAuth is connected.
+          Upload TikTok Shop or ad platform CSV/JSON exports to power the
+          Dashboard, Creators, Creative Library, Recommendations, Ad Briefs,
+          and Revenue Blueprint with your shop&apos;s real numbers. Nothing
+          shown elsewhere in the app is estimated from this data &mdash; pages
+          read directly from what you import here.
         </p>
 
-        <p className="text-muted-foreground mt-3 text-sm">
-          Current shop: {account.shopName} · Shop ID: {shopId}
-        </p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          {IMPORT_TABLES.map((table) => (
+            <a
+              key={table}
+              href={`/sample-data/${table}.csv`}
+              download
+              className="rounded-lg border border-border-strong bg-surface-2/60 px-4 py-2 text-xs font-semibold text-foreground hover:border-primary/50"
+            >
+              Download sample {table}.csv
+            </a>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
+        <Form
+          method="post"
+          encType="multipart/form-data"
+          className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8"
+        >
+          <input type="hidden" name="intent" value="upload_csv" />
+
           <h2 className="text-3xl font-black">Upload CSV</h2>
 
           <p className="text-slate-400 mt-3">
-            Choose which table this CSV should fill.
+            Choose which table this CSV should fill. Columns:{" "}
+            <code className="text-slate-300">
+              {IMPORT_TABLE_COLUMNS.products.join(", ")}
+            </code>
+            {" "}(and similar per table &mdash; see the sample downloads above).
           </p>
 
           <select
-            value={tableName}
-            onChange={(e) => setTableName(e.target.value)}
+            name="table_name"
+            defaultValue="products"
             className="w-full mt-6 rounded-xl bg-slate-900 border border-slate-700 px-5 py-4 text-white"
           >
-            {tables.map((table) => (
+            {IMPORT_TABLES.map((table) => (
               <option key={table} value={table}>
                 {table}
               </option>
@@ -233,59 +155,78 @@ export default function DataImportRoute() {
 
           <input
             type="file"
+            name="file"
             accept=".csv"
-            onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+            required
             className="w-full mt-6 rounded-xl bg-slate-900 border border-slate-700 px-5 py-4"
           />
 
           <button
-            type="button"
-            onClick={uploadCsv}
-            disabled={loading}
+            type="submit"
+            disabled={isSubmitting}
             className="mt-6 rounded-xl bg-cyan-500 px-6 py-3 font-black disabled:opacity-50"
           >
-            Upload CSV
+            {isSubmitting ? "Uploading..." : "Upload CSV"}
           </button>
-        </div>
+        </Form>
 
-        <div className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8">
+        <Form
+          method="post"
+          encType="multipart/form-data"
+          className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8"
+        >
+          <input type="hidden" name="intent" value="upload_json" />
+
           <h2 className="text-3xl font-black">Upload JSON Bundle</h2>
 
           <p className="text-slate-400 mt-3">
-            JSON can include products, orders, creators, creatives, and metrics
-            arrays.
+            A single JSON file with any of these keys as arrays: {" "}
+            <code className="text-slate-300">{IMPORT_TABLES.join(", ")}</code>.
           </p>
 
           <input
             type="file"
+            name="file"
             accept=".json"
-            onChange={(e) => setJsonFile(e.target.files?.[0] || null)}
+            required
             className="w-full mt-6 rounded-xl bg-slate-900 border border-slate-700 px-5 py-4"
           />
 
           <button
-            type="button"
-            onClick={uploadJson}
-            disabled={loading}
+            type="submit"
+            disabled={isSubmitting}
             className="mt-6 rounded-xl bg-cyan-500 px-6 py-3 font-black disabled:opacity-50"
           >
-            Upload JSON
+            {isSubmitting ? "Uploading..." : "Upload JSON"}
           </button>
-        </div>
+        </Form>
       </div>
 
-      {message && (
-        <div className="rounded-2xl border border-cyan-900 bg-cyan-950/30 p-5 mt-8 text-cyan-100 font-bold">
-          {message}
+      {actionData?.error && (
+        <div className="rounded-2xl border border-red-900 bg-red-950/30 p-5 mt-8 text-red-100 font-bold">
+          {actionData.error}
         </div>
       )}
 
-      {lastJsonResult && (
+      {actionData?.message && (
+        <div className="rounded-2xl border border-cyan-900 bg-cyan-950/30 p-5 mt-8 text-cyan-100 font-bold">
+          {actionData.message}
+          {actionData.errors?.length > 0 && (
+            <ul className="mt-3 list-disc pl-5 text-sm font-normal text-amber-200">
+              {actionData.errors.slice(0, 5).map((rowError, index) => (
+                <li key={index}>{rowError}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {actionData?.lastJsonResult && (
         <div className="rounded-3xl border border-slate-800 bg-[#0b1220] p-8 mt-8">
           <h2 className="text-3xl font-black">Last JSON Import</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-5 mt-6">
-            {tables.map((table) => (
+            {IMPORT_TABLES.map((table) => (
               <div
                 key={table}
                 className="rounded-2xl bg-slate-950/40 border border-slate-800 p-5"
@@ -293,17 +234,11 @@ export default function DataImportRoute() {
                 <p className="text-slate-400 font-bold">{table}</p>
 
                 <p className="text-emerald-300 font-black mt-3">
-                  Inserted{" "}
-                  {Number(
-                    lastJsonResult.inserted?.[table] || 0
-                  ).toLocaleString()}
+                  Inserted {Number(actionData.lastJsonResult[table]?.inserted || 0).toLocaleString()}
                 </p>
 
                 <p className="text-amber-200 font-black mt-1">
-                  Skipped{" "}
-                  {Number(
-                    lastJsonResult.skipped?.[table] || 0
-                  ).toLocaleString()}
+                  Skipped {Number(actionData.lastJsonResult[table]?.skipped || 0).toLocaleString()}
                 </p>
               </div>
             ))}
@@ -318,7 +253,7 @@ export default function DataImportRoute() {
           <button
             type="button"
             onClick={() => setConfirmClearOpen(true)}
-            disabled={loading}
+            disabled={isSubmitting}
             className="rounded-xl border border-red-500/40 px-5 py-3 font-bold text-red-200 disabled:opacity-50"
           >
             Clear Shop Data
@@ -330,23 +265,27 @@ export default function DataImportRoute() {
             <p className="font-black">Clear imported data for this shop?</p>
             <p className="mt-2 text-sm text-red-100/80">
               This removes the imported products, orders, creators, creatives,
-              and metrics for the active shop.
+              and metrics for the active shop. Saved briefs, saved creatives,
+              and revenue blueprints you generated elsewhere in the app are
+              not affected.
             </p>
 
             <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={clearData}
-                disabled={loading}
-                className="rounded-xl bg-red-500 px-5 py-2.5 font-black text-white disabled:opacity-50"
-              >
-                {loading ? "Clearing..." : "Yes, Clear Data"}
-              </button>
+              <Form method="post" onSubmit={() => setConfirmClearOpen(false)}>
+                <input type="hidden" name="intent" value="clear" />
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="rounded-xl bg-red-500 px-5 py-2.5 font-black text-white disabled:opacity-50"
+                >
+                  {isSubmitting ? "Clearing..." : "Yes, Clear Data"}
+                </button>
+              </Form>
 
               <button
                 type="button"
                 onClick={() => setConfirmClearOpen(false)}
-                disabled={loading}
+                disabled={isSubmitting}
                 className="rounded-xl border border-slate-700 px-5 py-2.5 font-bold text-slate-200 disabled:opacity-50"
               >
                 Cancel
@@ -356,7 +295,7 @@ export default function DataImportRoute() {
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-5 mt-8">
-          {tables.map((table) => (
+          {IMPORT_TABLES.map((table) => (
             <div
               key={table}
               className="rounded-2xl bg-slate-950/40 border border-slate-800 p-5"
@@ -366,6 +305,22 @@ export default function DataImportRoute() {
             </div>
           ))}
         </div>
+
+        <p className="text-slate-500 mt-6 text-sm">
+          See it in action: {" "}
+          <Link to="/app" className="text-cyan-300 underline">
+            Dashboard
+          </Link>
+          , {" "}
+          <Link to="/app/creators" className="text-cyan-300 underline">
+            Creators
+          </Link>
+          , and {" "}
+          <Link to="/app/creative-library" className="text-cyan-300 underline">
+            Creative Library
+          </Link>{" "}
+          read directly from the tables above.
+        </p>
       </div>
     </div>
   );

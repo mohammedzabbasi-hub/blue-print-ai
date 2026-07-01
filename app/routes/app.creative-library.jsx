@@ -1,135 +1,151 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { useMemo, useState } from "react";
+import { Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
-import {
-  API_BASE,
-  getAuthHeaders,
-  getSelectedShopId,
-  isDemoAccount,
-} from "../lib/accountContext";
+import { authenticate } from "../shopify.server";
+import { buildImportedCreatives } from "../models/importedData.server";
+import { listSavedCreatives, saveCreativeRecord } from "../models/blueprint.server";
 
 export const meta = () => {
   return [{ title: "Creative Library | BluePrintAI" }];
 };
 
 function Metric({ label, value }) {
+  const hasValue = value !== null && value !== undefined;
+
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <p className="text-slate-400 font-bold">{label}</p>
       <p className="text-white text-2xl font-black mt-2">
-        {Number(value || 0).toLocaleString()}
+        {hasValue ? Number(value).toLocaleString() : "—"}
       </p>
     </div>
   );
 }
 
+function normalizeImportedCreative(creative) {
+  const insightParts = [];
+  if (creative.hookType) insightParts.push(`Hook: ${creative.hookType}`);
+  if (creative.platform) insightParts.push(creative.platform);
+
+  return {
+    id: creative.id,
+    source: "imported",
+    title: creative.title,
+    product: creative.productTitle,
+    creator: creative.creatorHandle,
+    views: creative.views,
+    likes: creative.likes,
+    shares: creative.shares,
+    clicks: creative.clicks,
+    orders: creative.orders,
+    ctr: creative.ctr,
+    videoUrl: creative.mediaUrl,
+    insight: insightParts.length ? insightParts.join(" · ") : null,
+    createdAt: creative.createdAt,
+    detailHref: `/app/creative-library/${creative.id}`,
+  };
+}
+
+function normalizeSavedCreative(creative) {
+  return {
+    id: creative.id,
+    source: "saved",
+    title: creative.title,
+    product: creative.productTitle,
+    creator: creative.angle || "Saved analysis",
+    views: null,
+    likes: null,
+    shares: null,
+    clicks: null,
+    orders: null,
+    ctr: null,
+    videoUrl: creative.payload?.mediaUrl || null,
+    insight:
+      creative.payload?.analysis?.pacingNotes || creative.payload?.brief || null,
+    createdAt: creative.createdAt,
+    detailHref: `/app/creative-library/${creative.id}`,
+  };
+}
+
+function newestFirst(creatives) {
+  return [...creatives].sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt || 0) || 0;
+    const rightTime = Date.parse(right.createdAt || 0) || 0;
+
+    return rightTime - leftTime;
+  });
+}
+
+export const loader = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+
+  const [importedCreatives, savedCreatives] = await Promise.all([
+    buildImportedCreatives(session.shop),
+    listSavedCreatives(session.shop, 50),
+  ]);
+
+  const merged = newestFirst([
+    ...importedCreatives.map(normalizeImportedCreative),
+    ...savedCreatives.map(normalizeSavedCreative),
+  ]);
+
+  return { creatives: merged };
+};
+
+export const action = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
+
+  const title = String(formData.get("title") || "").trim();
+  const product = String(formData.get("product") || "").trim();
+  const creator = String(formData.get("creator") || "").trim();
+  const videoUrl = String(formData.get("video_url") || "").trim();
+  const thumbnail = String(formData.get("thumbnail") || "").trim();
+  const insight = String(formData.get("insight") || "").trim();
+  const transcriptSummary = String(
+    formData.get("transcript_summary") || "",
+  ).trim();
+
+  if (!videoUrl) {
+    return { error: "Enter a Video URL to save this creative." };
+  }
+
+  await saveCreativeRecord(session.shop, {
+    sourceType: "creative_library_upload",
+    productId: "manual",
+    productTitle: product || "Untitled product",
+    title: title || "Untitled Creative",
+    angle: creator || "Creative library upload",
+    payload: {
+      mediaUrl: videoUrl,
+      thumbnail,
+      insight,
+      transcriptSummary,
+    },
+  });
+
+  return redirect("/app/creative-library");
+};
+
 const emptyCreativeForm = {
   title: "",
   product: "",
   creator: "",
-  video_file: null,
   video_url: "",
   thumbnail: "",
   insight: "",
   transcript_summary: "",
 };
 
-async function getBackendErrorMessage(response) {
-  const text = await response.text().catch(() => "");
-
-  if (!text) return `Request failed with status ${response.status}.`;
-
-  try {
-    const data = JSON.parse(text);
-    return data?.detail || data?.error || text;
-  } catch {
-    return text;
-  }
-}
-
-function resolveMediaUrl(url) {
-  if (!url) return "";
-
-  if (/^(https?:|data:|blob:)/i.test(url)) {
-    return url;
-  }
-
-  if (url.startsWith("/")) {
-    return `${API_BASE.replace(/\/$/, "")}${url}`;
-  }
-
-  return url;
-}
-
-function getCreativeTime(creative) {
-  const rawDate =
-    creative.created_at ||
-    creative.createdAt ||
-    creative.uploaded_at ||
-    creative.uploadedAt ||
-    "";
-  const timestamp = rawDate ? Date.parse(rawDate) : 0;
-
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function newestCreativesFirst(creatives) {
-  return [...creatives].sort((left, right) => {
-    const timeDifference = getCreativeTime(right) - getCreativeTime(left);
-
-    if (timeDifference !== 0) return timeDifference;
-
-    return Number(right.id || 0) - Number(left.id || 0);
-  });
-}
-
 export default function CreativeLibraryRoute() {
-  const [creatives, setCreatives] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { creatives } = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
+  const isSaving = navigation.state === "submitting";
+
   const [search, setSearch] = useState("");
-  const [demo, setDemo] = useState(false);
-  const [shopId, setShopId] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState(emptyCreativeForm);
-  const [uploadSaving, setUploadSaving] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-  const [uploadSuccess, setUploadSuccess] = useState("");
-
-  useEffect(() => {
-    setDemo(isDemoAccount());
-    setShopId(getSelectedShopId());
-  }, []);
-
-  const loadCreatives = useCallback(async () => {
-    if (!shopId) return;
-
-    setLoading(true);
-
-    const endpoint = `${API_BASE}/personalized/creatives?shop_id=${encodeURIComponent(
-      shopId
-    )}`;
-
-    try {
-      const res = await fetch(endpoint, {
-        headers: getAuthHeaders(),
-      });
-
-      const data = await res.json();
-      const items = Array.isArray(data) ? data : data.creatives || [];
-
-      setCreatives(newestCreativesFirst(items));
-    } finally {
-      setLoading(false);
-    }
-  }, [shopId]);
-
-  useEffect(() => {
-    loadCreatives().catch((err) => {
-      console.error(err);
-      setCreatives([]);
-      setLoading(false);
-    });
-  }, [loadCreatives]);
 
   function updateUploadField(field, value) {
     setUploadForm((current) => ({
@@ -139,104 +155,12 @@ export default function CreativeLibraryRoute() {
   }
 
   function openUploadForm() {
-    setUploadError("");
-    setUploadSuccess("");
     setUploadOpen(true);
   }
 
   function closeUploadForm() {
-    if (uploadSaving) return;
-
+    if (isSaving) return;
     setUploadOpen(false);
-    setUploadError("");
-  }
-
-  async function submitUpload(event) {
-    event.preventDefault();
-
-    if (!shopId) {
-      setUploadError("No shop is selected. Please select a shop and try again.");
-      return;
-    }
-
-    setUploadSaving(true);
-    setUploadError("");
-    setUploadSuccess("");
-
-    try {
-      const hasFile = Boolean(uploadForm.video_file);
-      const videoUrl = uploadForm.video_url.trim();
-
-      if (!hasFile && !videoUrl) {
-        throw new Error("Choose a video file or enter a Video URL.");
-      }
-
-      const response = hasFile
-        ? await submitFileUpload()
-        : await submitUrlUpload(videoUrl);
-
-      if (!response.ok) {
-        throw new Error(await getBackendErrorMessage(response));
-      }
-
-      setUploadForm(emptyCreativeForm);
-      setUploadOpen(false);
-      setUploadSuccess("Creative uploaded.");
-      await loadCreatives();
-    } catch (err) {
-      setUploadError(
-        err.message || "Could not upload this creative. Please try again."
-      );
-    } finally {
-      setUploadSaving(false);
-    }
-  }
-
-  function submitFileUpload() {
-    const formData = new FormData();
-
-    formData.append("file", uploadForm.video_file);
-    formData.append("shop_id", String(Number(shopId)));
-    formData.append("title", uploadForm.title.trim());
-    formData.append("product", uploadForm.product.trim());
-    formData.append("creator", uploadForm.creator.trim());
-    formData.append("insight", uploadForm.insight.trim());
-    formData.append(
-      "transcript_summary",
-      uploadForm.transcript_summary.trim()
-    );
-
-    return fetch(`${API_BASE}/personalized/creatives/upload`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: formData,
-    });
-  }
-
-  function submitUrlUpload(videoUrl) {
-    const payload = {
-      shop_id: Number(shopId),
-      title: uploadForm.title.trim(),
-      product: uploadForm.product.trim(),
-      creator: uploadForm.creator.trim(),
-      video_url: videoUrl,
-      thumbnail: uploadForm.thumbnail.trim(),
-      insight: uploadForm.insight.trim(),
-      transcript_summary: uploadForm.transcript_summary.trim(),
-      source: "creative_library_upload",
-      source_platform: "creative_library_upload",
-      type: "creative_library_upload",
-      score: 0,
-    };
-
-    return fetch(`${API_BASE}/personalized/creatives`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders(),
-      },
-      body: JSON.stringify(payload),
-    });
   }
 
   const filtered = useMemo(() => {
@@ -263,9 +187,8 @@ export default function CreativeLibraryRoute() {
             </h1>
 
             <p className="text-muted-foreground mt-3 text-sm sm:text-[15px]">
-              {demo
-                ? "Demo creatives are visible for demo accounts."
-                : "Only creatives uploaded or saved to this shop will appear here."}
+              Only creatives imported from your data or saved to this shop
+              will appear here.
             </p>
           </div>
 
@@ -279,15 +202,9 @@ export default function CreativeLibraryRoute() {
         </div>
       </div>
 
-      {(uploadSuccess || uploadError) && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm font-semibold ${
-            uploadError
-              ? "border-red-500/40 bg-red-500/10 text-red-200"
-              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-          }`}
-        >
-          {uploadError || uploadSuccess}
+      {actionData?.error && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200">
+          {actionData.error}
         </div>
       )}
 
@@ -299,8 +216,9 @@ export default function CreativeLibraryRoute() {
                 Upload Creative
               </h2>
               <p className="text-muted-foreground mt-2 text-sm">
-                Save a video URL and metadata directly to this shop&apos;s Creative
-                Library.
+                Save a video URL and metadata directly to this shop&apos;s
+                Creative Library. Paste a hosted video URL — file upload
+                isn&apos;t available in this Shopify app runtime yet.
               </p>
             </div>
 
@@ -313,11 +231,12 @@ export default function CreativeLibraryRoute() {
             </button>
           </div>
 
-          <form onSubmit={submitUpload} className="mt-6 space-y-5">
+          <Form method="post" className="mt-6 space-y-5">
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <label className="block text-sm font-semibold text-foreground">
                 Title
                 <input
+                  name="title"
                   value={uploadForm.title}
                   onChange={(e) => updateUploadField("title", e.target.value)}
                   className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -328,6 +247,7 @@ export default function CreativeLibraryRoute() {
               <label className="block text-sm font-semibold text-foreground">
                 Product
                 <input
+                  name="product"
                   value={uploadForm.product}
                   onChange={(e) => updateUploadField("product", e.target.value)}
                   className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -338,6 +258,7 @@ export default function CreativeLibraryRoute() {
               <label className="block text-sm font-semibold text-foreground">
                 Creator
                 <input
+                  name="creator"
                   value={uploadForm.creator}
                   onChange={(e) => updateUploadField("creator", e.target.value)}
                   className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -348,6 +269,7 @@ export default function CreativeLibraryRoute() {
               <label className="block text-sm font-semibold text-foreground">
                 Video URL
                 <input
+                  name="video_url"
                   value={uploadForm.video_url}
                   onChange={(e) =>
                     updateUploadField("video_url", e.target.value)
@@ -355,24 +277,14 @@ export default function CreativeLibraryRoute() {
                   className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
                   placeholder="https://..."
                   type="url"
-                />
-              </label>
-
-              <label className="block text-sm font-semibold text-foreground md:col-span-2">
-                Video file
-                <input
-                  accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
-                  onChange={(e) =>
-                    updateUploadField("video_file", e.target.files?.[0] || null)
-                  }
-                  className="mt-2 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-4 file:py-2 file:font-semibold file:text-primary-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  type="file"
+                  required
                 />
               </label>
 
               <label className="block text-sm font-semibold text-foreground md:col-span-2">
                 Thumbnail URL
                 <input
+                  name="thumbnail"
                   value={uploadForm.thumbnail}
                   onChange={(e) =>
                     updateUploadField("thumbnail", e.target.value)
@@ -387,6 +299,7 @@ export default function CreativeLibraryRoute() {
             <label className="block text-sm font-semibold text-foreground">
               Insight / notes
               <textarea
+                name="insight"
                 value={uploadForm.insight}
                 onChange={(e) => updateUploadField("insight", e.target.value)}
                 className="mt-2 min-h-28 w-full rounded-lg border border-border-strong bg-surface-2/60 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -397,6 +310,7 @@ export default function CreativeLibraryRoute() {
             <label className="block text-sm font-semibold text-foreground">
               Transcript summary
               <textarea
+                name="transcript_summary"
                 value={uploadForm.transcript_summary}
                 onChange={(e) =>
                   updateUploadField("transcript_summary", e.target.value)
@@ -409,37 +323,37 @@ export default function CreativeLibraryRoute() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="submit"
-                disabled={uploadSaving}
+                disabled={isSaving}
                 className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {uploadSaving ? "Uploading..." : "Save Creative"}
+                {isSaving ? "Saving..." : "Save Creative"}
               </button>
 
               <button
                 type="button"
                 onClick={closeUploadForm}
-                disabled={uploadSaving}
+                disabled={isSaving}
                 className="rounded-lg border border-border-strong bg-surface-2/60 px-5 py-2.5 font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
             </div>
-          </form>
+          </Form>
         </div>
       )}
 
-      {loading && <p className="text-muted-foreground">Loading creatives...</p>}
-
-      {!loading && filtered.length === 0 && (
+      {filtered.length === 0 && (
         <EmptyWorkspaceState
           title="No creatives yet"
-          description="This new shop has no demo videos. Upload your first TikTok ad or connect shop data to begin building your personalized Creative Library."
-          primaryText="Analyze Video"
-          primaryLink="/app/video-analysis"
+          description="No creatives yet — import a creatives.csv on the Data Import page, or analyze a video to save your first creative."
+          primaryText="Import Data"
+          primaryLink="/app/data-import"
+          secondaryText="Analyze a Video"
+          secondaryLink="/app/video-analysis"
         />
       )}
 
-      {!loading && filtered.length > 0 && (
+      {filtered.length > 0 && (
         <>
           <div className="glass rounded-2xl p-3">
             <input
@@ -462,19 +376,13 @@ export default function CreativeLibraryRoute() {
 }
 
 function CreativeCard({ creative }) {
-  const videoUrl = resolveMediaUrl(creative.video_url || creative.videoUrl || "");
-  const posterUrl = resolveMediaUrl(
-    creative.thumbnail || creative.thumbnail_url || ""
-  );
-  const isUploadedVideo =
-    creative.source_platform === "creative_library_upload";
+  const isImported = creative.source === "imported";
 
   return (
     <div className="glass rounded-2xl p-6 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
-      {videoUrl ? (
+      {creative.videoUrl ? (
         <video
-          src={videoUrl}
-          poster={posterUrl || undefined}
+          src={creative.videoUrl}
           controls
           className="w-full rounded-2xl bg-black aspect-video object-cover"
         >
@@ -487,11 +395,15 @@ function CreativeCard({ creative }) {
       )}
 
       <div>
-        {isUploadedVideo && (
-          <p className="mb-3 inline-flex rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-cyan-200">
-            Uploaded video
-          </p>
-        )}
+        <p
+          className={`mb-3 inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.16em] ${
+            isImported
+              ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
+              : "border-violet-500/30 bg-violet-500/10 text-violet-200"
+          }`}
+        >
+          {isImported ? "Imported" : "Saved analysis"}
+        </p>
 
         <h2 className="font-display text-3xl font-semibold text-foreground">
           {creative.title || "Untitled Creative"}
@@ -510,13 +422,11 @@ function CreativeCard({ creative }) {
         </div>
 
         <p className="text-muted-foreground mt-7 text-sm">
-          {creative.insight ||
-            creative.transcript_summary ||
-            "No insight available."}
+          {creative.insight || "No insight available."}
         </p>
 
         <Link
-          to={`/app/creative-library/${creative.id}`}
+          to={creative.detailHref}
           className="inline-block text-primary font-semibold mt-6"
         >
           View creative details →

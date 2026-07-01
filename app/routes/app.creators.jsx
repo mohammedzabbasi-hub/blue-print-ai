@@ -1,138 +1,74 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Plus,
-  RefreshCw,
-  Users,
-  Eye,
-  DollarSign,
-  ShoppingBag,
-} from "lucide-react";
+import { useMemo } from "react";
+import { useLoaderData } from "react-router";
+import { Users, Eye, DollarSign, ShoppingBag } from "lucide-react";
 
-import CreatorForm from "../components/CreatorForm";
-import {
-  createCreator,
-  getCreatorComparison,
-  getCreators,
-} from "../services/creatorsApi";
+import { authenticate } from "../shopify.server";
+import { buildImportedCreators } from "../models/importedData.server";
+import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
 
 export const meta = () => {
   return [{ title: "Creators | BluePrintAI" }];
 };
 
+export const loader = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const creators = await buildImportedCreators(session.shop);
+  return { creators };
+};
+
 const formatNumber = (value) => {
-  const number = Number(value || 0);
+  if (value === null || value === undefined) return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
   return new Intl.NumberFormat("en-US").format(number);
 };
 
 const formatMoney = (value) => {
-  const number = Number(value || 0);
+  if (value === null || value === undefined) return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
   return `$${new Intl.NumberFormat("en-US").format(Math.round(number))}`;
 };
 
-const getCreatorInitial = (creator) => {
-  return (creator?.name || creator?.tiktok_handle || "C")
-    .charAt(0)
-    .toUpperCase();
+const formatEngagementRate = (value) => {
+  if (value === null || value === undefined) return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `${number.toFixed(1)}%`;
 };
 
-const getScore = (creator, index) => {
-  const views = Number(creator.total_views || creator.views || 0);
-  const revenue = Number(creator.total_revenue || creator.revenue || 0);
-  const conversions = Number(
-    creator.total_conversions || creator.conversions || 0
-  );
-
-  const raw = views / 50000 + revenue / 5000 + conversions / 200;
-  return Math.max(42, Math.min(99, Math.round(raw + 70 - index * 4)));
+const getCreatorInitial = (creator) => {
+  return (creator?.name || creator?.handle || "C").charAt(0).toUpperCase();
 };
 
 export default function CreatorsRoute() {
-  const [creators, setCreators] = useState([]);
-  const [comparison, setComparison] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  async function loadCreators() {
-    try {
-      setLoading(true);
-
-      const creatorsData = await getCreators();
-      const comparisonData = await getCreatorComparison();
-
-      setCreators(creatorsData || []);
-      setComparison(comparisonData || null);
-      setError("");
-    } catch (err) {
-      setError(err.message || "Failed to load creators");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleCreateCreator(formData) {
-    try {
-      await createCreator(formData);
-      setShowForm(false);
-      await loadCreators();
-    } catch (err) {
-      setError(err.message || "Failed to create creator");
-    }
-  }
-
-  useEffect(() => {
-    loadCreators();
-  }, []);
+  const { creators } = useLoaderData();
 
   const totals = useMemo(() => {
     const totalViews = creators.reduce(
-      (sum, creator) => sum + Number(creator.total_views || creator.views || 0),
+      (sum, creator) => sum + Number(creator.totalViews || 0),
       0
     );
 
     const totalRevenue = creators.reduce(
-      (sum, creator) =>
-        sum + Number(creator.total_revenue || creator.revenue || 0),
+      (sum, creator) => sum + Number(creator.totalRevenue || 0),
       0
     );
 
-    const totalConversions = creators.reduce(
-      (sum, creator) =>
-        sum + Number(creator.total_conversions || creator.conversions || 0),
+    const totalOrders = creators.reduce(
+      (sum, creator) => sum + Number(creator.totalOrders || 0),
       0
     );
 
-    const topCreator = [...creators].sort(
-      (a, b) =>
-        Number(b.total_revenue || b.revenue || 0) -
-        Number(a.total_revenue || a.revenue || 0)
-    )[0];
+    const topCreator = creators[0] || null;
 
     return {
       totalViews,
       totalRevenue,
-      totalConversions,
+      totalOrders,
       topCreator,
     };
   }, [creators]);
-
-  const rankedCreators = useMemo(() => {
-    return [...creators].sort(
-      (a, b) =>
-        Number(b.total_revenue || b.revenue || 0) -
-        Number(a.total_revenue || a.revenue || 0)
-    );
-  }, [creators]);
-
-  if (loading) {
-    return (
-      <main className="space-y-8">
-        <div className="glass rounded-2xl p-8">
-          <p className="text-muted-foreground">Loading creators...</p>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="space-y-7">
@@ -148,221 +84,196 @@ export default function CreatorsRoute() {
             </h1>
 
             <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Compare creator performance across views, engagement, conversions,
-              revenue, and consistency for your connected TikTok Shop.
+              Compare imported creator performance across views, engagement,
+              orders, and revenue for your connected shop.
             </p>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={loadCreators}
-              className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 font-bold text-slate-200 transition hover:border-cyan-300/50 hover:bg-cyan-400/10"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowForm((previous) => !previous)}
-              className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-sky-400 to-indigo-500 px-5 py-3 font-black text-white shadow-lg shadow-cyan-500/20 transition hover:scale-[1.02]"
-            >
-              <Plus className="h-4 w-4" />
-              {showForm ? "Close" : "Add Creator"}
-            </button>
           </div>
         </div>
       </section>
 
-      {error && (
-        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 font-semibold text-red-200">
-          {error}
-        </div>
-      )}
-
-      {showForm && (
-        <section className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-6 shadow-xl shadow-black/20">
-          <CreatorForm
-            onSubmit={handleCreateCreator}
-            submitLabel="Add Creator"
-          />
-        </section>
-      )}
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          icon={Users}
-          label="Creators"
-          value={formatNumber(creators.length)}
-          badge="Live"
+      {creators.length === 0 ? (
+        <EmptyWorkspaceState
+          eyebrow="Creators"
+          title="Not imported"
+          description="No creator data has been imported yet. Upload a creators.csv on the Data Import page to see creator performance here."
+          primaryLabel="Go to Data Import"
+          primaryLink="/app/data-import"
+          secondaryLabel={null}
+          secondaryLink={null}
         />
-        <StatCard
-          icon={Eye}
-          label="Total Views"
-          value={formatNumber(totals.totalViews)}
-          badge="Live"
-        />
-        <StatCard
-          icon={DollarSign}
-          label="Total Revenue"
-          value={formatMoney(totals.totalRevenue)}
-          badge="Live"
-        />
-        <StatCard
-          icon={ShoppingBag}
-          label="Conversions"
-          value={formatNumber(totals.totalConversions)}
-          badge="Live"
-        />
-      </section>
-
-      <section className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
-        <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-end">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-              Creator Cards
-            </p>
-            <h2 className="mt-3 text-3xl font-black text-white">
-              Top creator profiles
-            </h2>
-          </div>
-
-          <p className="max-w-xl text-sm font-medium text-slate-400">
-            Creator cards are simplified so the page feels closer to your
-            Dashboard, Recommendations, Ad Briefs, and Video Analysis layouts.
-          </p>
-        </div>
-
-        <div className="grid gap-5 lg:grid-cols-3">
-          {rankedCreators.map((creator, index) => (
-            <CreatorProfileCard
-              key={creator.id || creator.name || index}
-              creator={creator}
-              index={index}
+      ) : (
+        <>
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              icon={Users}
+              label="Creators"
+              value={formatNumber(creators.length)}
+              badge="Imported"
             />
-          ))}
-        </div>
-      </section>
+            <StatCard
+              icon={Eye}
+              label="Total Views"
+              value={formatNumber(totals.totalViews)}
+              badge="Imported"
+            />
+            <StatCard
+              icon={DollarSign}
+              label="Total Revenue"
+              value={formatMoney(totals.totalRevenue)}
+              badge="Imported"
+            />
+            <StatCard
+              icon={ShoppingBag}
+              label="Orders"
+              value={formatNumber(totals.totalOrders)}
+              badge="Imported"
+            />
+          </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
-          <div className="mb-5">
-            <p className="text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-              Comparison Table
-            </p>
-            <h2 className="mt-3 text-3xl font-black text-white">
-              Creator leaderboard
-            </h2>
-          </div>
+          <section className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
+            <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
+                  Creator Cards
+                </p>
+                <h2 className="mt-3 text-3xl font-black text-white">
+                  Top creator profiles
+                </h2>
+              </div>
 
-          <div className="overflow-hidden rounded-2xl border border-white/10">
-            <table className="w-full border-collapse text-left">
-              <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.25em] text-slate-500">
-                <tr>
-                  <th className="px-5 py-4">Creator</th>
-                  <th className="px-5 py-4">Views</th>
-                  <th className="px-5 py-4">Conversions</th>
-                  <th className="px-5 py-4">Revenue</th>
-                  <th className="px-5 py-4">Score</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {rankedCreators.map((creator, index) => (
-                  <tr
-                    key={creator.id || creator.name || index}
-                    className="border-t border-white/10 text-sm text-slate-200"
-                  >
-                    <td className="px-5 py-4">
-                      <div className="font-black text-white">
-                        {creator.name || `Creator ${index + 1}`}
-                      </div>
-                      <div className="text-slate-500">
-                        {creator.tiktok_handle ||
-                          creator.handle ||
-                          "@creator"}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 font-bold">
-                      {formatNumber(creator.total_views || creator.views)}
-                    </td>
-                    <td className="px-5 py-4 font-bold">
-                      {formatNumber(
-                        creator.total_conversions || creator.conversions
-                      )}
-                    </td>
-                    <td className="px-5 py-4 font-bold">
-                      {formatMoney(creator.total_revenue || creator.revenue)}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 font-black text-cyan-200">
-                        {getScore(creator, index)}/100
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
-          <p className="text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-            Creator Comparison
-          </p>
-          <h2 className="mt-3 text-3xl font-black text-white">
-            Best current creator
-          </h2>
-
-          <p className="mt-4 leading-7 text-slate-400">
-            {totals.topCreator?.name ||
-              comparison?.top_creator?.name ||
-              "Your top creator"}{" "}
-            is currently the strongest creator for this shop based on views,
-            conversions, revenue, and consistency.
-          </p>
-
-          {totals.topCreator && (
-            <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-400/10 p-5">
-              <p className="text-sm font-bold text-cyan-200">Top Creator</p>
-              <h3 className="mt-2 text-2xl font-black text-white">
-                {totals.topCreator.name}
-              </h3>
-              <p className="mt-1 text-slate-400">
-                {totals.topCreator.tiktok_handle || "@creator"}
+              <p className="max-w-xl text-sm font-medium text-slate-400">
+                Creator cards are simplified so the page feels closer to your
+                Dashboard, Recommendations, Ad Briefs, and Video Analysis
+                layouts.
               </p>
-              <div className="mt-5 flex items-end justify-between">
-                <span className="text-slate-400">Performance Score</span>
-                <span className="text-3xl font-black text-white">
-                  {getScore(totals.topCreator, 0)}/100
-                </span>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-3">
+              {creators.map((creator, index) => (
+                <CreatorProfileCard
+                  key={creator.id || creator.name || index}
+                  creator={creator}
+                  index={index}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
+              <div className="mb-5">
+                <p className="text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
+                  Comparison Table
+                </p>
+                <h2 className="mt-3 text-3xl font-black text-white">
+                  Creator leaderboard
+                </h2>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-white/10">
+                <table className="w-full border-collapse text-left">
+                  <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.25em] text-slate-500">
+                    <tr>
+                      <th className="px-5 py-4">Creator</th>
+                      <th className="px-5 py-4">Views</th>
+                      <th className="px-5 py-4">Orders</th>
+                      <th className="px-5 py-4">Revenue</th>
+                      <th className="px-5 py-4">Engagement Rate</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {creators.map((creator, index) => (
+                      <tr
+                        key={creator.id || creator.name || index}
+                        className="border-t border-white/10 text-sm text-slate-200"
+                      >
+                        <td className="px-5 py-4">
+                          <div className="font-black text-white">
+                            {creator.name || `Creator ${index + 1}`}
+                          </div>
+                          <div className="text-slate-500">
+                            {creator.handle || "@creator"}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 font-bold">
+                          {formatNumber(creator.totalViews)}
+                        </td>
+                        <td className="px-5 py-4 font-bold">
+                          {formatNumber(creator.totalOrders)}
+                        </td>
+                        <td className="px-5 py-4 font-bold">
+                          {formatMoney(creator.totalRevenue)}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 font-black text-cyan-200">
+                            {formatEngagementRate(creator.engagementRate)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          )}
 
-          <div className="mt-6 space-y-3">
-            {rankedCreators.slice(0, 4).map((creator, index) => (
-              <div
-                key={creator.id || creator.name || index}
-                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-4"
-              >
-                <div>
-                  <p className="font-black text-white">
-                    #{index + 1} {creator.name}
+            <div className="rounded-[1.75rem] border border-white/10 bg-[#0b1220] p-7">
+              <p className="text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
+                Creator Comparison
+              </p>
+              <h2 className="mt-3 text-3xl font-black text-white">
+                Best current creator
+              </h2>
+
+              <p className="mt-4 leading-7 text-slate-400">
+                {totals.topCreator?.name || "Your top creator"} is currently
+                the highest-revenue creator imported for this shop.
+              </p>
+
+              {totals.topCreator && (
+                <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-400/10 p-5">
+                  <p className="text-sm font-bold text-cyan-200">
+                    Top Creator
                   </p>
-                  <p className="text-sm text-slate-500">
-                    {creator.tiktok_handle || "@creator"}
+                  <h3 className="mt-2 text-2xl font-black text-white">
+                    {totals.topCreator.name}
+                  </h3>
+                  <p className="mt-1 text-slate-400">
+                    {totals.topCreator.handle || "@creator"}
                   </p>
+                  <div className="mt-5 flex items-end justify-between">
+                    <span className="text-slate-400">Engagement Rate</span>
+                    <span className="text-3xl font-black text-white">
+                      {formatEngagementRate(totals.topCreator.engagementRate)}
+                    </span>
+                  </div>
                 </div>
-                <p className="font-black text-white">
-                  {getScore(creator, index)}/100
-                </p>
+              )}
+
+              <div className="mt-6 space-y-3">
+                {creators.slice(0, 4).map((creator, index) => (
+                  <div
+                    key={creator.id || creator.name || index}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                  >
+                    <div>
+                      <p className="font-black text-white">
+                        #{index + 1} {creator.name}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {creator.handle || "@creator"}
+                      </p>
+                    </div>
+                    <p className="font-black text-white">
+                      {formatEngagementRate(creator.engagementRate)}
+                    </p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
+            </div>
+          </section>
+        </>
+      )}
     </main>
   );
 }
@@ -387,11 +298,8 @@ function StatCard({ icon: Icon, label, value, badge }) {
 }
 
 function CreatorProfileCard({ creator, index }) {
-  const views = creator.total_views || creator.views || 0;
-  const revenue = creator.total_revenue || creator.revenue || 0;
-  const conversions = creator.total_conversions || creator.conversions || 0;
-  const videos = creator.total_videos || creator.videos || 0;
-  const followers = creator.follower_count || creator.followers || 0;
+  const hasEngagementRate =
+    creator.engagementRate !== null && creator.engagementRate !== undefined;
 
   return (
     <article className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-6 transition hover:border-cyan-300/40 hover:bg-cyan-400/[0.04]">
@@ -406,7 +314,7 @@ function CreatorProfileCard({ creator, index }) {
               {creator.name || `Creator ${index + 1}`}
             </h3>
             <p className="font-semibold text-slate-500">
-              {creator.tiktok_handle || creator.handle || "@creator"}
+              {creator.handle || "@creator"}
             </p>
           </div>
         </div>
@@ -417,28 +325,34 @@ function CreatorProfileCard({ creator, index }) {
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-4">
-        <MiniMetric label="Followers" value={formatNumber(followers)} />
-        <MiniMetric label="Videos" value={formatNumber(videos)} />
-        <MiniMetric label="Views" value={formatNumber(views)} />
-        <MiniMetric label="Revenue" value={formatMoney(revenue)} />
-        <MiniMetric label="Conversions" value={formatNumber(conversions)} />
-        <MiniMetric label="Score" value={`${getScore(creator, index)}/100`} />
+        <MiniMetric label="Followers" value={formatNumber(creator.followers)} />
+        <MiniMetric label="Views" value={formatNumber(creator.totalViews)} />
+        <MiniMetric label="Orders" value={formatNumber(creator.totalOrders)} />
+        <MiniMetric label="Revenue" value={formatMoney(creator.totalRevenue)} />
       </div>
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-[#07101d] p-4">
         <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-bold text-slate-400">Creator strength</span>
+          <span className="font-bold text-slate-400">Engagement rate</span>
           <span className="font-black text-cyan-200">
-            {getScore(creator, index)}%
+            {formatEngagementRate(creator.engagementRate)}
           </span>
         </div>
 
-        <div className="h-2 overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500"
-            style={{ width: `${getScore(creator, index)}%` }}
-          />
-        </div>
+        {hasEngagementRate ? (
+          <div className="h-2 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500"
+              style={{
+                width: `${Math.max(0, Math.min(100, creator.engagementRate))}%`,
+              }}
+            />
+          </div>
+        ) : (
+          <p className="text-xs font-semibold text-slate-500">
+            Not enough imported data to compute an engagement rate.
+          </p>
+        )}
       </div>
     </article>
   );

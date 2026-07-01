@@ -515,12 +515,12 @@ export default function SettingsRoute() {
               >
                 Terms of Service
               </Link>
-              <Link
-                to="/app/contact"
+              <a
+                href="mailto:mohammedzabbasi@gmail.com"
                 className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-black text-cyan-100 hover:border-cyan-500/40"
               >
                 Contact & Data Requests
-              </Link>
+              </a>
             </div>
 
             <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm leading-6 text-slate-300">
