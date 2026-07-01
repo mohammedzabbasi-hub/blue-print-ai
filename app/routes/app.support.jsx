@@ -23,8 +23,8 @@ export default function AppSupportRoute() {
             Support
           </h1>
           <p className="mt-3 max-w-3xl text-muted-foreground">
-            Get help with the current Shopify embedded app workflows and MVP
-            testing limitations.
+            Get help with current Shopify embedded app workflows and known
+            service limitations.
           </p>
         </div>
 
@@ -50,18 +50,19 @@ export default function AppSupportRoute() {
         <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
           <h2 className="text-2xl font-black">Known Limitations</h2>
           <p className="mt-4 leading-7 text-slate-400">
-            TikTok Shop OAuth, direct TikTok Shop API sync, creator CRM,
-            affiliate outreach, CSV/JSON bulk import, and email delivery are
-            not live in this Shopify app yet.
+            Direct ad-platform connections are optional and not currently
+            available. Shopify product context, CSV imports, and manual uploads
+            remain the supported core data paths.
           </p>
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
           <h2 className="text-2xl font-black">Contact Guidance</h2>
           <p className="mt-4 leading-7 text-slate-400">
-            Contact [[OWNER ACTION REQUIRED: confirm support email]]. Include your store domain, the
-            page or workflow, what you expected, and what happened. Do not send
-            passwords, API keys, private tokens, or other secrets.
+            Use the support contact published in the Shopify App Store listing.
+            Include your store domain, the page or workflow, what you expected,
+            and what happened. Do not send passwords, API keys, private tokens,
+            or other secrets.
           </p>
         </section>
       </div>

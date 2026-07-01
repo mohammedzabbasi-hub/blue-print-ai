@@ -25,14 +25,14 @@ export default function SupportRoute() {
           </h1>
 
           <p className="mt-5 text-lg leading-8 text-slate-400">
-            Need help with the MVP? Use the contact option below and include
+            Need help with BluePrintAI? Use the configured support channel and include
             enough context for the team to understand the workspace and issue.
           </p>
 
           <div className="mt-10 grid gap-6">
             <section className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
               <h2 className="text-xl font-black text-white">
-                Current MVP Status
+                Current Product Status
               </h2>
 
               <p className="mt-3 leading-7 text-slate-400">
@@ -64,9 +64,10 @@ export default function SupportRoute() {
               <h2 className="text-xl font-black text-white">Contact</h2>
 
               <p className="mt-3 leading-7 text-slate-400">
-                Contact [[OWNER ACTION REQUIRED: confirm support email]] for support, privacy, data
-                deletion, billing, copyright, or legal questions. Do not send
-                passwords, API keys, access tokens, or other secrets.
+                Use the support contact published in the Shopify App Store
+                listing for support, privacy, data deletion, billing, copyright,
+                or legal questions. Do not send passwords, API keys, access
+                tokens, or other secrets.
               </p>
             </section>
           </div>

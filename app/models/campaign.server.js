@@ -306,10 +306,10 @@ function decorateCampaign(campaign) {
     displayAssignments,
     topCreative: ranked[0]?.adName || ranked[0]?.creativeId || null,
     recommendedNextAction: metrics.roas !== null && metrics.roas >= 2
-      ? "Scale budget while monitoring conversion efficiency."
+      ? "Treat this as a stronger imported signal and verify it in a controlled budget test."
       : metrics.ctr !== null && metrics.ctr < 1
-        ? "Test a stronger hook or pause weak creatives."
-        : performanceRecords.length ? "Keep testing creatives and collect more conversion data." : "Add creatives to start measuring this campaign.",
+        ? "Test a stronger hook and review weak creatives before changing spend."
+        : performanceRecords.length ? "Continue controlled creative tests and collect more conversion data." : "Add creatives to start measuring this campaign.",
   };
 }
 

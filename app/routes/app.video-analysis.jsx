@@ -1239,6 +1239,12 @@ export default function VideoAnalysisRoute() {
             saved, but no analysis scores or recommendations will be generated.
           </div>
         )}
+        {analyzerRuntime.configured && (
+          <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100" role="status">
+            <strong>Full analyzer service enabled.</strong>{" "}
+            Results are generated only from fields returned by the configured service. Missing transcript, retention, or performance fields remain unavailable.
+          </div>
+        )}
 
         <div className="mt-10 rounded-2xl border border-white/10 p-6">
           <h2 className="text-2xl font-bold">Upload your creative</h2>
@@ -1282,7 +1288,7 @@ export default function VideoAnalysisRoute() {
                 id="video-upload-file"
                 type="file"
                 name="file"
-                accept="video/*"
+                accept="video/mp4,video/quicktime,video/x-m4v,video/webm,.mp4,.mov,.m4v,.webm"
                 onChange={handleFileChange}
                 className="sr-only"
               />
@@ -1307,6 +1313,9 @@ export default function VideoAnalysisRoute() {
                   Choose video
                 </label>
               </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Supported files: MP4, MOV, M4V, and WebM. Unsupported or mismatched file contents are rejected before analysis.
+              </p>
             </div>
 
             <button
@@ -1360,7 +1369,7 @@ export default function VideoAnalysisRoute() {
           )}
 
           {error && (
-            <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-200">
+            <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-200" role="alert">
               {error}
             </div>
           )}

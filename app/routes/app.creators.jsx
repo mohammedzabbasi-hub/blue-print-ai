@@ -282,7 +282,7 @@ function CreatorPerformanceCard({ creator, onView }) {
           </p>
         </div>
         <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">
-          Heuristic {creator.performanceScore}/100
+          Directional heuristic {creator.performanceScore}/100
         </span>
       </div>
 
@@ -375,7 +375,7 @@ function CreatorAccountPopIn({ creator, onClose, search = "" }) {
               {creator.status}
             </span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-black text-slate-300">
-              {creator.performanceScore}/100 score
+              {creator.performanceScore}/100 directional heuristic
             </span>
             <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-100">
               {creator.channel === creator.platform
@@ -559,15 +559,15 @@ function ManagementRecommendation({
         Heuristic management suggestion
       </p>
       <h2 className="mt-3 text-3xl font-black text-white">
-        {topCreator ? `Scale ${topCreator.name}` : "Import creator data"}
+        {topCreator ? `Review ${topCreator.name} first` : "Import creator data"}
       </h2>
 
       {topCreator ? (
         <>
           <p className="mt-4 leading-7 text-slate-400">
-            Based on merchant-imported fields, {topCreator.name} ranks highest by blended
-            clicks, engagement, orders, and attributed sales. Increase spend or
-            assign a new creative test while monitoring conversion quality.
+            Based on merchant-imported fields, {topCreator.name} ranks highest by a
+            directional blend of available clicks, engagement, orders, and attributed
+            sales. Verify the source data before changing spend or creator allocation.
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <MiniMetric label="Workspace" value={profile.mainProduct || shop} />
@@ -684,10 +684,10 @@ export function buildCreatorPerformanceRows(creators = [], performanceRecords = 
         conversionRate,
         decision:
           performanceScore >= 88
-            ? "Scale"
+            ? "Review as a stronger signal"
             : performanceScore >= 78
-              ? "Keep testing"
-              : "Coach or pause",
+              ? "Continue gathering evidence"
+              : "Review data coverage",
         engagementRate,
         orders: finalOrders,
         performanceScore,
@@ -697,10 +697,10 @@ export function buildCreatorPerformanceRows(creators = [], performanceRecords = 
             : matchingRecords[0]?.importSource === "public_engagement_import"
             ? "Merchant-provided public engagement records show this creator's current traction. Add deeper performance stats when available to improve confidence."
             : performanceScore >= 88
-            ? "Scale this creator with a new brief, more product links, or a larger campaign allocation."
+            ? "This creator has a stronger directional signal in the imported fields. Verify source-platform results before changing budget or allocation."
             : performanceScore >= 78
-              ? "Keep this creator in testing and improve the offer, landing path, or CTA before scaling."
-              : "Review fit, creative quality, and traffic source before assigning more budget.",
+              ? "Continue gathering comparable results and review the offer, landing path, and CTA before making a budget decision."
+              : "Review data completeness, fit, creative quality, and traffic source before making a budget decision.",
         sales: finalSales,
         spend,
         roas,

@@ -283,7 +283,7 @@ export default function RevenueBlueprintRoute() {
                 {blueprint.opportunities.map((item) => (
                   <div key={item.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
                     <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                      Revenue opportunity
+                      Directional planning opportunity
                     </p>
                     <h3 className="mt-2 text-xl font-black text-white">
                       {item.productTitle}
@@ -292,11 +292,12 @@ export default function RevenueBlueprintRoute() {
                       {item.creatorName} · {item.angle}
                     </p>
                     <p className="mt-4 text-2xl font-black text-cyan-100">
-                      {item.estimatedUpside === null || item.estimatedUpside === undefined
-                        ? "Estimated upside: Not available"
-                        : `+${formatCurrency(item.estimatedUpside)} estimated upside`}
+                      No forecast calculated
                     </p>
                     <p className="mt-3 text-sm text-slate-300">{item.recommendation}</p>
+                    <p className="mt-3 text-xs leading-5 text-slate-500">
+                      Imported revenue is historical merchant-provided context. BluePrintAI does not convert it into a guaranteed or predicted revenue increase.
+                    </p>
                   </div>
                 ))}
               </div>
@@ -347,14 +348,6 @@ export default function RevenueBlueprintRoute() {
       </section>
     </div>
   );
-}
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: 0,
-    style: "currency",
-  }).format(Number(value || 0));
 }
 
 function BlueprintGenerator({

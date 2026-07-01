@@ -46,6 +46,7 @@ export const loader = async ({ request }) => {
         demoMode: explicitDemoMode,
         hasActivePayment: true,
         required: false,
+        skipAppProvider: true,
       },
     };
   }
@@ -90,6 +91,7 @@ export const loader = async ({ request }) => {
       demoMode: false,
       hasActivePayment,
       required: shouldRequireBilling,
+      skipAppProvider: false,
     },
   };
 };
@@ -161,7 +163,7 @@ export default function App() {
       </div>
   );
 
-  if (billingStatus.bypassed) {
+  if (billingStatus.skipAppProvider) {
     return shell;
   }
 

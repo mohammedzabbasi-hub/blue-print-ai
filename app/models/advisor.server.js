@@ -150,7 +150,7 @@ function answerCreative(creative, gaps, fix) {
       : `Use “${creative.name}” as the lead candidate for the next measured test.`,
     why: shouldFix
       ? "It has the clearest weak readiness, CTA, click, or conversion signal in the available store data."
-      : "It ranks highest across measured performance and saved AI review/readiness signals. Scale only in a controlled test; this is not a performance guarantee.",
+      : "It ranks highest across available imported performance and saved heuristic review signals. This is directional guidance, not a platform rating or performance guarantee.",
     evidence: creative.evidence,
     risks: creative.risks,
     nextAction: shouldFix

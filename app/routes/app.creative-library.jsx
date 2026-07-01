@@ -834,11 +834,11 @@ export default function CreativeLibraryRoute() {
       {visibleCreatives.length === 0 && (
         <EmptyWorkspaceState
           title="No creatives yet"
-          description="Analyze a video or save a manual creative record to begin building this shop's Creative Library. TikTok sync and imported performance data are not active yet."
-          primaryText="Analyze Video"
+          description="Upload a creative, use the analyzer when configured, or import CSV performance data to begin building this shop's Creative Library. Direct ad-platform connections are optional and currently unavailable."
+          primaryText="Open Review Studio"
           primaryLink="/app/video-analysis"
-          secondaryText="Upload Creative"
-          secondaryLink="/app/creative-library"
+          secondaryText="Import CSV Data"
+          secondaryLink="/app/data-import"
         />
       )}
 

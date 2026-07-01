@@ -1,0 +1,347 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model SavedBrief {
+  id           String   @id @default(cuid())
+  shop         String
+  productId    String
+  productTitle String
+  angle        String
+  payloadJson  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([shop, createdAt])
+  @@index([shop, productId])
+}
+
+model VideoAnalysis {
+  id             String   @id @default(cuid())
+  shop           String
+  productId      String
+  productTitle   String
+  fileName       String?
+  brief          String?
+  payloadJson    String
+  savedToLibrary Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([shop, createdAt])
+  @@index([shop, productId])
+}
+
+model SavedCreative {
+  id                  String               @id @default(cuid())
+  shop                String
+  sourceType          String
+  sourceId            String?
+  productId           String
+  productTitle        String
+  title               String
+  angle               String?
+  payloadJson         String
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  campaignAssignments AdCampaignCreative[]
+
+  @@index([shop, createdAt])
+  @@index([shop, productId])
+}
+
+model RevenueBlueprint {
+  id          String   @id @default(cuid())
+  shop        String
+  payloadJson String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([shop, createdAt])
+}
+
+model WorkspaceRequest {
+  id          String   @id @default(cuid())
+  shop        String
+  type        String
+  status      String   @default("requested")
+  payloadJson String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([shop, createdAt])
+  @@index([shop, type])
+}
+
+model WorkspaceSetting {
+  id        String   @id @default(cuid())
+  shop      String
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, key])
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  shop        String
+  type        String
+  title       String
+  description String?
+  relatedType String?
+  relatedId   String?
+  payloadJson String?
+  createdAt   DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, type])
+  @@index([shop, relatedType, relatedId])
+}
+
+model CreativePerformance {
+  id                     String               @id @default(cuid())
+  shop                   String
+  creativeId             String?
+  platform               String?
+  campaignId             String?
+  campaignName           String?
+  adsetId                String?
+  adsetName              String?
+  adGroupId              String?
+  adGroupName            String?
+  adId                   String?
+  adName                 String?
+  creatorHandle          String?
+  creatorName            String?
+  productId              String?
+  productName            String?
+  productHandle          String?
+  thumbnailUrl           String?
+  videoUrl               String?
+  assetUrl               String?
+  sourceUrl              String?
+  sourceType             String?
+  sourceRecordId         String?
+  sourceRecordType       String?
+  importKey              String?
+  reportingDate          DateTime?
+  importedAt             DateTime?
+  syncedAt               DateTime?
+  impressions            Float?
+  reach                  Float?
+  clicks                 Float?
+  spend                  Float?
+  conversions            Float?
+  orders                 Float?
+  revenue                Float?
+  conversionValue        Float?
+  ctr                    Float?
+  cpc                    Float?
+  cpm                    Float?
+  cvr                    Float?
+  roas                   Float?
+  videoViews             Float?
+  video2SecondViews      Float?
+  video3SecondViews      Float?
+  video25PercentWatched  Float?
+  video50PercentWatched  Float?
+  video75PercentWatched  Float?
+  video100PercentWatched Float?
+  averageWatchTime       Float?
+  engagements            Float?
+  likes                  Float?
+  comments               Float?
+  shares                 Float?
+  payloadJson            String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  campaignAssignments    AdCampaignCreative[]
+  creatorAttribution     CreatorAttribution?  @relation("CreativePerformanceCreatorAttribution")
+
+  @@unique([shop, importKey])
+  @@index([shop, reportingDate])
+  @@index([shop, platform])
+  @@index([shop, creatorHandle])
+  @@index([shop, productHandle])
+  @@index([shop, creativeId])
+  @@index([shop, sourceType])
+  @@index([shop, sourceRecordType, sourceRecordId])
+}
+
+model Creator {
+  id                     String               @id @default(cuid())
+  shop                   String
+  handle                 String?
+  normalizedHandle       String?
+  name                   String?
+  normalizedName         String?
+  normalizedPlatformName String?
+  profileUrl             String?
+  platform               String?
+  type                   String?
+  email                  String?
+  commission             Float?
+  notes                  String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  attributions           CreatorAttribution[] @relation("CreatorAttributions")
+
+  @@unique([shop, normalizedHandle])
+  @@index([shop, normalizedName])
+  @@index([shop, normalizedPlatformName])
+  @@index([shop, updatedAt])
+}
+
+model CreatorAttribution {
+  id                    String              @id @default(cuid())
+  shop                  String
+  creatorId             String
+  creativePerformanceId String              @unique
+  campaignId            String?
+  clicks                Float?
+  orders                Float?
+  revenue               Float?
+  spend                 Float?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  creator               Creator             @relation("CreatorAttributions", fields: [creatorId], references: [id], onDelete: Cascade)
+  creativePerformance   CreativePerformance @relation("CreativePerformanceCreatorAttribution", fields: [creativePerformanceId], references: [id], onDelete: Cascade)
+  campaign              AdCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([shop, creatorId])
+  @@index([shop, campaignId])
+}
+
+model AdCampaign {
+  id                  String               @id @default(cuid())
+  shop                String
+  name                String
+  normalizedName      String
+  description         String?
+  status              String               @default("draft")
+  objective           String               @default("awareness")
+  platform            String               @default("manual")
+  primaryProductName  String?
+  startDate           DateTime?
+  endDate             DateTime?
+  budget              Float?
+  targetAudience      String?
+  notes               String?
+  externalCampaignId  String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  assignments         AdCampaignCreative[]
+  creatorAttributions CreatorAttribution[]
+
+  @@unique([shop, normalizedName])
+  @@index([shop, status])
+  @@index([shop, updatedAt])
+  @@index([shop, externalCampaignId])
+}
+
+model AdCampaignCreative {
+  id                    String               @id @default(cuid())
+  shop                  String
+  campaignId            String
+  savedCreativeId       String?
+  creativePerformanceId String?
+  createdAt             DateTime             @default(now())
+  campaign              AdCampaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  savedCreative         SavedCreative?       @relation(fields: [savedCreativeId], references: [id], onDelete: Cascade)
+  creativePerformance   CreativePerformance? @relation(fields: [creativePerformanceId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, savedCreativeId])
+  @@unique([campaignId, creativePerformanceId])
+  @@index([shop, campaignId])
+  @@index([shop, savedCreativeId])
+  @@index([shop, creativePerformanceId])
+}
+
+model AdPlatformConnection {
+  id                    String               @id @default(cuid())
+  shop                  String
+  platform              String
+  externalAccountId     String?
+  externalAccountName   String?
+  encryptedAccessToken  String?
+  encryptedRefreshToken String?
+  tokenExpiresAt        DateTime?
+  scopes                String?
+  metadataJson          String?
+  lastSyncedAt          DateTime?
+  lastSyncError         String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  performanceRows       AdPerformanceDaily[]
+
+  @@unique([shop, platform])
+  @@index([shop, updatedAt])
+}
+
+model AdPerformanceDaily {
+  id                  String                @id @default(cuid())
+  connectionId        String?
+  shop                String
+  platform            String
+  rowKey              String
+  externalAccountId   String
+  externalAccountName String?
+  reportingDate       DateTime
+  campaignId          String?
+  campaignName        String?
+  adGroupId           String?
+  adGroupName         String?
+  adId                String?
+  adName              String?
+  currencyCode        String?
+  impressions         Float?
+  reach               Float?
+  clicks              Float?
+  spend               Float?
+  conversions         Float?
+  revenue             Float?
+  videoViews          Float?
+  engagements         Float?
+  payloadJson         String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  connection          AdPlatformConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@unique([shop, platform, rowKey])
+  @@index([shop, reportingDate])
+  @@index([shop, platform, externalAccountId])
+  @@index([connectionId, reportingDate])
+}

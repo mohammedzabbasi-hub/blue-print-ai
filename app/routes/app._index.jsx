@@ -172,7 +172,7 @@ export default function DashboardRoute() {
           </h1>
 
           <p className="text-sm text-muted-foreground mt-1">
-            Saved creative activity, estimated readiness, and planning progress
+            Saved creative activity, directional workflow signals, and planning progress
             for this Shopify app workspace.
           </p>
         </div>

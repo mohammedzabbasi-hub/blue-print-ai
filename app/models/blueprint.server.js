@@ -15,14 +15,17 @@ import {
   demoRecommendations,
 } from "../data/demo-brand.js";
 
+const SHOPIFY_PRODUCT_PAGE_SIZE = 100;
+const MAX_SHOPIFY_PRODUCTS = 1000;
+
 const PRODUCT_QUERY = `#graphql
-  query BluePrintAIProducts {
+  query BluePrintAIProducts($cursor: String) {
     shop {
       name
       myshopifyDomain
       currencyCode
     }
-    products(first: 25, sortKey: UPDATED_AT, reverse: true) {
+    products(first: ${SHOPIFY_PRODUCT_PAGE_SIZE}, after: $cursor, sortKey: UPDATED_AT, reverse: true) {
       nodes {
         id
         title
@@ -43,6 +46,10 @@ const PRODUCT_QUERY = `#graphql
         }
         createdAt
         updatedAt
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
       }
     }
   }
@@ -1107,22 +1114,67 @@ export async function loadMerchantData(admin, session) {
     orderScopeEnabled: false,
     scopes,
     errors: [],
+    productLoad: {
+      complete: false,
+      count: 0,
+      limit: MAX_SHOPIFY_PRODUCTS,
+    },
   };
 
   try {
-    const response = await admin.graphql(PRODUCT_QUERY);
-    const json = await response.json();
+    let cursor = null;
+    let hasNextPage = true;
 
-    if (json.errors) {
-      result.errors.push("Products could not be loaded from Shopify.");
-    } else {
-      result.shop = json.data.shop;
-      result.products = (json.data.products?.nodes || []).map((product) =>
-        normalizeProduct(product, json.data.shop),
+    while (hasNextPage && result.products.length < MAX_SHOPIFY_PRODUCTS) {
+      const response = await admin.graphql(PRODUCT_QUERY, {
+        variables: { cursor },
+      });
+      const json = await response.json();
+
+      if (json.errors || !json.data?.products) {
+        result.errors.push(
+          result.products.length
+            ? "Some Shopify products could not be loaded. Showing the products loaded so far."
+            : "Products could not be loaded from Shopify.",
+        );
+        break;
+      }
+
+      result.shop = json.data.shop || result.shop;
+      const products = json.data.products.nodes || [];
+      result.products.push(
+        ...products.map((product) => normalizeProduct(product, result.shop)),
+      );
+
+      const pageInfo = json.data.products.pageInfo || {};
+      hasNextPage = Boolean(pageInfo.hasNextPage);
+      cursor = pageInfo.endCursor || null;
+      if (hasNextPage && !cursor) {
+        result.errors.push(
+          "Shopify reported more products but did not provide a pagination cursor. Showing the products loaded so far.",
+        );
+        break;
+      }
+    }
+
+    if (hasNextPage && result.products.length >= MAX_SHOPIFY_PRODUCTS) {
+      result.errors.push(
+        `Shopify product context is limited to the ${MAX_SHOPIFY_PRODUCTS} most recently updated products for this workspace.`,
       );
     }
+
+    result.productLoad = {
+      complete: !hasNextPage,
+      count: result.products.length,
+      limit: MAX_SHOPIFY_PRODUCTS,
+    };
   } catch (error) {
-    result.errors.push("Products could not be loaded from Shopify.");
+    result.errors.push(
+      result.products.length
+        ? "Some Shopify products could not be loaded. Showing the products loaded so far."
+        : "Products could not be loaded from Shopify.",
+    );
+    result.productLoad.count = result.products.length;
   }
 
   return result;
@@ -1768,15 +1820,12 @@ export function buildRevenueBlueprint(data, context = {}) {
       productTitle: record.productTitle,
       creatorName: record.creatorName || record.creatorHandle,
       angle: record.angle || record.hook,
-      estimatedUpside:
-        record.revenue !== null && record.revenue !== undefined
-          ? Math.round(Number(record.revenue) * 0.35)
-          : null,
+      estimatedUpside: null,
       recommendation:
         record.revenue === null || record.revenue === undefined
           ? "Use this high-engagement record as an engagement planning signal and import revenue/orders later if available."
           : record.roas !== null && record.roas !== undefined && Number(record.roas) >= 3
-          ? "Scale this creator/product pairing with two new hook variants."
+          ? "Treat this as a stronger directional signal and verify it with a controlled hook test."
           : "Improve value framing before scaling spend.",
     })),
     conversionIdeas: [

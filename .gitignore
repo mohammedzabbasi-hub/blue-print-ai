@@ -14,7 +14,8 @@ node_modules
 /prisma/dev.sqlite-journal
 database.sqlite
 /.data
-/prisma/production
+# The derived production schema and immutable PostgreSQL migrations are committed.
+# Production preparation may refresh schema.prisma but must never rewrite history.
 
 .env
 .env.*

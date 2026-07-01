@@ -62,7 +62,7 @@ export default function TopCreatives({ data }) {
             Saved Creative Activity
           </h2>
           <p className="text-[11px] text-slate-500">
-            Ranked by estimated readiness from saved records
+            Ranked by a directional heuristic from saved or imported records
           </p>
         </div>
       </div>
@@ -76,7 +76,7 @@ export default function TopCreatives({ data }) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {["#", "Creative", "Source", "Estimated readiness", "Saved", "Next Step"].map((h) => (
+                {["#", "Creative", "Source", "Heuristic signal", "Saved", "Next Step"].map((h) => (
                   <th
                     key={h}
                     className="pb-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider first:pl-0 pr-4 last:pr-0"
@@ -162,6 +162,9 @@ export default function TopCreatives({ data }) {
           </table>
         </div>
       )}
+      <p className="mt-4 text-[11px] leading-5 text-slate-500">
+        Heuristic signals summarize available workspace fields; they are not live platform scores, forecasts, or proof that one creative will outperform another.
+      </p>
     </div>
   );
 }

@@ -14,8 +14,8 @@ const workflowSteps = [
   },
   {
     icon: ScanSearch,
-    label: "AI analyzes the video",
-    body: "Get AI-estimated hook, clarity, CTA, and creative notes.",
+    label: "Analyzer reviews the video",
+    body: "When the analyzer service is configured, get clearly labeled heuristic hook, clarity, CTA, and creative notes. Otherwise, the upload can still be saved.",
   },
   {
     icon: ClipboardList,
@@ -83,7 +83,7 @@ export default function LandingRoute() {
         <section className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-12 px-4 pb-20 pt-16 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:pt-24">
           <div className="min-w-0">
             <div className="inline-flex max-w-xs items-center justify-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-center text-xs font-black uppercase tracking-[0.12em] text-cyan-200 sm:max-w-full sm:px-5 sm:text-sm sm:tracking-[0.2em]">
-              AI-powered creative intelligence
+              Creative planning intelligence
             </div>
 
             <h1 className="mt-8 w-full max-w-xs break-words text-xl font-black leading-[1.12] tracking-tight sm:max-w-5xl sm:text-5xl md:text-7xl">
@@ -118,10 +118,10 @@ export default function LandingRoute() {
                 Shopify-authenticated workspace
               </p>
               <p className="rounded-2xl border border-slate-800 bg-[#0b1220] p-4">
-                Manual CSV/JSON import
+                Manual CSV performance import
               </p>
               <p className="rounded-2xl border border-slate-800 bg-[#0b1220] p-4">
-                TikTok Shop API sync planned
+                Manual creative uploads
               </p>
             </div>
           </div>
@@ -221,7 +221,7 @@ export default function LandingRoute() {
                 [
                   "Step 1",
                   "Upload creatives",
-                  "Add creative assets and manually import CSV/JSON shop data into one organized workspace.",
+                  "Add creative assets and manually import CSV performance data into one organized workspace.",
                 ],
                 [
                   "Step 2",

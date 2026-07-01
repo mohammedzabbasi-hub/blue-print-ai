@@ -97,11 +97,12 @@ export default function CreatorDetailRoute() {
       <section className="rounded-[1.75rem] border border-cyan-300/20 bg-cyan-400/10 p-5 text-sm leading-6 text-cyan-50">
         Imported data. Creator traffic, engagement, orders, and revenue on this
         page were provided through CSV import. Missing connected-platform analytics
-        remain “Not imported.” Scores and guidance are heuristic.
+        remain “Not imported.” Scores and guidance are directional heuristics, not
+        live platform ratings or budget recommendations.
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Heuristic performance score" value={`${creator.performanceScore}/100`} />
+        <StatCard label="Directional heuristic signal" value={`${creator.performanceScore}/100`} />
         <StatCard label="Creator views" value={formatOptionalNumber(creator.views)} />
         <StatCard label="Creator clicks" value={formatOptionalNumber(creator.clicks)} />
         <StatCard label="Attributed sales" value={formatOptionalCurrency(creator.sales)} />
@@ -244,10 +245,10 @@ function buildPersistedCreatorDetail(profile) {
     conversionRate,
     decision:
       performanceScore >= 88
-        ? "Scale"
+        ? "Review as a stronger signal"
         : performanceScore >= 78
-          ? "Keep testing"
-          : "Coach or pause",
+          ? "Continue gathering evidence"
+          : "Review data coverage",
     engagementRate,
     orders,
     performanceScore,
@@ -257,7 +258,7 @@ function buildPersistedCreatorDetail(profile) {
     topCreativeAngle: first.adName || "Not imported",
     strengths: ["Imported creator performance records are available."],
     weaknesses: ["Connected-platform analytics are not available."],
-    recommendedNextAction: "Use the imported evidence to plan the next test; verify results in the source platform before scaling.",
+    recommendedNextAction: "Use the imported evidence to plan the next controlled test; verify results in the source platform before changing budget or allocation.",
     topCreatives: matchingRecords.slice(0, 3).map((record) => ({
       id: record.id,
       creativeTitle: record.adName || "Imported creative",

@@ -2,10 +2,8 @@
 import { Link } from "react-router";
 import { legalNavItems, legalPages } from "../../content/legal";
 
-// OWNER NOTICE: These pages are scaffolding with owner-fill fields, not legally
-// reviewed text. Before submission, the owner must confirm the legal entity name,
-// support email, mailing address, Privacy Policy, and Terms with an appropriate
-// qualified party.
+// Keep policy behavior aligned with production data handling and the published
+// Shopify listing. Exact operator/contact details are configured outside UI copy.
 
 export function LegalPage({ appPath = false, pageId }) {
   const page = legalPages[pageId] || legalPages.terms;

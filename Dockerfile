@@ -13,6 +13,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY . .
 
-RUN DATABASE_URL=postgresql://build:build@localhost:5432/blueprintai MEDIA_S3_BUCKET=build-only-private-media npm run prisma:prepare:production && DATABASE_URL=postgresql://build:build@localhost:5432/blueprintai npm exec prisma generate -- --schema prisma/production/schema.prisma && npm run build
+# Schema derivation is a build step; runtime validation happens in docker-start
+# with the real production environment before migrations are deployed.
+RUN NODE_ENV=development npm run prisma:prepare:production && DATABASE_URL=postgresql://build:build@localhost:5432/blueprintai npm exec prisma generate -- --schema prisma/production/schema.prisma && npm run build
 
 CMD ["npm", "run", "docker-start"]

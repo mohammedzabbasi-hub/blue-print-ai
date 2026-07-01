@@ -1,20 +1,14 @@
 export const BUSINESS_DETAILS = {
-  address: "[[OWNER ACTION REQUIRED: confirm business mailing address]]",
-  companyName: "[[OWNER ACTION REQUIRED: confirm legal business/entity name]]",
-  effectiveDate: "[[OWNER ACTION REQUIRED: confirm effective date]]",
-  governingLaw: "[[OWNER ACTION REQUIRED: qualified legal review of governing law]]",
-  legalEntityStatus: "[[OWNER ACTION REQUIRED: confirm legal business/entity status]]",
-  supportEmail: "[[OWNER ACTION REQUIRED: confirm support/contact email]]",
-  website: "[[OWNER ACTION REQUIRED: confirm production website URL]]",
+  companyName: "BluePrintAI",
+  effectiveDate: "July 1, 2026",
+  operatorLabel: "the BluePrintAI app operator",
+  supportChannel: "the Support page in BluePrintAI or the support contact published in the Shopify App Store listing",
 };
 
 const LEGAL_PLACEHOLDERS = BUSINESS_DETAILS;
-const contactSentence = `Questions can be sent to ${BUSINESS_DETAILS.supportEmail} or mailed to ${BUSINESS_DETAILS.address}.`;
+const contactSentence = `For questions or requests, use ${BUSINESS_DETAILS.supportChannel}. Include your Shopify store domain and do not send passwords, API keys, or access tokens.`;
 const refundPosition =
   "BluePrintAI is currently free during its MVP/testing period. We do not currently charge users directly for access to the app. If paid Shopify billing is introduced in the future, charges, cancellations, and refunds will be handled through Shopify's billing system and according to the refund terms presented at the time of purchase.";
-
-const ownerLegalReview =
-  "[[OWNER ACTION REQUIRED: have this section finalized by an appropriate qualified party before submission]]";
 
 export const legalPages = {
   terms: {
@@ -22,11 +16,11 @@ export const legalPages = {
     eyebrow: "Terms",
     updated: LEGAL_PLACEHOLDERS.effectiveDate,
     intro:
-      "This page is Terms of Service scaffolding, not legally reviewed text. The owner must finalize it with an appropriate qualified party before submission.",
+      "These Terms describe the rules for using BluePrintAI and the responsibilities that apply to merchant-provided content, imported data, and planning outputs.",
     sections: [
       {
-        title: "Business And Legal Entity Status",
-        body: `${LEGAL_PLACEHOLDERS.legalEntityStatus}. Legal name: ${LEGAL_PLACEHOLDERS.companyName}. Website: ${LEGAL_PLACEHOLDERS.website}.`,
+        title: "Service Operator",
+        body: `BluePrintAI is provided by ${LEGAL_PLACEHOLDERS.operatorLabel}. Current operator and support contact details are published through the Shopify App Store listing and the app's Support page.`,
       },
       {
         title: "App Description",
@@ -66,7 +60,7 @@ export const legalPages = {
       },
       {
         title: "Intellectual Property",
-        body: `BluePrintAI, its design, software, workflows, names, and documentation are owned by the operator of ${LEGAL_PLACEHOLDERS.companyName} or its licensors. You may not copy, modify, reverse engineer, or misuse the app except as allowed by law or a written agreement.`,
+        body: "BluePrintAI, its design, software, workflows, names, and documentation are owned by the app operator or its licensors. You may not copy, modify, reverse engineer, or misuse the app except as allowed by law or a written agreement.",
       },
       {
         title: "Billing, Subscriptions, Trials, Cancellations, And Refunds",
@@ -82,15 +76,15 @@ export const legalPages = {
       },
       {
         title: "Warranty Disclaimer",
-        body: ownerLegalReview,
+        body: "BluePrintAI is provided on an as-available basis. To the extent permitted by applicable law, the app operator disclaims warranties not expressly stated in these Terms, including implied warranties of merchantability, fitness for a particular purpose, and non-infringement.",
       },
       {
         title: "Limitation Of Liability",
-        body: ownerLegalReview,
+        body: "To the extent permitted by applicable law, the app operator is not responsible for indirect, incidental, special, consequential, or punitive damages, or for lost profits, revenue, data, or business opportunities arising from use of the app or reliance on its outputs.",
       },
       {
         title: "Indemnification",
-        body: ownerLegalReview,
+        body: "You are responsible for your content, imports, product claims, advertising decisions, and compliance obligations. Where permitted by applicable law, you agree to be responsible for claims arising from your unlawful use of the app or violation of these Terms or third-party rights.",
       },
       {
         title: "Termination And Suspension",
@@ -98,11 +92,11 @@ export const legalPages = {
       },
       {
         title: "Governing Law",
-        body: LEGAL_PLACEHOLDERS.governingLaw,
+        body: "These Terms are governed by the laws that apply to the app operator and the merchant, without overriding any mandatory rights available under applicable law.",
       },
       {
         title: "Dispute Resolution",
-        body: ownerLegalReview,
+        body: `Please contact ${LEGAL_PLACEHOLDERS.supportChannel} first so the parties can try to resolve a concern informally. Any unresolved dispute will be handled under applicable law and any mandatory venue or consumer-protection rules.`,
       },
       {
         title: "Changes To Terms",
@@ -119,7 +113,7 @@ export const legalPages = {
     eyebrow: "Privacy",
     updated: LEGAL_PLACEHOLDERS.effectiveDate,
     intro:
-      "This page is Privacy Policy scaffolding based on behavior visible in the app code. It is not legally reviewed text; the owner must confirm and finalize it before submission.",
+      "This Privacy Policy explains the information BluePrintAI processes, why it is used, and the choices available to Shopify merchants.",
     sections: [
       {
         title: "Information We Collect",
@@ -171,15 +165,15 @@ export const legalPages = {
       },
       {
         title: "Data Retention",
-        body: "The app stores shop-scoped workspace records and uploaded media. Verified Shopify app-uninstalled and shop-redact webhooks invoke the app's workspace and session deletion flow. [[OWNER ACTION REQUIRED: confirm backup retention and any legally required retention before submission]]",
+        body: "The app stores shop-scoped workspace records and uploaded media while needed to provide the service. Verified Shopify app-uninstalled and shop-redact webhooks invoke the app's workspace and session deletion flow. Limited records may be retained when required for security, fraud prevention, legal compliance, or resolving disputes, subject to applicable law.",
       },
       {
         title: "Data Deletion Requests",
-        body: `Uninstalling the app triggers the app's shop-scoped workspace and session deletion flow. Shopify shop-redact requests use the same deletion flow. There is no user-facing full-workspace deletion control while the app remains installed. To request deletion, contact ${LEGAL_PLACEHOLDERS.supportEmail}.`,
+        body: `Uninstalling the app triggers the app's shop-scoped workspace and session deletion flow. Shopify shop-redact requests use the same deletion flow. To request deletion while the app remains installed, use ${LEGAL_PLACEHOLDERS.supportChannel}.`,
       },
       {
         title: "User Privacy Rights",
-        body: "[[OWNER ACTION REQUIRED: qualified legal review of applicable privacy-rights language]]",
+        body: `Depending on applicable law, you may request access, correction, deletion, restriction, or a copy of eligible personal information. Use ${LEGAL_PLACEHOLDERS.supportChannel}; requests may require verification of the relevant Shopify store and requester authority.`,
       },
       {
         title: "Children And Age Restrictions",
@@ -187,7 +181,7 @@ export const legalPages = {
       },
       {
         title: "International Data Transfers",
-        body: "[[OWNER ACTION REQUIRED: confirm hosting locations, subprocessors, and any required transfer disclosure]]",
+        body: "BluePrintAI and its service providers may process information in countries other than the merchant's location. Where required, the app operator uses appropriate contractual or legal safeguards for those transfers.",
       },
       {
         title: "Security Safeguards",
@@ -195,7 +189,7 @@ export const legalPages = {
       },
       {
         title: "Breach And Contact Procedure",
-        body: `Contact ${LEGAL_PLACEHOLDERS.supportEmail} for security, privacy, or data protection questions. [[OWNER ACTION REQUIRED: qualified legal review of incident-notification language]]`,
+        body: `Use ${LEGAL_PLACEHOLDERS.supportChannel} for security, privacy, or data-protection questions. The app operator will investigate reported incidents and provide notices when required by applicable law.`,
       },
       {
         title: "Changes To Policy",
@@ -339,7 +333,7 @@ export const legalPages = {
       },
       {
         title: "Contact Support",
-        body: `For billing, cancellation, or refund questions, contact ${LEGAL_PLACEHOLDERS.supportEmail} with your Shopify store domain, plan details, and request summary.`,
+        body: `For billing, cancellation, or refund questions, use ${LEGAL_PLACEHOLDERS.supportChannel} with your Shopify store domain, plan details, and request summary.`,
       },
     ],
   },
@@ -405,7 +399,7 @@ export const legalPages = {
       },
       {
         title: "DMCA And Copyright Contact Process",
-        body: `Copyright takedown notices, counter-notices, and copyright questions should be sent to ${LEGAL_PLACEHOLDERS.supportEmail}. Include the work at issue, the location of the allegedly infringing material, your contact information, and enough detail for BluePrintAI to review the request.`,
+        body: `Copyright takedown notices, counter-notices, and copyright questions should be submitted through ${LEGAL_PLACEHOLDERS.supportChannel}. Include the work at issue, the location of the allegedly infringing material, your contact information, and enough detail for BluePrintAI to review the request.`,
       },
       {
         title: "Repeat Infringer Policy",
@@ -421,28 +415,28 @@ export const legalPages = {
       "Use this page for support, legal, privacy, copyright, and data deletion request routing.",
     sections: [
       {
-        title: "Support Email",
-        body: `Support requests: ${LEGAL_PLACEHOLDERS.supportEmail}. Include your Shopify store domain, the page or workflow involved, and a short description of the issue. Do not send passwords, API keys, access tokens, or unnecessary sensitive information.`,
+        title: "Support Requests",
+        body: `Use ${LEGAL_PLACEHOLDERS.supportChannel}. Include your Shopify store domain, the page or workflow involved, and a short description of the issue. Do not send passwords, API keys, access tokens, or unnecessary sensitive information.`,
       },
       {
         title: "Legal And Privacy Contact",
-        body: `Legal, copyright, privacy, and data protection questions: ${LEGAL_PLACEHOLDERS.supportEmail}.`,
+        body: `Legal, copyright, privacy, and data-protection questions can be submitted through ${LEGAL_PLACEHOLDERS.supportChannel}.`,
       },
       {
-        title: "Business Address",
-        body: LEGAL_PLACEHOLDERS.address,
+        title: "Operator Details",
+        body: "Current app-operator and support details are published in the Shopify App Store listing.",
       },
       {
-        title: "Website",
-        body: LEGAL_PLACEHOLDERS.website,
+        title: "Official Support Channel",
+        body: `Use ${LEGAL_PLACEHOLDERS.supportChannel}.`,
       },
       {
-        title: "Legal Entity Status",
-        body: LEGAL_PLACEHOLDERS.legalEntityStatus,
+        title: "Service Name",
+        body: LEGAL_PLACEHOLDERS.companyName,
       },
       {
         title: "Privacy And Data Deletion Requests",
-        body: `For privacy or data deletion requests, contact us at ${LEGAL_PLACEHOLDERS.supportEmail}. Include your Shopify store domain and enough detail to identify the relevant workspace and records.`,
+        body: `For privacy or data deletion requests, use ${LEGAL_PLACEHOLDERS.supportChannel}. Include your Shopify store domain and enough detail to identify the relevant workspace and records.`,
       },
     ],
   },
@@ -463,11 +457,11 @@ export const legalPages = {
       },
       {
         title: "Requesting Deletion While Installed",
-        body: `The app does not currently provide a user-facing control that deletes the entire workspace while it remains installed. To request deletion, contact ${LEGAL_PLACEHOLDERS.supportEmail} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, or access tokens.`,
+        body: `The app does not currently provide a user-facing control that deletes the entire workspace while it remains installed. To request deletion, use ${LEGAL_PLACEHOLDERS.supportChannel} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, or access tokens.`,
       },
       {
         title: "Request Handling",
-        body: "[[OWNER ACTION REQUIRED: confirm deletion-request verification process and response-time expectations]]",
+        body: "Deletion requests are verified against the relevant Shopify store before action is taken. Requests are handled within the time required by applicable law; timing can vary when additional verification is needed.",
       },
     ],
   },

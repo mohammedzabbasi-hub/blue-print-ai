@@ -16,6 +16,7 @@ import {
   buildRevenueBlueprint,
   deleteWorkspaceData,
   getWorkspaceProfile,
+  loadMerchantData,
   mergeWorkspaceProfileWithProduct,
   resetDemoWorkspace,
   resetDemoWorkspaceFromSettingsForm,
@@ -48,6 +49,59 @@ after(async () => {
 });
 
 describe("BluePrintAI Shopify parity builders", () => {
+  it("paginates Shopify products without silently stopping at the first page", async () => {
+    const cursors = [];
+    const admin = {
+      async graphql(_query, options) {
+        const cursor = options?.variables?.cursor || null;
+        cursors.push(cursor);
+        const secondPage = cursor === "page-2";
+        return {
+          async json() {
+            return {
+              data: {
+                shop: {
+                  currencyCode: "USD",
+                  myshopifyDomain: "pagination-test.myshopify.com",
+                  name: "Pagination Test",
+                },
+                products: {
+                  nodes: [{
+                    createdAt: "2026-07-01T00:00:00.000Z",
+                    featuredImage: null,
+                    handle: secondPage ? "second" : "first",
+                    id: secondPage ? "gid://shopify/Product/2" : "gid://shopify/Product/1",
+                    productType: "Test",
+                    status: "ACTIVE",
+                    title: secondPage ? "Second product" : "First product",
+                    updatedAt: "2026-07-01T00:00:00.000Z",
+                    variants: { nodes: [] },
+                    vendor: "BluePrintAI Test",
+                  }],
+                  pageInfo: secondPage
+                    ? { endCursor: null, hasNextPage: false }
+                    : { endCursor: "page-2", hasNextPage: true },
+                },
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const data = await loadMerchantData(admin, {
+      shop: "pagination-test.myshopify.com",
+    });
+
+    assert.deepEqual(cursors, [null, "page-2"]);
+    assert.deepEqual(data.products.map((product) => product.title), [
+      "First product",
+      "Second product",
+    ]);
+    assert.deepEqual(data.productLoad, { complete: true, count: 2, limit: 1000 });
+    assert.deepEqual(data.errors, []);
+  });
+
   it("builds creator matches from Shopify product context and saved creatives", () => {
     const savedCreative = {
       id: "creative-1",
@@ -535,7 +589,8 @@ describe("BluePrintAI demo workspace reset", () => {
       assert.match(source, /Use entire store/);
       assert.match(source, /Choose a primary product/);
       assert.match(source, /Enter product context manually/);
-      assert.match(source, /BluePrintAI analyzes your full Shopify store/);
+      assert.match(source, /BluePrintAI loads Shopify catalog context using safe pagination/);
+      assert.match(source, /1,000 of the most recently updated products/);
       assert.match(source, /Recommended\. BluePrintAI will use[\s\S]*connected Shopify catalog/);
       assert.match(source, /The rest of the store will still remain available/);
       assert.match(source, /Shopify products could not be loaded/);

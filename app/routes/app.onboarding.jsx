@@ -368,9 +368,9 @@ function CatalogSetupField({
         <option value="manual_product_context">Enter product context manually</option>
       </select>
       <span className="mt-2 block text-xs font-normal leading-5 text-slate-500">
-        BluePrintAI analyzes your full Shopify store. Choosing a primary
-        product only gives the app a starting point for product-specific ad
-        briefs, creator matching, and recommendations.
+        BluePrintAI loads Shopify catalog context using safe pagination, up to
+        1,000 of the most recently updated products. Choosing a primary product
+        gives the app a starting point for product-specific briefs and recommendations.
       </span>
 
       {mode === "entire_store" && (

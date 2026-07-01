@@ -456,7 +456,7 @@ export default function SettingsRoute() {
                 ))}
               </div>
               <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 px-4 py-3 text-xs leading-5 text-slate-400">
-                Privacy or deletion requests: <span className="font-bold text-cyan-100">mohammedzabbasi@gmail.com</span>. Include your Shopify store domain and enough detail to identify the workspace.
+                Privacy or deletion requests: use the support contact published in the Shopify App Store listing. Include your Shopify store domain and enough detail to identify the workspace.
               </p>
               <BillingNotice className="mt-4" />
             </SettingsPanel>
@@ -709,9 +709,9 @@ function SettingsCatalogSetup({
         <option value="manual_product_context">Enter product context manually</option>
       </select>
       <span className="mt-1.5 block text-xs leading-5 text-slate-500">
-        BluePrintAI analyzes your full Shopify store. Choosing a primary
-        product only gives the app a starting point for product-specific ad
-        briefs, creator matching, and recommendations.
+        BluePrintAI loads Shopify catalog context using safe pagination, up to
+        1,000 of the most recently updated products. Choosing a primary product
+        gives the app a starting point for product-specific briefs and recommendations.
       </span>
 
       {mode === "entire_store" && (

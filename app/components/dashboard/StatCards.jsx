@@ -46,7 +46,7 @@ export default function StatCards({ data }) {
       iconBg: "bg-blue-500/15",
     },
     {
-      label: "Readiness",
+      label: "Estimated workflow progress",
       value: `${Number(totals.readiness || 0)}%`,
       icon: Gauge,
       accent: "text-rose-400",
@@ -55,7 +55,8 @@ export default function StatCards({ data }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
       {stats.map((stat) => {
         const Icon = stat.icon;
 
@@ -79,6 +80,10 @@ export default function StatCards({ data }) {
           </div>
         );
       })}
+      </div>
+      <p className="mt-3 text-[11px] leading-5 text-slate-500">
+        Workflow progress is a directional completion indicator based on saved app activity and available heuristic analysis scores. It is not measured ad performance or a prediction of results.
+      </p>
     </div>
   );
 }
