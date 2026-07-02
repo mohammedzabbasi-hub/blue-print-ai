@@ -1,6 +1,22 @@
-import { Link, useLocation } from "react-router";
+import { Link, redirect, useLocation } from "react-router";
 import { FileVideo, ScanSearch, ClipboardList } from "lucide-react";
 import { withEmbeddedRouteParams } from "../../utils/embedded-routing";
+
+
+export function loader({ request }) {
+  const url = new URL(request.url);
+  const isShopifyEmbeddedRequest =
+    url.searchParams.get("embedded") === "1" ||
+    url.searchParams.has("shop") ||
+    url.searchParams.has("host") ||
+    url.searchParams.has("id_token");
+
+  if (isShopifyEmbeddedRequest) {
+    return redirect(withEmbeddedRouteParams("/app", url.search));
+  }
+
+  return null;
+}
 
 export const meta = () => {
   return [{ title: "BluePrintAI | TikTok Shop Creative Intelligence" }];
