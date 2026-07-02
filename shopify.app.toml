@@ -4,12 +4,11 @@ client_id = "2249b95ef317d4ad45ffa43f8e708420"
 name = "BluePrintAI"
 # Shopify CLI requires a concrete URL here and does not read SHOPIFY_APP_URL.
 # Replace this sentinel with the exact deployed HTTPS origin before app deploy.
-application_url = "https://YOUR_PRODUCTION_APP_URL"
+application_url = "https://blueprintai-app.onrender.com"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-04"
@@ -40,4 +39,8 @@ scopes = "read_products"
 
 [auth]
 # Replace the sentinel with <SHOPIFY_APP_URL>/auth/callback before app deploy.
-redirect_urls = [ "https://YOUR_PRODUCTION_APP_URL/auth/callback" ]
+redirect_urls = [
+  "https://blueprintai-app.onrender.com/auth/callback",
+  "https://blueprintai-app.onrender.com/auth/shopify/callback",
+  "https://blueprintai-app.onrender.com/api/auth/callback"
+]
