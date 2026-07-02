@@ -294,6 +294,8 @@ model AdPlatformConnection {
   id                    String               @id @default(cuid())
   shop                  String
   platform              String
+  status                String               @default("connected")
+  googleAccountEmail    String?
   externalAccountId     String?
   externalAccountName   String?
   encryptedAccessToken  String?

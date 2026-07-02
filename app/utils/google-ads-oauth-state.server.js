@@ -105,6 +105,18 @@ export function getPublicOrigin(request, env = process.env) {
 }
 
 export function getGoogleAdsRedirectUri(request, env = process.env) {
+  const configured = env.GOOGLE_ADS_REDIRECT_URI?.trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol !== "https:" || url.pathname !== "/auth/google-ads/callback") {
+        throw new Error();
+      }
+      return url.toString();
+    } catch {
+      throw new Error("GOOGLE_ADS_REDIRECT_URI must be an HTTPS callback URL ending in /auth/google-ads/callback.");
+    }
+  }
   return `${getPublicOrigin(request, env)}/auth/google-ads/callback`;
 }
 

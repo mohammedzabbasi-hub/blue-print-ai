@@ -4,11 +4,13 @@ const ALGORITHM = "aes-256-gcm";
 const VERSION = "v1";
 
 function getEncryptionKey() {
-  const configuredKey = process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY;
+  const configuredKey =
+    process.env.GOOGLE_ADS_ENCRYPTION_SECRET ||
+    process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY;
 
   if (!configuredKey) {
     throw new Error(
-      "AD_PLATFORM_TOKEN_ENCRYPTION_KEY is required to store ad platform tokens.",
+      "GOOGLE_ADS_ENCRYPTION_SECRET or AD_PLATFORM_TOKEN_ENCRYPTION_KEY is required to store ad platform tokens.",
     );
   }
 

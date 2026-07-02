@@ -2,14 +2,13 @@ import { redirect } from "react-router";
 import {
   getConnectionByPlatform,
   recordConnectionSyncError,
-  updateConnectionAccount,
   upsertDailyAdPerformanceRows,
 } from "../models/ad-platform-connection.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import {
-  fetchAccessibleGoogleAdsCustomers,
+  fetchGoogleAdsAdMetrics,
   fetchGoogleAdsCampaignMetrics,
-  getGoogleAdsAccessToken,
+  refreshGoogleAdsAccessToken,
 } from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { decryptToken } from "../utils/token-encryption.server";
@@ -29,31 +28,27 @@ export const action = async ({ request }) => {
   }
 
   try {
-    const accessToken = await getGoogleAdsAccessToken(
+    const refreshed = await refreshGoogleAdsAccessToken(
       decryptToken(connection.encryptedRefreshToken),
     );
-    let customerId = connection.externalAccountId;
+    if (!refreshed.ok) throw new Error(refreshed.message);
+    const accessToken = refreshed.accessToken;
+    const customerId = connection.externalAccountId;
     if (!customerId) {
-      const customers = await fetchAccessibleGoogleAdsCustomers({ accessToken });
-      customerId = customers[0]?.customerId;
-      if (customerId) {
-        await updateConnectionAccount(session.shop, "google", {
-          externalAccountId: customerId,
-          externalAccountName: `Google Ads customer ${customerId}`,
-          metadata: { accessibleCustomers: customers, accessTokenPersisted: false },
-        });
-      }
-    }
-    if (!customerId) {
-      throw new Error("No accessible Google Ads customer account was found.");
+      throw new Error("Select a Google Ads customer account before syncing.");
     }
 
-    const rows = await fetchGoogleAdsCampaignMetrics({
+    const reportingOptions = {
       accessToken,
       customerId,
       endDate: new Date(),
       startDate: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
-    });
+    };
+    const [campaignRows, adRows] = await Promise.all([
+      fetchGoogleAdsCampaignMetrics(reportingOptions),
+      fetchGoogleAdsAdMetrics(reportingOptions),
+    ]);
+    const rows = [...campaignRows, ...adRows];
     const result = await upsertDailyAdPerformanceRows(
       session.shop,
       "google",
@@ -62,6 +57,7 @@ export const action = async ({ request }) => {
         externalAccountId: customerId,
         externalAccountName:
           connection.externalAccountName || `Google Ads customer ${customerId}`,
+        payload: { source: "Google Ads", level: row.adId ? "ad" : "campaign" },
         reportingDate: row.date,
       })),
     );

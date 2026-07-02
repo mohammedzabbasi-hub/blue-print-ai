@@ -113,7 +113,7 @@ Paid plans use Shopify-managed pricing through the authenticated app billing che
 
 ## Optional integrations
 
-Direct Google, TikTok, and Meta advertising connections are disabled for the review build. Manual CSV import remains the supported performance-data workflow. OAuth server code is retained for future development but is not advertised as available to merchants.
+Google Ads is available when its server-side configuration is complete. TikTok and Meta remain placeholders, and manual CSV import remains available. See [the Google Ads setup guide](docs/GOOGLE_ADS_INTEGRATION_SETUP.md).
 
 ## Google Ads development configuration
 
@@ -124,6 +124,8 @@ Required server-side variables:
 - `GOOGLE_ADS_CLIENT_ID`
 - `GOOGLE_ADS_CLIENT_SECRET`
 - `GOOGLE_ADS_DEVELOPER_TOKEN` (OAuth connection can be saved without it, but sync returns `Google Ads developer token not configured`)
+- `GOOGLE_ADS_REDIRECT_URI`
+- `GOOGLE_ADS_ENCRYPTION_SECRET` (or the shared `AD_PLATFORM_TOKEN_ENCRYPTION_KEY`)
 - `AD_PLATFORM_TOKEN_ENCRYPTION_KEY` (32 random bytes encoded as base64 or 64-character hex)
 
 Optional variables:

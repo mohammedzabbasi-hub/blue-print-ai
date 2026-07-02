@@ -23,6 +23,41 @@ export function getGoogleAdsOAuthConfig(env = process.env) {
   return { clientId, clientSecret };
 }
 
+export function getGoogleAdsIntegrationStatus(env = process.env) {
+  const required = [
+    "GOOGLE_ADS_CLIENT_ID",
+    "GOOGLE_ADS_CLIENT_SECRET",
+    "GOOGLE_ADS_DEVELOPER_TOKEN",
+    "GOOGLE_ADS_REDIRECT_URI",
+  ];
+  const missing = required.filter((name) => !env[name]?.trim());
+  const encryptionConfigured = Boolean(
+    env.GOOGLE_ADS_ENCRYPTION_SECRET?.trim() ||
+      env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY?.trim(),
+  );
+  if (!encryptionConfigured) missing.push("GOOGLE_ADS_ENCRYPTION_SECRET");
+  return { ok: missing.length === 0, missing };
+}
+
+export function buildGoogleOAuthUrl({ redirectUri, state }, env = process.env) {
+  try {
+    const { clientId, clientSecret } = getGoogleAdsOAuthConfig(env);
+    const client = new OAuth2Client(clientId, clientSecret, redirectUri);
+    return {
+      ok: true,
+      url: client.generateAuthUrl({
+        access_type: "offline",
+        prompt: "consent",
+        include_granted_scopes: true,
+        scope: [GOOGLE_ADS_SCOPE],
+        state,
+      }),
+    };
+  } catch (error) {
+    return { ok: false, code: "configuration_error", message: error.message };
+  }
+}
+
 function apiVersion() {
   const configured = process.env.GOOGLE_ADS_API_VERSION?.trim();
   return configured && /^v\d+$/.test(configured)
@@ -47,6 +82,22 @@ export async function exchangeGoogleAdsCode({ code, redirectUri }) {
   return tokens;
 }
 
+export async function exchangeGoogleAdsCodeForTokens(options) {
+  try {
+    const tokens = await exchangeGoogleAdsCode(options);
+    if (!tokens.refresh_token) {
+      return {
+        ok: false,
+        code: "missing_refresh_token",
+        message: "Google did not return a refresh token. Remove the prior BluePrintAI grant in your Google Account and connect again.",
+      };
+    }
+    return { ok: true, tokens };
+  } catch (error) {
+    return { ok: false, code: "token_exchange_failed", message: error.message };
+  }
+}
+
 export async function getGoogleAdsAccessToken(refreshToken) {
   if (!refreshToken) throw new Error("The Google Ads refresh token is missing.");
 
@@ -64,6 +115,14 @@ export async function getGoogleAdsAccessToken(refreshToken) {
   }
 
   return accessToken;
+}
+
+export async function refreshGoogleAdsAccessToken(refreshToken) {
+  try {
+    return { ok: true, accessToken: await getGoogleAdsAccessToken(refreshToken) };
+  } catch (error) {
+    return { ok: false, code: "token_refresh_failed", message: error.message };
+  }
 }
 
 function googleAdsHeaders(accessToken) {
@@ -120,6 +179,14 @@ export async function fetchAccessibleGoogleAdsCustomers({ accessToken }) {
   }));
 }
 
+export async function listAccessibleCustomers(options) {
+  try {
+    return { ok: true, customers: await fetchAccessibleGoogleAdsCustomers(options) };
+  } catch (error) {
+    return { ok: false, code: "account_discovery_failed", message: error.message };
+  }
+}
+
 async function searchGoogleAds({ accessToken, customerId, query }) {
   const payload = await googleAdsRequest(
     `/customers/${normalizeCustomerId(customerId)}/googleAds:searchStream`,
@@ -150,6 +217,7 @@ export function normalizeGoogleAdsMetricRow(row = {}, level = "campaign") {
   return {
     campaignId: String(campaign.id || ""),
     campaignName: campaign.name || "",
+    campaignStatus: campaign.status || null,
     adGroupId: level === "campaign" ? null : String(adGroup.id || ""),
     adGroupName: level === "campaign" ? null : adGroup.name || "",
     adId: level === "ad" ? String(ad.id || "") : null,
@@ -162,8 +230,8 @@ export function normalizeGoogleAdsMetricRow(row = {}, level = "campaign") {
     conversions,
     conversionValue,
     revenue: conversionValue,
-    ctr: impressions ? clicks / impressions : 0,
-    cpc: clicks ? cost / clicks : 0,
+    ctr: number(metrics.ctr) || (impressions ? clicks / impressions : 0),
+    cpc: number(metrics.averageCpc) / 1_000_000 || (clicks ? cost / clicks : 0),
     roas: cost ? conversionValue / cost : 0,
   };
 }
@@ -174,7 +242,9 @@ const METRICS = `
   metrics.clicks,
   metrics.cost_micros,
   metrics.conversions,
-  metrics.conversions_value`;
+  metrics.conversions_value,
+  metrics.ctr,
+  metrics.average_cpc`;
 
 export async function fetchGoogleAdsCampaignMetrics({
   accessToken,
@@ -185,7 +255,7 @@ export async function fetchGoogleAdsCampaignMetrics({
   const rows = await searchGoogleAds({
     accessToken,
     customerId,
-    query: `SELECT campaign.id, campaign.name, ${METRICS}
+    query: `SELECT campaign.id, campaign.name, campaign.status, ${METRICS}
       FROM campaign
       WHERE segments.date BETWEEN '${dateOnly(startDate)}' AND '${dateOnly(endDate)}'
         AND campaign.status != 'REMOVED'
@@ -197,7 +267,7 @@ export async function fetchGoogleAdsCampaignMetrics({
 export async function fetchGoogleAdsAdGroupMetrics(options) {
   const rows = await searchGoogleAds({
     ...options,
-    query: `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name, ${METRICS}
+    query: `SELECT campaign.id, campaign.name, campaign.status, ad_group.id, ad_group.name, ${METRICS}
       FROM ad_group
       WHERE segments.date BETWEEN '${dateOnly(options.startDate)}' AND '${dateOnly(options.endDate)}'
         AND ad_group.status != 'REMOVED'
@@ -209,7 +279,7 @@ export async function fetchGoogleAdsAdGroupMetrics(options) {
 export async function fetchGoogleAdsAdMetrics(options) {
   const rows = await searchGoogleAds({
     ...options,
-    query: `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name,
+    query: `SELECT campaign.id, campaign.name, campaign.status, ad_group.id, ad_group.name,
         ad_group_ad.ad.id, ad_group_ad.ad.name, ${METRICS}
       FROM ad_group_ad
       WHERE segments.date BETWEEN '${dateOnly(options.startDate)}' AND '${dateOnly(options.endDate)}'

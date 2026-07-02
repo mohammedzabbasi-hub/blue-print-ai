@@ -19,9 +19,10 @@ import {
   disconnectPlatform,
   getConnectionByPlatform,
   getConnectionsForShop,
+  updateConnectionAccount,
 } from "../models/ad-platform-connection.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
-import { revokeGoogleAdsToken } from "../services/google-ads.server";
+import { getGoogleAdsIntegrationStatus, revokeGoogleAdsToken } from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { decryptToken } from "../utils/token-encryption.server";
 
@@ -44,7 +45,7 @@ const PLATFORMS = [
     id: "google",
     name: "Google Ads",
     description: "Connect Google campaign and creative performance data.",
-    available: false,
+    available: "configured",
     accent: "from-amber-400/20 to-emerald-500/10",
   },
 ];
@@ -55,13 +56,18 @@ export const loader = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
   const connections = await getConnectionsForShop(session.shop);
 
+  const googleConfiguration = getGoogleAdsIntegrationStatus();
   return {
     connections: connections.map((connection) => ({
+      externalAccountId: connection.externalAccountId,
       externalAccountName: connection.externalAccountName,
       lastSyncedAt: connection.lastSyncedAt,
       lastSyncError: connection.lastSyncError,
       platform: connection.platform,
+      status: connection.status,
+      metadata: parseMetadata(connection.metadataJson),
     })),
+    googleConfiguration,
     shop: session.shop,
   };
 };
@@ -70,6 +76,21 @@ export const action = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
   const platform = String(formData.get("platform") || "");
+
+  if (formData.get("intent") === "select_google_account") {
+    const customerId = String(formData.get("customerId") || "").replace(/\D/g, "");
+    const connection = await getConnectionByPlatform(session.shop, "google");
+    const customers = parseMetadata(connection?.metadataJson)?.accessibleCustomers || [];
+    if (!connection || !customers.some((item) => item.customerId === customerId)) {
+      return { error: "Select an accessible Google Ads account." };
+    }
+    await updateConnectionAccount(session.shop, "google", {
+      externalAccountId: customerId,
+      externalAccountName: `Google Ads customer ${customerId}`,
+      metadata: parseMetadata(connection.metadataJson),
+    });
+    return { success: "Google Ads account selected. You can sync now." };
+  }
 
   if (formData.get("intent") !== "disconnect") {
     return { error: "Unknown connection action." };
@@ -98,7 +119,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ConnectionsRoute() {
-  const { connections, shop } = useLoaderData();
+  const { connections, googleConfiguration, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
@@ -125,7 +146,7 @@ export default function ConnectionsRoute() {
               Ad platform connections
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Manual CSV import is available now. Direct ad-platform connections are optional future upgrades and are not required to use BluePrintAI.
+              Manual CSV import remains available. Google Ads can connect when server setup is complete; direct connections are optional and are not required to use BluePrintAI.
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100">
@@ -144,6 +165,7 @@ export default function ConnectionsRoute() {
             connection={connectionMap.get(platform.id)}
             key={platform.id}
             platform={platform}
+            googleConfiguration={googleConfiguration}
             search={location.search}
             shop={shop}
             submitting={navigation.state === "submitting"}
@@ -174,16 +196,17 @@ export default function ConnectionsRoute() {
   );
 }
 
-function PlatformCard({ connection, platform, search, shop, submitting }) {
-  const connected = Boolean(connection) && platform.available;
+function PlatformCard({ connection, googleConfiguration, platform, search, shop, submitting }) {
+  const available = platform.available === "configured" ? googleConfiguration.ok : platform.available;
+  const connected = Boolean(connection) && platform.id === "google";
   const visibleConnection = connected ? connection : null;
   const syncPath = withEmbeddedRouteParams(
-    `/app/connections/${platform.id}/sync`,
+    `/app/connections/${platform.id === "google" ? "google-ads" : platform.id}/sync`,
     search,
   );
   const connectPath = withEmbeddedRouteParams(
     platform.id === "google"
-      ? `/auth/google-ads?shop=${encodeURIComponent(shop)}`
+      ? `/auth/google-ads/start?shop=${encodeURIComponent(shop)}`
       : `/auth/${platform.id}/start`,
     search,
   );
@@ -195,7 +218,7 @@ function PlatformCard({ connection, platform, search, shop, submitting }) {
           <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/60 text-cyan-100">
             <Cable aria-hidden="true" size={22} />
           </div>
-          <StatusBadge available={platform.available} connected={connected} />
+          <StatusBadge available={available} connected={connected} needsSelection={connection?.status === "needs_account_selection"} setupRequired={platform.id === "google" && !googleConfiguration.ok} />
         </div>
       </div>
       <div className="p-5">
@@ -209,7 +232,7 @@ function PlatformCard({ connection, platform, search, shop, submitting }) {
             External account
           </p>
           <p className="mt-1 truncate text-sm font-semibold text-slate-200">
-            {visibleConnection?.externalAccountName || "No active connection"}
+            {visibleConnection?.externalAccountId ? visibleConnection.externalAccountName : connected ? "Select an ad account" : "No active connection"}
           </p>
           {visibleConnection?.lastSyncedAt && (
             <p className="mt-1 text-xs text-slate-500">
@@ -224,8 +247,33 @@ function PlatformCard({ connection, platform, search, shop, submitting }) {
           </p>
         )}
 
+        {platform.id === "google" && !googleConfiguration.ok && (
+          <p className="mt-3 text-xs leading-5 text-amber-200">
+            Setup required. Missing server configuration: {googleConfiguration.missing.join(", ")}.
+          </p>
+        )}
+
+        {connected && !visibleConnection?.externalAccountId && (
+          visibleConnection?.metadata?.accessibleCustomers?.length ? (
+            <Form className="mt-4 flex gap-2" method="post">
+              <input name="intent" type="hidden" value="select_google_account" />
+              <select className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white" name="customerId" required>
+                <option value="">Select Google Ads account</option>
+                {visibleConnection.metadata.accessibleCustomers.map(({ customerId }) => (
+                  <option key={customerId} value={customerId}>{customerId}</option>
+                ))}
+              </select>
+              <button className="bp-primary-cta" disabled={submitting} type="submit">Select</button>
+            </Form>
+          ) : (
+            <p className="mt-3 text-xs leading-5 text-amber-200">
+              Connected, but accounts could not be listed. Reconnect to retry account discovery.
+            </p>
+          )
+        )}
+
         <div className="mt-5 flex flex-wrap gap-2">
-          {!connected && platform.available && (
+          {!connected && available && (
             <Link
               className="bp-primary-cta"
               target={platform.id === "google" ? "_top" : undefined}
@@ -234,25 +282,23 @@ function PlatformCard({ connection, platform, search, shop, submitting }) {
               Connect {platform.name}
             </Link>
           )}
-          {!connected && !platform.available && (
+          {!connected && !available && (
             <button
               className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-500"
               disabled
               type="button"
             >
-              Connect {platform.name} · Coming soon
+              {platform.id === "google" ? "Setup required" : `Connect ${platform.name} · Coming soon`}
             </button>
           )}
-          {connected && (
+          {connected && visibleConnection?.externalAccountId && (
             <>
               <Form action={syncPath} method="post">
                 <button className="bp-primary-cta" disabled={submitting} type="submit">
                   <RefreshCw aria-hidden="true" size={15} /> Sync now
                 </button>
               </Form>
-              <Form method="post">
-                <input name="intent" type="hidden" value="disconnect" />
-                <input name="platform" type="hidden" value={platform.id} />
+              <Form action={withEmbeddedRouteParams("/app/connections/google-ads/disconnect", search)} method="post">
                 <button
                   className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 px-4 py-2.5 text-sm font-bold text-red-200 hover:bg-red-500/10"
                   disabled={submitting}
@@ -263,17 +309,22 @@ function PlatformCard({ connection, platform, search, shop, submitting }) {
               </Form>
             </>
           )}
+          {connected && !visibleConnection?.externalAccountId && (
+            <Form action={withEmbeddedRouteParams("/app/connections/google-ads/disconnect", search)} method="post">
+              <button className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 px-4 py-2.5 text-sm font-bold text-red-200" disabled={submitting} type="submit"><Trash2 aria-hidden="true" size={15} /> Disconnect</button>
+            </Form>
+          )}
         </div>
       </div>
     </article>
   );
 }
 
-function StatusBadge({ available, connected }) {
+function StatusBadge({ available, connected, needsSelection, setupRequired }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-black ${connected ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200" : "border-slate-500/30 bg-slate-950/50 text-slate-300"}`}>
       {connected && <CheckCircle2 aria-hidden="true" size={13} />}
-      {connected ? "Connected" : available ? "Disconnected" : "Coming soon"}
+      {needsSelection ? "Needs account selection" : connected ? "Connected" : setupRequired ? "Setup required" : available ? "Disconnected" : "Coming soon"}
     </span>
   );
 }
@@ -288,4 +339,8 @@ function Notice({ children, tone }) {
 
 function platformLabel(platform) {
   return PLATFORMS.find((item) => item.id === platform)?.name || "Ad platform";
+}
+
+function parseMetadata(value) {
+  try { return value ? JSON.parse(value) : {}; } catch { return {}; }
 }

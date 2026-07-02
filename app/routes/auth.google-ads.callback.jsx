@@ -1,9 +1,9 @@
 import { redirect } from "react-router";
 import { createConnection } from "../models/ad-platform-connection.server";
 import {
-  exchangeGoogleAdsCode,
-  fetchAccessibleGoogleAdsCustomers,
+  exchangeGoogleAdsCodeForTokens,
   GOOGLE_ADS_SCOPE,
+  listAccessibleCustomers,
 } from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import {
@@ -66,38 +66,34 @@ export async function loader({ request }) {
       });
     }
 
-    const tokens = await exchangeGoogleAdsCode({
+    const exchange = await exchangeGoogleAdsCodeForTokens({
       code,
       redirectUri: getGoogleAdsRedirectUri(request),
     });
-    if (!tokens.refresh_token) {
-      throw new Error(
-        "Google did not return a refresh token. Remove the prior BluePrintAI grant in your Google Account and connect again.",
-      );
-    }
+    if (!exchange.ok) throw new Error(exchange.message);
+    const { tokens } = exchange;
 
     let accessibleCustomers = [];
     let accountDiscoveryError = null;
     if (process.env.GOOGLE_ADS_DEVELOPER_TOKEN && tokens.access_token) {
       try {
-        accessibleCustomers = await fetchAccessibleGoogleAdsCustomers({
+        const discovery = await listAccessibleCustomers({
           accessToken: tokens.access_token,
         });
+        if (!discovery.ok) throw new Error(discovery.message);
+        accessibleCustomers = discovery.customers;
       } catch (error) {
         accountDiscoveryError = error.message || "Google Ads account discovery failed.";
       }
     }
-    const selectedCustomer = accessibleCustomers[0] || null;
-
     await createConnection(stateData.shop, {
       platform: "google",
+      status: "needs_account_selection",
       refreshToken: tokens.refresh_token,
       tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
       scopes: tokens.scope || GOOGLE_ADS_SCOPE,
-      externalAccountId: selectedCustomer?.customerId || null,
-      externalAccountName: selectedCustomer
-        ? `Google Ads customer ${selectedCustomer.customerId}`
-        : "Google Ads account",
+      externalAccountId: null,
+      externalAccountName: "Google Ads account",
       metadata: {
         accessibleCustomers,
         accountDiscoveryError,

@@ -56,6 +56,8 @@ export async function createConnection(shop, input) {
   const platform = normalizePlatform(input.platform);
   const tokenData = connectionTokenData(input, { requireToken: true });
   const sharedData = {
+    status: input.status || "connected",
+    googleAccountEmail: input.googleAccountEmail || null,
     externalAccountId: input.externalAccountId
       ? String(input.externalAccountId)
       : null,
@@ -116,6 +118,7 @@ export function updateConnectionAccount(shop, platform, input) {
       },
     },
     data: {
+      status: input.externalAccountId ? "connected" : "needs_account_selection",
       externalAccountId: input.externalAccountId
         ? String(input.externalAccountId)
         : null,

@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildIntegrationStatuses } from "../models/creative-performance.server.js";
 import {
   fetchAccessibleGoogleAdsCustomers,
+  getGoogleAdsIntegrationStatus,
   getGoogleAdsOAuthConfig,
   normalizeGoogleAdsMetricRow,
 } from "./google-ads.server.js";
@@ -91,6 +92,7 @@ test("Google Ads rows normalize micros and calculated metrics", () => {
       adName: null,
       campaignId: "42",
       campaignName: "Launch",
+      campaignStatus: null,
       clicks: 25,
       conversions: 3,
       conversionValue: 150,
@@ -118,6 +120,31 @@ test("missing developer token fails without making an API request", async () => 
     if (previous === undefined) delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
     else process.env.GOOGLE_ADS_DEVELOPER_TOKEN = previous;
   }
+});
+
+test("Google Ads integration status lists missing setup without credentials", () => {
+  const status = getGoogleAdsIntegrationStatus({});
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.missing, [
+    "GOOGLE_ADS_CLIENT_ID",
+    "GOOGLE_ADS_CLIENT_SECRET",
+    "GOOGLE_ADS_DEVELOPER_TOKEN",
+    "GOOGLE_ADS_REDIRECT_URI",
+    "GOOGLE_ADS_ENCRYPTION_SECRET",
+  ]);
+});
+
+test("Google Ads integration accepts the existing shared encryption key", () => {
+  assert.deepEqual(
+    getGoogleAdsIntegrationStatus({
+      GOOGLE_ADS_CLIENT_ID: "client",
+      GOOGLE_ADS_CLIENT_SECRET: "secret",
+      GOOGLE_ADS_DEVELOPER_TOKEN: "developer",
+      GOOGLE_ADS_REDIRECT_URI: "https://app.example.test/auth/google-ads/callback",
+      AD_PLATFORM_TOKEN_ENCRYPTION_KEY: "shared",
+    }),
+    { ok: true, missing: [] },
+  );
 });
 
 test("Google Ads connection status is additive", () => {
