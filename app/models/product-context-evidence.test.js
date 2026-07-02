@@ -45,7 +45,7 @@ describe("product context evidence UI", () => {
 
   it("keeps active context primary and optional integrations secondary", async () => {
     const [dashboard, dataSources, productContext] = await Promise.all([
-      source("routes/app._index.jsx"),
+      source("routes/app.dashboard.jsx"),
       source("components/IntegrationStatusCards.jsx"),
       source("models/product-context.js"),
     ]);

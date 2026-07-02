@@ -97,7 +97,7 @@ export const loader = async ({ request }) => {
 };
 
 const navItems = [
-  { to: "/app", label: "Command Center", icon: "grid" },
+  { to: "/app/dashboard", label: "Command Center", icon: "grid" },
   { to: "/app/campaigns", label: "Campaigns", icon: "activity" },
   { to: "/app/creative-library", label: "Creative Library", icon: "layers" },
   { to: "/app/video-analysis", label: "AI Review Studio", icon: "video" },
@@ -284,6 +284,7 @@ async function redirectToOnboardingIfNeeded({
 
 function isOnboardingAllowedPath(pathname) {
   return (
+    pathname === "/app" ||
     pathname === "/app/onboarding" ||
     pathname === "/app/support" ||
     pathname === "/app/privacy" ||
