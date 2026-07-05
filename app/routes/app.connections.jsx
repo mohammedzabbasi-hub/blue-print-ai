@@ -125,10 +125,13 @@ export default function ConnectionsRoute() {
   const navigation = useNavigation();
   const query = new URLSearchParams(location.search);
   const notice = query.get("connected")
-    ? `${platformLabel(query.get("connected"))} connected successfully.`
+    ? `${platformLabel(query.get("connected"))} authorized. Select an accessible account to finish setup.`
     : query.get("synced")
       ? `${Number(query.get("synced")) || 0} daily performance rows synced.`
-      : actionData?.success;
+      : query.get("disconnected")
+        ? `${platformLabel(query.get("disconnected"))} disconnected.`
+        : actionData?.success;
+  const warning = query.get("warning");
   const error = query.get("error") || actionData?.error;
   const connectionMap = new Map(
     connections.map((connection) => [connection.platform, connection]),
@@ -157,6 +160,7 @@ export default function ConnectionsRoute() {
       </section>
 
       {notice && <Notice tone="success">{notice}</Notice>}
+      {warning && <Notice tone="warning">{warning}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
 
       <section className="grid gap-4 lg:grid-cols-3" aria-label="Ad platforms">
@@ -324,14 +328,14 @@ function StatusBadge({ available, connected, needsSelection, setupRequired }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-black ${connected ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200" : "border-slate-500/30 bg-slate-950/50 text-slate-300"}`}>
       {connected && <CheckCircle2 aria-hidden="true" size={13} />}
-      {needsSelection ? "Needs account selection" : connected ? "Connected" : setupRequired ? "Setup required" : available ? "Disconnected" : "Coming soon"}
+      {needsSelection ? "Authorized · select account" : connected ? "Ready to sync" : setupRequired ? "Setup required" : available ? "Disconnected" : "Coming soon"}
     </span>
   );
 }
 
 function Notice({ children, tone }) {
   return (
-    <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${tone === "error" ? "border-red-500/30 bg-red-500/10 text-red-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`} role="status">
+    <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${tone === "error" ? "border-red-500/30 bg-red-500/10 text-red-200" : tone === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-100" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`} role="status">
       {children}
     </div>
   );

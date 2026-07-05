@@ -12,6 +12,8 @@ import { EmptyState, Icon, Notice, PageHeader, ProductThumbnail } from "../compo
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { getLocalDemoAccess } from "../utils/demo-access.server";
 
+export const meta = () => [{ title: "Search | BluePrintAI" }];
+
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const query = String(url.searchParams.get("q") || "").trim();
