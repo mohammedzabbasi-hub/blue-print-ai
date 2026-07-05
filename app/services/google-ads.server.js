@@ -151,7 +151,13 @@ async function googleAdsRequest(path, { accessToken, body, method = "GET" }) {
       ...(body ? { body: JSON.stringify(body) } : {}),
     },
   );
-  const payload = await response.json().catch(() => ({}));
+  const rawPayload = await response.text();
+  let payload = {};
+  try {
+    payload = rawPayload ? JSON.parse(rawPayload) : {};
+  } catch {
+    payload = {};
+  }
 
   if (!response.ok) {
     const apiMessage =
@@ -159,13 +165,13 @@ async function googleAdsRequest(path, { accessToken, body, method = "GET" }) {
       payload?.error?.message;
     const requestId = response.headers.get("request-id");
 
-    console.error("Google Ads API error", {
+    console.error("Google Ads API raw error", {
       status: response.status,
       requestId,
       path,
       message: apiMessage,
-      details: payload?.error?.details,
-      error: payload?.error,
+      rawPayload,
+      parsedPayload: payload,
     });
 
     throw new Error(
