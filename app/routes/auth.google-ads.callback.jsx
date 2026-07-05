@@ -23,6 +23,11 @@ function connectionsRedirect(search, params = {}) {
   );
 }
 
+function configuredFallbackCustomer() {
+  const customerId = process.env.GOOGLE_ADS_DEFAULT_CUSTOMER_ID?.replace(/\D/g, "");
+  return customerId ? [{ customerId, resourceName: `customers/${customerId}` }] : [];
+}
+
 export async function loader({ request }) {
   const url = new URL(request.url);
   let clearCookieHeader;
@@ -86,6 +91,11 @@ export async function loader({ request }) {
         accountDiscoveryError = error.message || "Google Ads account discovery failed.";
       }
     }
+
+    if (!accessibleCustomers.length) {
+      accessibleCustomers = configuredFallbackCustomer();
+    }
+
     await createConnection(stateData.shop, {
       platform: "google",
       status: "needs_account_selection",
