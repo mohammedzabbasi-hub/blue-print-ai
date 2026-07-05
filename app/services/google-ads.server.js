@@ -158,6 +158,16 @@ async function googleAdsRequest(path, { accessToken, body, method = "GET" }) {
       payload?.error?.details?.[0]?.errors?.[0]?.message ||
       payload?.error?.message;
     const requestId = response.headers.get("request-id");
+
+    console.error("Google Ads API error", {
+      status: response.status,
+      requestId,
+      path,
+      message: apiMessage,
+      details: payload?.error?.details,
+      error: payload?.error,
+    });
+
     throw new Error(
       `${apiMessage || `Google Ads API request failed (${response.status}).`}${
         requestId ? ` Request ID: ${requestId}` : ""
