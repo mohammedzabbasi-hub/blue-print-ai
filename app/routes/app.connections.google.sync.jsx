@@ -57,7 +57,18 @@ export const action = async ({ request }) => {
         externalAccountId: customerId,
         externalAccountName:
           connection.externalAccountName || `Google Ads customer ${customerId}`,
-        payload: { source: "Google Ads", level: row.adId ? "ad" : "campaign" },
+        payload: {
+          source: "Google Ads",
+          level: row.adId ? "ad" : "campaign",
+          campaignStatus: row.campaignStatus,
+          conversionValue: row.conversionValue,
+          ctr: row.ctr,
+          cpc: row.cpc,
+          cpm: row.cpm,
+          conversionRate: row.conversionRate,
+          cpa: row.cpa,
+          roas: row.roas,
+        },
         reportingDate: row.date,
       })),
     );

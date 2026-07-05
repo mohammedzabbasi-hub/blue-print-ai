@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildIntegrationStatuses } from "../models/creative-performance.server.js";
 import {
   fetchAccessibleGoogleAdsCustomers,
+  fetchGoogleAdsCampaignMetrics,
   getGoogleAdsIntegrationStatus,
   getGoogleAdsOAuthConfig,
   normalizeGoogleAdsMetricRow,
@@ -96,8 +97,11 @@ test("Google Ads rows normalize micros and calculated metrics", () => {
       clicks: 25,
       conversions: 3,
       conversionValue: 150,
+      conversionRate: 0.12,
       cost: 50,
+      cpa: 16.666666666666668,
       cpc: 2,
+      cpm: 50,
       ctr: 0.025,
       date: "2026-06-28",
       impressions: 1000,
@@ -106,6 +110,79 @@ test("Google Ads rows normalize micros and calculated metrics", () => {
       spend: 50,
     },
   );
+});
+
+test("Google Ads metric formulas protect zero denominators", () => {
+  const row = normalizeGoogleAdsMetricRow({
+    metrics: { impressions: 0, clicks: 0, conversions: 0, costMicros: 0 },
+  });
+  assert.equal(row.ctr, 0);
+  assert.equal(row.cpc, 0);
+  assert.equal(row.cpm, 0);
+  assert.equal(row.conversionRate, 0);
+  assert.equal(row.cpa, 0);
+  assert.equal(row.roas, 0);
+});
+
+test("Google Ads search uses the selected child customer and accepts zero rows", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  process.env.GOOGLE_ADS_DEVELOPER_TOKEN = "developer-test-value";
+  let requestedUrl = "";
+  let requestedBody = "";
+  global.fetch = async (url, options) => {
+    requestedUrl = String(url);
+    requestedBody = String(options.body);
+    return new Response(JSON.stringify([{ results: [] }]), { status: 200 });
+  };
+  try {
+    const rows = await fetchGoogleAdsCampaignMetrics({
+      accessToken: "access-test-value",
+      customerId: "304-963-7762",
+      startDate: "2026-06-01",
+      endDate: "2026-06-30",
+    });
+    assert.deepEqual(rows, []);
+    assert.match(requestedUrl, /customers\/3049637762\/googleAds:searchStream$/);
+    assert.match(requestedBody, /FROM campaign/);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    else process.env.GOOGLE_ADS_DEVELOPER_TOKEN = previousToken;
+  }
+});
+
+test("Google Ads errors log sanitized metadata without response bodies or secrets", async () => {
+  const previousFetch = global.fetch;
+  const previousError = console.error;
+  const previousToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  process.env.GOOGLE_ADS_DEVELOPER_TOKEN = "developer-secret-value";
+  const logged = [];
+  console.error = (...args) => logged.push(args);
+  global.fetch = async () =>
+    new Response(JSON.stringify({ error: { message: "safe summary", secret: "raw-secret" } }), {
+      status: 400,
+      headers: { "request-id": "request-123" },
+    });
+  try {
+    await assert.rejects(
+      fetchGoogleAdsCampaignMetrics({
+        accessToken: "access-secret-value",
+        customerId: "3049637762",
+        startDate: "2026-06-01",
+        endDate: "2026-06-30",
+      }),
+      /safe summary/,
+    );
+    const serialized = JSON.stringify(logged);
+    assert.doesNotMatch(serialized, /raw-secret|access-secret|developer-secret/);
+    assert.match(serialized, /request-123/);
+  } finally {
+    global.fetch = previousFetch;
+    console.error = previousError;
+    if (previousToken === undefined) delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    else process.env.GOOGLE_ADS_DEVELOPER_TOKEN = previousToken;
+  }
 });
 
 test("missing developer token fails without making an API request", async () => {

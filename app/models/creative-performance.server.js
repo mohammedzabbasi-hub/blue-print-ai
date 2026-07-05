@@ -314,7 +314,14 @@ export async function listCreativePerformance({
           demoCreativeToPerformance(creative, index, merchantData.products || []),
         )
       : [];
-  const connectedDailyRecords = platformDailyRecords.map((record) => ({
+  const connectedDailyRecords = platformDailyRecords.map((record) => {
+    let payload = {};
+    try {
+      payload = record.payloadJson ? JSON.parse(record.payloadJson) : {};
+    } catch {
+      payload = {};
+    }
+    return ({
     id: record.id,
     creativeId: record.campaignId || record.rowKey,
     campaignId: record.campaignId,
@@ -330,13 +337,38 @@ export async function listCreativePerformance({
     spend: record.spend,
     conversions: record.conversions,
     revenue: record.revenue,
+    conversionValue: payload.conversionValue ?? record.revenue,
+    ctr: payload.ctr == null ? null : Number(payload.ctr) * 100,
+    cpc: payload.cpc ?? null,
+    cpm: payload.cpm ?? null,
+    conversionRate:
+      payload.conversionRate == null ? null : Number(payload.conversionRate) * 100,
+    cpa: payload.cpa ?? null,
+    roas: payload.roas ?? null,
+    campaignStatus: payload.campaignStatus ?? null,
     engagements: record.engagements,
     videoViews: record.videoViews,
     platform: record.platform === "google" ? "Google Ads" : record.platform,
     sourcePlatform: record.platform,
-  }));
+    sourceType: "ad_platform_sync",
+    sourceRecordType: "ad_platform_daily",
+  });
+  });
+  const googleAdGrainKeys = new Set(
+    connectedDailyRecords
+      .filter((record) => record.adId)
+      .map((record) => `${record.sourcePlatform}:${record.campaignId}:${new Date(record.reportingDate).toISOString().slice(0, 10)}`),
+  );
+  const nonOverlappingDailyRecords = connectedDailyRecords.filter((record) => {
+    if (record.adId) return true;
+    const date = new Date(record.reportingDate);
+    if (Number.isNaN(date.getTime())) return true;
+    return !googleAdGrainKeys.has(
+      `${record.sourcePlatform}:${record.campaignId}:${date.toISOString().slice(0, 10)}`,
+    );
+  });
   const dailyRecords = connectedDailyRecords.length
-    ? connectedDailyRecords
+    ? nonOverlappingDailyRecords
     : includeDemo && savedRecords.length === 0
       ? buildDemoPerformanceSeries(30)
       : [];

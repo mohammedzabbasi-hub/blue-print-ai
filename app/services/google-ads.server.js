@@ -165,13 +165,13 @@ async function googleAdsRequest(path, { accessToken, body, method = "GET" }) {
       payload?.error?.message;
     const requestId = response.headers.get("request-id");
 
-    console.error("Google Ads API raw error", {
+    // Never log the response body: Google may include request details or
+    // credential-adjacent diagnostic data in error payloads.
+    console.error("Google Ads API request failed", {
       status: response.status,
       requestId,
       path,
       message: apiMessage,
-      rawPayload,
-      parsedPayload: payload,
     });
 
     throw new Error(
@@ -229,6 +229,11 @@ export function normalizeGoogleAdsMetricRow(row = {}, level = "campaign") {
   const cost = number(metrics.costMicros) / 1_000_000;
   const conversions = number(metrics.conversions);
   const conversionValue = number(metrics.conversionsValue);
+  const ctr = impressions ? clicks / impressions : 0;
+  const cpc = clicks ? cost / clicks : 0;
+  const cpm = impressions ? (cost / impressions) * 1_000 : 0;
+  const conversionRate = clicks ? conversions / clicks : 0;
+  const cpa = conversions ? cost / conversions : 0;
 
   return {
     campaignId: String(campaign.id || ""),
@@ -246,8 +251,13 @@ export function normalizeGoogleAdsMetricRow(row = {}, level = "campaign") {
     conversions,
     conversionValue,
     revenue: conversionValue,
-    ctr: number(metrics.ctr) || (impressions ? clicks / impressions : 0),
-    cpc: number(metrics.averageCpc) / 1_000_000 || (clicks ? cost / clicks : 0),
+    // Google Ads rate fields are decimal ratios. Keep ratios in the service;
+    // UI adapters convert them to percentages where required.
+    ctr: number(metrics.ctr) || ctr,
+    cpc: number(metrics.averageCpc) / 1_000_000 || cpc,
+    cpm,
+    conversionRate,
+    cpa,
     roas: cost ? conversionValue / cost : 0,
   };
 }
