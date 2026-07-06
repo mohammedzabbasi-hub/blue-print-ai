@@ -15,7 +15,10 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(connections, /Connected · select account/);
   assert.match(connections, /connected \? "Connected"/);
   assert.match(connections, /Sync latest data/);
+  assert.match(connections, /Disconnect/);
   assert.match(connections, /googleLiveRowCount === 0/);
+  assert.equal(connections.includes(["Load demo", "Google Ads data"].join(" ")), false);
+  assert.equal(connections.includes(["Clear demo", "Google Ads data"].join(" ")), false);
   assert.match(notices, /query\.get\("disconnected"\)/);
   assert.match(connections, /query\.get\("warning"\)/);
   assert.match(connections, /Google Ads connected\. No live performance rows were found for this account\./);
@@ -23,6 +26,21 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(disconnect, /disconnectPlatform\(session\.shop, "google"\)/);
   assert.match(disconnect, /export const loader = \(\) => new Response\("Method not allowed", \{ status: 405/);
   assert.match(sync, /externalAccountId/);
+});
+
+test("dashboard empty state and manual CSV import remain available", async () => {
+  const [chart, connections, dataImport, performanceModel] = await Promise.all([
+    source("components/dashboard/PerformanceChart.jsx"),
+    source("routes/app.connections.jsx"),
+    source("routes/app.data-import.jsx"),
+    source("models/creative-performance.server.js"),
+  ]);
+
+  assert.match(chart, /No imported ad or creative performance data yet\./);
+  assert.match(connections, /Manual CSV import remains available/);
+  assert.match(connections, /\/app\/data-import/);
+  assert.match(dataImport, /CSV/i);
+  assert.match(performanceModel, /NOT: \{ platform: "google", source: "demo", isDemo: true \}/);
 });
 
 test("Google Ads integration remains reporting-only", async () => {

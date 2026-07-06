@@ -56,7 +56,10 @@ export function buildDashboardEffectivenessRecords(performanceData = {}) {
   const storedRecords = (performanceData.records || []).filter(
     (record) => !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType),
   );
-  return [...storedRecords, ...(performanceData.dailyRecords || [])];
+  const dailyRecords = (performanceData.dailyRecords || []).filter(
+    (record) => !(record.sourcePlatform === "google" && record.source === "demo" && record.isDemo === true),
+  );
+  return [...storedRecords, ...dailyRecords];
 }
 
 export function hasReportingDate(record = {}) {

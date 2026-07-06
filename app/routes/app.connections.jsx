@@ -17,7 +17,6 @@ import {
 } from "react-router";
 import {
   disconnectPlatform,
-  countGoogleAdsDemoRows,
   countGoogleAdsLiveRows,
   getConnectionByPlatform,
   getConnectionsForShop,
@@ -57,9 +56,8 @@ export const meta = () => [{ title: "Connections | BluePrintAI" }];
 
 export const loader = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
-  const [connections, googleDemoRowCount, googleLiveRowCount] = await Promise.all([
+  const [connections, googleLiveRowCount] = await Promise.all([
     getConnectionsForShop(session.shop),
-    countGoogleAdsDemoRows(session.shop),
     countGoogleAdsLiveRows(session.shop),
   ]);
 
@@ -75,7 +73,6 @@ export const loader = async ({ request }) => {
       metadata: parseMetadata(connection.metadataJson),
     })),
     googleConfiguration,
-    googleDemoRowCount,
     googleLiveRowCount,
     shop: session.shop,
   };
@@ -128,7 +125,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ConnectionsRoute() {
-  const { connections, googleConfiguration, googleDemoRowCount, googleLiveRowCount, shop } = useLoaderData();
+  const { connections, googleConfiguration, googleLiveRowCount, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
@@ -180,7 +177,6 @@ export default function ConnectionsRoute() {
             key={platform.id}
             platform={platform}
             googleConfiguration={googleConfiguration}
-            googleDemoRowCount={googleDemoRowCount}
             googleLiveRowCount={googleLiveRowCount}
             search={location.search}
             shop={shop}
@@ -212,7 +208,7 @@ export default function ConnectionsRoute() {
   );
 }
 
-function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, googleLiveRowCount, platform, search, shop, submitting }) {
+function PlatformCard({ connection, googleConfiguration, googleLiveRowCount, platform, search, shop, submitting }) {
   const available = platform.available === "configured" ? googleConfiguration.ok : platform.available;
   const connected = Boolean(connection) && platform.id === "google";
   const visibleConnection = connected ? connection : null;
@@ -274,12 +270,6 @@ function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, goo
           </p>
         )}
 
-        {platform.id === "google" && googleDemoRowCount > 0 && (
-          <p className="mt-3 rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-xs font-semibold leading-5 text-cyan-100">
-            Demo data — not from your live Google Ads account. {googleDemoRowCount} daily rows loaded.
-          </p>
-        )}
-
         {platform.id === "google" && !googleConfiguration.ok && (
           <p className="mt-3 text-xs leading-5 text-amber-200">
             Setup required. Missing server configuration: {googleConfiguration.missing.join(", ")}.
@@ -331,20 +321,6 @@ function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, goo
                   <RefreshCw aria-hidden="true" size={15} /> Sync latest data
                 </button>
               </Form>
-              <Form action={withEmbeddedRouteParams("/app/connections/google-ads/demo", search)} method="post">
-                <input name="intent" type="hidden" value="load" />
-                <button className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/25 px-4 py-2.5 text-sm font-bold text-cyan-100 hover:bg-cyan-500/10" disabled={submitting} type="submit">
-                  <Database aria-hidden="true" size={15} /> Load demo Google Ads data
-                </button>
-              </Form>
-              {googleDemoRowCount > 0 && (
-                <Form action={withEmbeddedRouteParams("/app/connections/google-ads/demo", search)} method="post">
-                  <input name="intent" type="hidden" value="clear" />
-                  <button className="inline-flex items-center gap-2 rounded-xl border border-amber-400/25 px-4 py-2.5 text-sm font-bold text-amber-100 hover:bg-amber-500/10" disabled={submitting} type="submit">
-                    <Trash2 aria-hidden="true" size={15} /> Clear demo Google Ads data
-                  </button>
-                </Form>
-              )}
               <Form action={withEmbeddedRouteParams("/app/connections/google-ads/disconnect", search)} method="post">
                 <button
                   className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 px-4 py-2.5 text-sm font-bold text-red-200 hover:bg-red-500/10"

@@ -287,7 +287,10 @@ export async function listCreativePerformance({
       : [],
     normalizedShop
       ? db.adPerformanceDaily.findMany({
-          where: { shop: normalizedShop },
+          where: {
+            shop: normalizedShop,
+            NOT: { platform: "google", source: "demo", isDemo: true },
+          },
           orderBy: [{ reportingDate: "desc" }, { createdAt: "desc" }],
           take: limit,
         })

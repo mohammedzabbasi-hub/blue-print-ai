@@ -61,19 +61,16 @@ const records = [
 ];
 
 describe("ad and campaign effectiveness", () => {
-  it("includes current-shop Google Ads demo daily rows in dashboard effectiveness data", () => {
-    const demoRow = { id: "google-demo-1", sourcePlatform: "google", source: "demo", isDemo: true };
-    const dashboardRecords = buildDashboardEffectivenessRecords({ dailyRecords: [demoRow], records: [] });
-    assert.deepEqual(dashboardRecords, [demoRow]);
-    assert.equal(dashboardRecords.length > 0, true);
+  it("includes real synced and manually imported rows in dashboard effectiveness data", () => {
+    const liveRow = { id: "google-live-1", sourcePlatform: "google", source: "live", isDemo: false };
+    const importedRow = { id: "csv-1", sourceRecordType: "public_engagement_import" };
+    const dashboardRecords = buildDashboardEffectivenessRecords({ dailyRecords: [liveRow], records: [importedRow] });
+    assert.deepEqual(dashboardRecords, [importedRow, liveRow]);
   });
 
-  it("keeps live and demo Google Ads daily rows distinguishable", () => {
-    const demoRow = { id: "demo", source: "demo", isDemo: true };
-    const liveRow = { id: "live", source: "live", isDemo: false };
-    const dashboardRecords = buildDashboardEffectivenessRecords({ dailyRecords: [demoRow, liveRow] });
-    assert.deepEqual(dashboardRecords.filter((row) => row.isDemo), [demoRow]);
-    assert.deepEqual(dashboardRecords.filter((row) => !row.isDemo), [liveRow]);
+  it("excludes legacy locally seeded Google rows from dashboard effectiveness data", () => {
+    const legacyRow = { id: "legacy", sourcePlatform: "google", source: "demo", isDemo: true };
+    assert.deepEqual(buildDashboardEffectivenessRecords({ dailyRecords: [legacyRow] }), []);
   });
 
   it("includes CSV-only and creative + video performance records", () => {

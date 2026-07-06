@@ -72,15 +72,7 @@ export default function PerformanceChart({ dateRange, data }) {
     () => Array.isArray(data?.effectivenessRecords) ? data.effectivenessRecords : [],
     [data?.effectivenessRecords],
   );
-  const hasDemoRecords = allRecords.some((record) => record.isDemo === true || record.source === "demo");
-  const hasLiveRecords = allRecords.some((record) => record.isDemo !== true && record.source !== "demo");
-  const [sourceScope, setSourceScope] = useState(hasLiveRecords ? "live" : "demo");
-  const records = useMemo(
-    () => allRecords.filter((record) => sourceScope === "demo"
-      ? record.isDemo === true || record.source === "demo"
-      : record.isDemo !== true && record.source !== "demo"),
-    [allRecords, sourceScope],
-  );
+  const records = allRecords;
   const [view, setView] = useState("all");
   const [selection, setSelection] = useState("");
   const [metric, setMetric] = useState("revenue");
@@ -143,21 +135,6 @@ export default function PerformanceChart({ dateRange, data }) {
         <h2 className="text-lg font-semibold text-white">Ad &amp; campaign effectiveness</h2>
         <p className="mt-1 text-sm text-slate-400">Track engagement, conversion, spend, and attributed revenue for each imported ad, creative, or creator campaign.</p>
       </div>
-
-      {sourceScope === "demo" && hasDemoRecords && (
-        <p className="mt-4 rounded-lg border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100">
-          Demo data — not from your live Google Ads account.
-        </p>
-      )}
-
-      {hasDemoRecords && hasLiveRecords && (
-        <label className="mt-4 block text-xs font-semibold text-slate-300">Data source
-          <select value={sourceScope} onChange={(event) => { setSourceScope(event.target.value); setSelection(""); }} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
-            <option value="live">Live and imported performance</option>
-            <option value="demo">Google Ads demo performance</option>
-          </select>
-        </label>
-      )}
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         <label className="text-xs font-semibold text-slate-300">View

@@ -10,14 +10,6 @@ export function getConnectionsNotice({ actionSuccess, googleAdsConnection, query
       : `${syncedRows} daily performance rows synced.`;
   }
 
-  if (query.get("demoLoaded")) {
-    return `${Number(query.get("demoLoaded")) || 0} demo Google Ads daily rows loaded locally.`;
-  }
-
-  if (query.has("demoCleared")) {
-    return `${Number(query.get("demoCleared")) || 0} demo Google Ads daily rows cleared.`;
-  }
-
   if (query.get("disconnected")) {
     return `${platformLabel(query.get("disconnected"))} disconnected.`;
   }
