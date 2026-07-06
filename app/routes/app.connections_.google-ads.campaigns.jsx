@@ -1,5 +1,5 @@
 import { CheckSquare, RefreshCw } from "lucide-react";
-import { Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
 import { getConnectionByPlatform } from "../models/ad-platform-connection.server";
 import {
   listGoogleAdsCampaigns,
@@ -43,7 +43,10 @@ export const action = async ({ request }) => {
         customerId: connection.externalAccountId,
       });
       await upsertGoogleAdsCampaigns(session.shop, connection.externalAccountId, campaigns);
-      return { success: `Campaign list refreshed. ${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} found.` };
+      return {
+        refreshCompleted: true,
+        success: `Campaign list refreshed. ${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} found.`,
+      };
     }
     if (formData.get("intent") === "save") {
       await saveGoogleAdsCampaignSelection(session.shop, connection.externalAccountId, {
@@ -61,6 +64,7 @@ export const action = async ({ request }) => {
 export default function GoogleAdsCampaignsRoute() {
   const { campaigns, customerId, mode } = useLoaderData();
   const actionData = useActionData();
+  const location = useLocation();
   const navigation = useNavigation();
   const busy = navigation.state === "submitting";
   return (
@@ -74,7 +78,7 @@ export default function GoogleAdsCampaignsRoute() {
             <input name="intent" type="hidden" value="refresh" />
             <button className="bp-primary-cta" disabled={busy} type="submit"><RefreshCw aria-hidden="true" size={15} /> Refresh campaign list</button>
           </Form>
-          <Link className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200" to="/app/connections">Back to Connections</Link>
+          <Link className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200" to={withEmbeddedRouteParams("/app/connections", location.search)}>Back to Connections</Link>
         </div>
       </section>
       {actionData?.success && <Notice tone="success">{actionData.success}</Notice>}
@@ -93,7 +97,7 @@ export default function GoogleAdsCampaignsRoute() {
               <span className="sr-only">Select campaign</span>
               <span><span className="block font-semibold text-white">{campaign.campaignName}</span><span className="mt-1 block text-xs text-slate-400">{campaign.campaignStatus || "Unknown status"} · {campaign.advertisingChannelType || "Unknown channel"}</span></span>
             </label>
-          )) : <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-300">No campaigns were found in this Google Ads account.</p>}
+          )) : <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-300">{actionData?.refreshCompleted ? "No campaigns were found in this Google Ads account." : "No campaigns loaded yet. Click Refresh campaign list."}</p>}
         </div>
         <button className="bp-primary-cta mt-6" disabled={busy} type="submit"><CheckSquare aria-hidden="true" size={15} /> Save selection</button>
       </Form>

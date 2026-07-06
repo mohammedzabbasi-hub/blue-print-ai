@@ -52,7 +52,7 @@ test("Google Ads integration remains reporting-only", async () => {
   const [service, sync, campaignRoute] = await Promise.all([
     source("services/google-ads.server.js"),
     source("routes/app.connections.google.sync.jsx"),
-    source("routes/app.connections.google-ads.campaigns.jsx"),
+    source("routes/app.connections_.google-ads.campaigns.jsx"),
   ]);
 
   assert.match(service, /googleAds:searchStream/);
@@ -61,6 +61,22 @@ test("Google Ads integration remains reporting-only", async () => {
     `${service}\n${sync}\n${campaignRoute}`,
     /googleAds:(?:mutate|upload)|campaigns:(?:create|update|remove)|adGroups:(?:create|update|remove)/i,
   );
+});
+
+test("Google Ads campaign management route is reachable without submitting Connections", async () => {
+  const [connections, campaignRoute] = await Promise.all([
+    source("routes/app.connections.jsx"),
+    source("routes/app.connections_.google-ads.campaigns.jsx"),
+  ]);
+
+  assert.match(connections, /<Link[^>]+to=\{withEmbeddedRouteParams\("\/app\/connections\/google-ads\/campaigns", search\)\}>Manage campaigns<\/Link>/);
+  assert.doesNotMatch(connections, /<button[^>]*>Manage campaigns<\/button>/);
+  assert.match(campaignRoute, /Connect\+and\+select\+a\+Google\+Ads\+account\+first/);
+  assert.match(campaignRoute, /formData\.get\("intent"\) === "refresh"/);
+  assert.match(campaignRoute, /formData\.get\("intent"\) === "save"/);
+  assert.match(campaignRoute, /No campaigns loaded yet\. Click Refresh campaign list\./);
+  assert.match(campaignRoute, /No campaigns were found in this Google Ads account\./);
+  assert.match(campaignRoute, /withEmbeddedRouteParams\("\/app\/connections", location\.search\)/);
 });
 
 test("campaign management is explicitly local planning and not ad-platform mutation", async () => {
