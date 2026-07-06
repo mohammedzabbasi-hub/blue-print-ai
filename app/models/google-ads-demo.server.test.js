@@ -47,6 +47,19 @@ test("connected account with zero rows shows the demo load action", async () => 
   assert.doesNotMatch(source, /get\("synced"\) === "0"/);
 });
 
+test("dashboard visibly labels demo performance and keeps it separate from live data", async () => {
+  const [dashboard, chart, performanceModel] = await Promise.all([
+    readFile(new URL("../routes/app.dashboard.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard/PerformanceChart.jsx", import.meta.url), "utf8"),
+    readFile(new URL("./creative-performance.server.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(dashboard, /buildDashboardEffectivenessRecords\(performanceData\)/);
+  assert.match(chart, /Demo data — not from your live Google Ads account\./);
+  assert.match(chart, /hasDemoRecords && hasLiveRecords/);
+  assert.match(chart, /Google Ads demo performance/);
+  assert.match(performanceModel, /where: \{ shop: normalizedShop \}/);
+});
+
 test("OAuth connection upsert and loader use the same normalized shop identifier", async () => {
   const previousKey = process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY;
   process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");

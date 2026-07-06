@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   aggregateEffectiveness,
+  buildDashboardEffectivenessRecords,
   buildCreativeLaunchMarkers,
   buildEffectivenessGroups,
   buildTrendRows,
@@ -60,6 +61,21 @@ const records = [
 ];
 
 describe("ad and campaign effectiveness", () => {
+  it("includes current-shop Google Ads demo daily rows in dashboard effectiveness data", () => {
+    const demoRow = { id: "google-demo-1", sourcePlatform: "google", source: "demo", isDemo: true };
+    const dashboardRecords = buildDashboardEffectivenessRecords({ dailyRecords: [demoRow], records: [] });
+    assert.deepEqual(dashboardRecords, [demoRow]);
+    assert.equal(dashboardRecords.length > 0, true);
+  });
+
+  it("keeps live and demo Google Ads daily rows distinguishable", () => {
+    const demoRow = { id: "demo", source: "demo", isDemo: true };
+    const liveRow = { id: "live", source: "live", isDemo: false };
+    const dashboardRecords = buildDashboardEffectivenessRecords({ dailyRecords: [demoRow, liveRow] });
+    assert.deepEqual(dashboardRecords.filter((row) => row.isDemo), [demoRow]);
+    assert.deepEqual(dashboardRecords.filter((row) => !row.isDemo), [liveRow]);
+  });
+
   it("includes CSV-only and creative + video performance records", () => {
     assert.equal(records.filter((row) => row.sourceRecordType === "public_engagement_import").length, 1);
     assert.equal(records.filter((row) => row.videoUrl).length, 1);

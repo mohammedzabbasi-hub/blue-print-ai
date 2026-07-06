@@ -17,6 +17,7 @@ import {
 import { MAX_PUBLIC_IMPORT_BYTES } from "../constants/import-limits.js";
 import { syncImportedCampaignAssignment } from "./campaign.server.js";
 import { upsertCreatorAttribution } from "./creator-attribution.server.js";
+import { normalizeShopIdentifier } from "./ad-platform-connection.server.js";
 
 export const DEMO_PERFORMANCE_DATA_LABEL = "Demo performance data";
 export const PERFORMANCE_EMPTY_STATE =
@@ -259,6 +260,7 @@ export async function listCreativePerformance({
   includeDemo = false,
   limit = 500,
 } = {}) {
+  const normalizedShop = shop ? normalizeShopIdentifier(shop) : "";
   const [
     savedCreatives,
     videoAnalyses,
@@ -267,32 +269,32 @@ export async function listCreativePerformance({
     platformDailyRecords,
     platformConnections,
   ] = await Promise.all([
-    shop ? listSavedCreatives(shop, limit) : [],
-    shop ? listVideoAnalyses(shop, limit) : [],
-    shop
+    normalizedShop ? listSavedCreatives(normalizedShop, limit) : [],
+    normalizedShop ? listVideoAnalyses(normalizedShop, limit) : [],
+    normalizedShop
       ? db.creativePerformance.findMany({
-          where: { shop },
+          where: { shop: normalizedShop },
           include: { creatorAttribution: { include: { creator: true } } },
           orderBy: [{ reportingDate: "desc" }, { createdAt: "desc" }],
         })
       : [],
-    shop
+    normalizedShop
       ? db.adCampaignCreative.findMany({
-          where: { shop },
+          where: { shop: normalizedShop },
           include: { campaign: true },
           orderBy: { createdAt: "desc" },
         })
       : [],
-    shop
+    normalizedShop
       ? db.adPerformanceDaily.findMany({
-          where: { shop },
+          where: { shop: normalizedShop },
           orderBy: [{ reportingDate: "desc" }, { createdAt: "desc" }],
           take: limit,
         })
       : [],
-    shop
+    normalizedShop
       ? db.adPlatformConnection.findMany({
-          where: { shop },
+          where: { shop: normalizedShop },
           select: { platform: true },
         })
       : [],

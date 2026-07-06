@@ -26,6 +26,7 @@ import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { listCampaigns } from "../models/campaign.server";
 import { buildProductContext } from "../models/product-context";
 import {
+  buildDashboardEffectivenessRecords,
   hasReportingDate,
   partitionDashboardPerformanceRecords,
 } from "../utils/ad-effectiveness";
@@ -296,13 +297,11 @@ function buildCommandCenterData({
   merchantData = { errors: [], products: [] },
   campaigns = [],
 }) {
-  const importedPerformanceRecords = (performanceData.records || []).filter(
-    (record) => !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType),
-  );
+  const dashboardPerformanceRecords = buildDashboardEffectivenessRecords(performanceData);
   const {
     creativeRecords: effectivenessRecords,
     creatorRollups: excludedCreatorRollups,
-  } = partitionDashboardPerformanceRecords(importedPerformanceRecords);
+  } = partitionDashboardPerformanceRecords(dashboardPerformanceRecords);
   const analysisScores = analyses.map(getAnalysisScore).filter((score) => score > 0);
   const averageAnalysisScore = analysisScores.length
     ? Math.round(
@@ -365,9 +364,7 @@ function buildCommandCenterData({
     },
     patterns: buildPatterns({ analyses, creatives, briefs }),
     adPerformance: buildAdPerformanceTrackingData(
-      performanceData.dailyRecords?.length
-        ? [...performanceData.dailyRecords, ...effectivenessRecords]
-        : effectivenessRecords,
+      effectivenessRecords,
     ),
     effectivenessRecords,
     excludedCreatorRollupCount: excludedCreatorRollups.length,

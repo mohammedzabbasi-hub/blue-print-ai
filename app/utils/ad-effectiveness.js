@@ -52,6 +52,13 @@ export function partitionDashboardPerformanceRecords(records = []) {
   return { creativeRecords, creatorRollups };
 }
 
+export function buildDashboardEffectivenessRecords(performanceData = {}) {
+  const storedRecords = (performanceData.records || []).filter(
+    (record) => !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType),
+  );
+  return [...storedRecords, ...(performanceData.dailyRecords || [])];
+}
+
 export function hasReportingDate(record = {}) {
   return Boolean(dateKey(dateValue(record)));
 }
