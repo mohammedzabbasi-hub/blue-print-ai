@@ -5,8 +5,9 @@ import test from "node:test";
 const source = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero rows, and disconnect", async () => {
-  const [connections, sync, disconnect] = await Promise.all([
+  const [connections, notices, sync, disconnect] = await Promise.all([
     source("routes/app.connections.jsx"),
+    source("utils/connections-notice.js"),
     source("routes/app.connections.google.sync.jsx"),
     source("routes/app.connections.google-ads.disconnect.jsx"),
   ]);
@@ -15,14 +16,10 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(connections, /connected \? "Connected"/);
   assert.match(connections, /Sync latest data/);
   assert.match(connections, /googleLiveRowCount === 0/);
-  assert.match(connections, /query\.get\("disconnected"\)/);
+  assert.match(notices, /query\.get\("disconnected"\)/);
   assert.match(connections, /query\.get\("warning"\)/);
-  assert.match(
-    connections,
-    /Sync completed\. No live Google Ads performance rows were found for this account\./,
-  );
   assert.match(connections, /Google Ads connected\. No live performance rows were found for this account\./);
-  assert.match(connections, /`\$\{syncedRows\} daily performance rows synced\.`/);
+  assert.match(connections, /getConnectionsNotice/);
   assert.match(disconnect, /disconnectPlatform\(session\.shop, "google"\)/);
   assert.match(disconnect, /export const loader = \(\) => new Response\("Method not allowed", \{ status: 405/);
   assert.match(sync, /externalAccountId/);

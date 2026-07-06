@@ -26,6 +26,7 @@ import {
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { getGoogleAdsIntegrationStatus, revokeGoogleAdsToken } from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { getConnectionsNotice } from "../utils/connections-notice";
 import { decryptToken } from "../utils/token-encryption.server";
 
 const PLATFORMS = [
@@ -132,23 +133,14 @@ export default function ConnectionsRoute() {
   const location = useLocation();
   const navigation = useNavigation();
   const query = new URLSearchParams(location.search);
-  const syncedRows = Number(query.get("synced")) || 0;
-  const googleAdsConnected = connections.some(
+  const googleAdsConnection = connections.find(
     (connection) => connection.platform === "google",
   );
-  const notice = query.get("connected")
-    ? `${platformLabel(query.get("connected"))} authorized. Select an accessible account to finish setup.`
-    : query.get("synced")
-      ? syncedRows === 0 && googleAdsConnected
-        ? "Sync completed. No live Google Ads performance rows were found for this account."
-        : `${syncedRows} daily performance rows synced.`
-      : query.get("demoLoaded")
-        ? `${Number(query.get("demoLoaded")) || 0} demo Google Ads daily rows loaded locally.`
-        : query.has("demoCleared")
-          ? `${Number(query.get("demoCleared")) || 0} demo Google Ads daily rows cleared.`
-      : query.get("disconnected")
-        ? `${platformLabel(query.get("disconnected"))} disconnected.`
-        : actionData?.success;
+  const notice = getConnectionsNotice({
+    actionSuccess: actionData?.success,
+    googleAdsConnection,
+    query,
+  });
   const warning = query.get("warning");
   const error = query.get("error") || actionData?.error;
   const connectionMap = new Map(
