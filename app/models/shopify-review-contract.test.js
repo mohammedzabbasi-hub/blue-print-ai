@@ -17,7 +17,12 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(connections, /googleLiveRowCount === 0/);
   assert.match(connections, /query\.get\("disconnected"\)/);
   assert.match(connections, /query\.get\("warning"\)/);
-  assert.match(connections, /0} daily performance rows synced/);
+  assert.match(
+    connections,
+    /Sync completed\. No live Google Ads performance rows were found for this account\./,
+  );
+  assert.match(connections, /Google Ads connected\. No live performance rows were found for this account\./);
+  assert.match(connections, /`\$\{syncedRows\} daily performance rows synced\.`/);
   assert.match(disconnect, /disconnectPlatform\(session\.shop, "google"\)/);
   assert.match(disconnect, /export const loader = \(\) => new Response\("Method not allowed", \{ status: 405/);
   assert.match(sync, /externalAccountId/);

@@ -132,10 +132,16 @@ export default function ConnectionsRoute() {
   const location = useLocation();
   const navigation = useNavigation();
   const query = new URLSearchParams(location.search);
+  const syncedRows = Number(query.get("synced")) || 0;
+  const googleAdsConnected = connections.some(
+    (connection) => connection.platform === "google",
+  );
   const notice = query.get("connected")
     ? `${platformLabel(query.get("connected"))} authorized. Select an accessible account to finish setup.`
     : query.get("synced")
-      ? `${Number(query.get("synced")) || 0} daily performance rows synced.`
+      ? syncedRows === 0 && googleAdsConnected
+        ? "Sync completed. No live Google Ads performance rows were found for this account."
+        : `${syncedRows} daily performance rows synced.`
       : query.get("demoLoaded")
         ? `${Number(query.get("demoLoaded")) || 0} demo Google Ads daily rows loaded locally.`
         : query.has("demoCleared")
