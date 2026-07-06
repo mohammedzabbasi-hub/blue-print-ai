@@ -33,14 +33,14 @@ const PLATFORMS = [
   {
     id: "tiktok",
     name: "TikTok Ads",
-    description: "Bring TikTok campaign, ad group, and ad performance into BluePrintAI.",
+    description: "Coming soon. Import TikTok performance with a CSV today.",
     available: false,
     accent: "from-cyan-400/20 to-fuchsia-500/10",
   },
   {
     id: "meta",
     name: "Meta Ads",
-    description: "Connect Facebook and Instagram advertising performance.",
+    description: "Coming soon. Import Meta performance with a CSV today.",
     available: false,
     accent: "from-blue-500/20 to-indigo-500/10",
   },

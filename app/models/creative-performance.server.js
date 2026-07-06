@@ -196,7 +196,7 @@ export function buildIntegrationStatuses({
       label: "Shopify Orders",
       status: "Optional",
       tone: "pending",
-      description: "Optional — connect to import order data",
+      description: "Coming soon — no live order connection is available",
       // TODO: Shopify Orders connector - request read_orders only when the
       // product is ready to ingest order attribution and revenue data.
       todo: "Future connector: Shopify Orders connector with read_orders support.",
@@ -208,7 +208,7 @@ export function buildIntegrationStatuses({
       tone: connected.has("meta") ? "connected" : "pending",
       description: connected.has("meta")
         ? "Connected ad metrics source"
-        : "Optional — connect to sync ad metrics",
+        : "Coming soon — use manual CSV import instead",
       // TODO: Meta Ads connector - sync campaign, creative, spend, click,
       // conversion, and revenue metrics into CreativePerformance.
       todo: "Future connector: Meta Ads connector.",
@@ -220,7 +220,7 @@ export function buildIntegrationStatuses({
       tone: connected.has("tiktok") ? "connected" : "pending",
       description: connected.has("tiktok")
         ? "Connected ad metrics source"
-        : "Optional — connect to sync ad metrics",
+        : "Coming soon — use manual CSV import instead",
       // TODO: TikTok Ads connector - sync ad creative and performance metrics
       // into CreativePerformance.
       todo: "Future connector: TikTok Ads connector.",
@@ -230,7 +230,7 @@ export function buildIntegrationStatuses({
       label: "TikTok Shop Affiliate",
       status: "Optional",
       tone: "pending",
-      description: "Optional — connect for affiliate and GMV insights",
+      description: "Coming soon — no live affiliate connection is available",
       // TODO: TikTok Shop Affiliate connector - sync affiliate creator,
       // product, GMV, orders, and video attribution into CreativePerformance.
       todo: "Future connector: TikTok Shop Affiliate connector.",

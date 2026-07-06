@@ -10,7 +10,8 @@ Before Shopify review, the deployment owner must configure all of the following:
 
 - Managed PostgreSQL through `DATABASE_URL`; SQLite is local/test-only.
 - Private S3-compatible uploaded-file storage through `FILE_STORAGE_DRIVER=s3`, `S3_BUCKET`, and its region, endpoint, and workload credentials as applicable.
-- Shopify `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, final HTTPS `SHOPIFY_APP_URL`, and the deployed `read_products` scope.
+- Shopify `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, final HTTPS `SHOPIFY_APP_URL`, `SCOPES=read_products`, and a unique high-entropy `SESSION_SECRET` in the deployment secret manager.
+- When Google Ads reporting is enabled: `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_REDIRECT_URI`, and `GOOGLE_ADS_ENCRYPTION_SECRET`; add `GOOGLE_ADS_LOGIN_CUSTOMER_ID` only when a manager account requires it.
 - A production analyzer runtime or service. Set `ANALYZER_ENABLED=true` only when Python 3, OpenCV, and FFmpeg are installed and smoke-tested (or the server function is connected to an equivalent managed analyzer). With the flag off or a runtime failure, the upload is saved and the UI truthfully reports that analysis is unavailable; no scores or recommendations are generated or saved.
 - Deployed and signed Shopify compliance webhooks for app uninstall, shop redact, customer data request, and customer redact, including verified database/object deletion.
 - Owner-confirmed legal operator name/status, complete postal address, monitored privacy/support contacts, governing law, retention/subprocessor statements, pricing/refund terms, and rights to all demo assets and sample data.
@@ -33,22 +34,22 @@ The legal and support pages are scaffolding with owner-fill fields; they are not
 
 ## Shopify Production Configuration
 
-Before deploying a production app version, replace every `https://YOUR_PRODUCTION_APP_URL` placeholder in `shopify.app.toml` and `.env.example`, fill the production website owner-action field in `app/content/legal.js`, and use the same real HTTPS origin (with no trailing slash), then complete these steps in order:
+The committed Shopify configuration uses `https://blueprintai-app.onrender.com`. Before deploying a production app version, confirm that origin still matches Render and the Shopify Partner Dashboard, fill the production website owner-action field in `app/content/legal.js`, and complete these steps in order:
 
 1. Deploy the web application and set its production environment variables. `SHOPIFY_APP_URL` must be the real HTTPS origin, `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` must come from the matching Shopify app, and `SCOPES` must be exactly `read_products`.
-2. In the Shopify Partner/Dev Dashboard, set **App URL** to `https://YOUR_PRODUCTION_APP_URL`.
-3. Set the single **Allowed redirection URL** to `https://YOUR_PRODUCTION_APP_URL/auth/callback`.
+2. In the Shopify Partner/Dev Dashboard, set **App URL** to `https://blueprintai-app.onrender.com`.
+3. Set the allowed redirection URL to `https://blueprintai-app.onrender.com/auth/callback` (and keep only callback variants used by the deployed Shopify configuration).
 4. Confirm these app-specific webhook endpoint URLs from `shopify.app.toml` are present in the version being deployed and publicly accept signed Shopify requests:
-   - `https://YOUR_PRODUCTION_APP_URL/webhooks/app/scopes_update`
-   - `https://YOUR_PRODUCTION_APP_URL/webhooks/app/uninstalled`
-   - `https://YOUR_PRODUCTION_APP_URL/webhooks/customers/data_request`
-   - `https://YOUR_PRODUCTION_APP_URL/webhooks/customers/redact`
-   - `https://YOUR_PRODUCTION_APP_URL/webhooks/shop/redact`
+   - `https://blueprintai-app.onrender.com/webhooks/app/scopes_update`
+   - `https://blueprintai-app.onrender.com/webhooks/app/uninstalled`
+   - `https://blueprintai-app.onrender.com/webhooks/customers/data_request`
+   - `https://blueprintai-app.onrender.com/webhooks/customers/redact`
+   - `https://blueprintai-app.onrender.com/webhooks/shop/redact`
 5. Confirm the Dashboard's embedded-app setting is enabled, matching `embedded = true` in `shopify.app.toml`.
 6. Confirm the requested access scope is exactly `read_products`, matching both `shopify.app.toml` and production `SCOPES`. Reinstall or approve the updated scope on the review store if Shopify requires it.
 7. After replacing the repository placeholders and verifying the deployed endpoints, publish the configuration with `shopify app deploy`. This command is documented here only; do not run it until the real production values are in place.
 
-Do not use a localhost, ngrok, TryCloudflare, or other temporary development URL for App Review. The development commands below remain intentionally separate; Shopify CLI may inject a temporary URL while `shopify app dev` is running.
+Do not use a localhost, ngrok, TryCloudflare, or other temporary development URL for App Review. The temporary URLs later in this README are explicitly local-development examples and are never production configuration.
 
 This app uses the Shopify React Router app architecture and preserves the Shopify scaffolded OAuth/session flow through `@shopify/shopify-app-react-router`.
 

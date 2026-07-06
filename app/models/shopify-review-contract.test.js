@@ -39,6 +39,16 @@ test("Google Ads integration remains reporting-only", async () => {
   );
 });
 
+test("campaign management is explicitly local planning and not ad-platform mutation", async () => {
+  const [campaigns, campaignDetail] = await Promise.all([
+    source("routes/app.campaigns.jsx"),
+    source("routes/app.campaigns.$id.jsx"),
+  ]);
+  assert.match(campaigns, /local planning folders/);
+  assert.match(campaigns, /never creates, edits, launches, or spends on an ad platform/);
+  assert.match(campaignDetail, /Changes here do not modify an ad platform/);
+});
+
 test("review configuration is embedded, least-privilege, and uses one production origin", async () => {
   const config = await readFile(new URL("../../shopify.app.toml", import.meta.url), "utf8");
   assert.match(config, /embedded\s*=\s*true/);

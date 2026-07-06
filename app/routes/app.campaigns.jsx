@@ -63,7 +63,7 @@ export default function CampaignManagerRoute() {
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">Creative organization</p>
           <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Campaign Manager</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Group ads, creatives, and creator tests into campaigns so you can compare what is working.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Group imported ads, creatives, and creator tests into local planning folders. Creating or editing a campaign here never creates, edits, launches, or spends on an ad platform.</p>
         </div>
         <button className="bp-primary-cta shrink-0" onClick={() => setCreateOpen(true)} type="button">Create campaign</button>
       </div>

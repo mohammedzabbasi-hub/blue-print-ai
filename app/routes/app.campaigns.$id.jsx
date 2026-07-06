@@ -82,7 +82,7 @@ export default function CampaignDetailRoute() {
     <section className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d1728] to-[#080d17] p-6 md:p-8">
       <Link className="text-sm font-bold text-cyan-300" to={withEmbeddedRouteParams("/app/campaigns", location.search)}>← Campaign Manager</Link>
       <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0"><div className="flex flex-wrap gap-2"><StatusBadge status={campaign.status} /><Badge>{label(campaign.objective)}</Badge><Badge>{label(campaign.platform)}</Badge></div><h1 className="mt-4 truncate font-display text-3xl font-semibold text-white md:text-4xl">{campaign.name}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{campaign.description || "A workspace for organizing creatives and comparing performance."}</p></div>
+        <div className="min-w-0"><div className="flex flex-wrap gap-2"><StatusBadge status={campaign.status} /><Badge>{label(campaign.objective)}</Badge><Badge>{label(campaign.platform)}</Badge></div><h1 className="mt-4 truncate font-display text-3xl font-semibold text-white md:text-4xl">{campaign.name}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{campaign.description || "A local planning workspace for organizing creatives and comparing imported performance. Changes here do not modify an ad platform."}</p></div>
         <button className="rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-4 py-2.5 text-sm font-bold text-cyan-100" onClick={() => setEditOpen(true)} type="button">Edit campaign</button>
       </div>
     </section>

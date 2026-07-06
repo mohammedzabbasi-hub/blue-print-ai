@@ -121,7 +121,11 @@ export function ConnectMoreDataSources({ statuses = [], search = "" }) {
                 </p>
               </div>
               <span className={`mt-0.5 shrink-0 text-xs font-bold ${toneClass(item.tone)}`}>
-                {item.tone === "connected" ? "Connected" : "Optional"}
+                {item.tone === "connected"
+                  ? "Connected"
+                  : item.description?.startsWith("Coming soon")
+                    ? "Coming soon"
+                    : "Optional"}
               </span>
             </div>
           ))}
@@ -164,7 +168,8 @@ export function PerformanceDataNotice({
           Demo Data Status
         </span>
         <span className="mt-1 block">
-          {`Demo data — not from your live Google Ads account. ${contextMessage} Creative, creator, and performance metrics shown as demo data are not measured store results.`}
+          Demo data — not from your live Google Ads account. {contextMessage}{" "}
+          Creative, creator, and performance metrics shown as demo data are not measured store results.
         </span>
       </Notice>
     );

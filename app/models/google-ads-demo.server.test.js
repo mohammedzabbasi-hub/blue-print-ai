@@ -48,16 +48,18 @@ test("connected account with zero rows shows the demo load action", async () => 
 });
 
 test("dashboard visibly labels demo performance and keeps it separate from live data", async () => {
-  const [dashboard, chart, performanceModel] = await Promise.all([
+  const [dashboard, chart, performanceModel, dataNotice] = await Promise.all([
     readFile(new URL("../routes/app.dashboard.jsx", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard/PerformanceChart.jsx", import.meta.url), "utf8"),
     readFile(new URL("./creative-performance.server.js", import.meta.url), "utf8"),
+    readFile(new URL("../components/IntegrationStatusCards.jsx", import.meta.url), "utf8"),
   ]);
   assert.match(dashboard, /buildDashboardEffectivenessRecords\(performanceData\)/);
   assert.match(chart, /Demo data — not from your live Google Ads account\./);
   assert.match(chart, /hasDemoRecords && hasLiveRecords/);
   assert.match(chart, /Google Ads demo performance/);
   assert.match(performanceModel, /where: \{ shop: normalizedShop \}/);
+  assert.match(dataNotice, /Creative, creator, and performance metrics shown as demo data are not measured store results\./);
 });
 
 test("OAuth connection upsert and loader use the same normalized shop identifier", async () => {
