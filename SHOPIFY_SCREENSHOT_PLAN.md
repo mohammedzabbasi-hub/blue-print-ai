@@ -15,7 +15,7 @@ Capture from the exact submitted production version at 1440×900 or another cons
 | 9 | Connections zero-row sync — `/app/connections?synced=0` | Successful `0 daily performance rows synced` notice and connected card | Empty account is handled without invented data | Reviewer evidence |
 | 10 | Data Import — `/app/data-import` | Import type, CSV picker, preview/validation, and safe result summary (capture preview and completed state if needed) | Merchant-provided/CSV origin, preview-before-confirm, supported columns/files | App Store listing + reviewer evidence |
 | 11 | Settings — `/app/settings` | Workspace/analysis settings and Legal & Privacy links; production-only view | Preferences persist; developer reset tools are absent; billing/support statements match production | Reviewer evidence; optional listing |
-| 12 | Support — `/support` logged out, plus `/app/support` if useful | Public page, support process/contact, Privacy and Terms links, address bar/HTTPS | Public without authentication; staffed support path matches listing; no placeholder text | Reviewer evidence |
+| 12 | Support — `/support` logged out, plus `/app/support` if useful | Public page, BluePrintAI Commerce and support@blueprintai.app contact details, Privacy and Terms links, address bar/HTTPS | Public without authentication; support path matches listing; no placeholder text | Reviewer evidence |
 | 13 | Privacy — `/privacy` logged out | Page title, effective/operator disclosures, Google Ads authorization/data section if visible | Public, current, accurate read-only/optional data processing disclosure; no placeholder text | Reviewer evidence |
 | 14 | Terms — `/terms` logged out | Page title, service/pricing terms, navigation | Public and current; app described as free if listing is Free; no placeholder text | Reviewer evidence |
 
@@ -35,4 +35,3 @@ Capture from the exact submitted production version at 1440×900 or another cons
 - [ ] Reviewer captures prove embedded install, optional/read-only Google Ads, empty state, provenance labels, public legal/support, and free/no-billing behavior.
 - [ ] No image contains secrets, tokens, OAuth codes, full account IDs, customer data, or unrelated browser content.
 - [ ] Screenshots match the submitted commit and active Shopify app version.
-

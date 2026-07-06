@@ -61,9 +61,9 @@ Public pages are available without logging in:
 - Contact: `https://blueprintai-app.onrender.com/contact`
 - Data deletion: `https://blueprintai-app.onrender.com/data-deletion`
 
-Embedded versions are also available from the BluePrintAI sidebar and Settings. The support process/contact displayed there must match the Shopify App Store listing.
+Embedded versions are also available from the BluePrintAI sidebar and Settings. BluePrintAI is operated by BluePrintAI Commerce, and the support contact displayed there must match the Shopify App Store listing.
 
-If assistance is needed during review, contact: [PASTE THE STAFFED SUPPORT EMAIL/CONTACT PUBLISHED IN THE LISTING]. Please include the store domain and a non-sensitive description of the issue; do not send access tokens or ad-account credentials.
+For support, contact BluePrintAI Commerce at support@blueprintai.app. Include your Shopify store domain and a non-sensitive description of the issue. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.
 
 ---
 
@@ -76,4 +76,3 @@ If assistance is needed during review, contact: [PASTE THE STAFFED SUPPORT EMAIL
 - [ ] Confirm the test store is installable by Shopify reviewers without sharing a secret.
 - [ ] Attach or make reviewer-safe CSV/video assets accessible through Shopify's approved review mechanism.
 - [ ] Ensure these instructions do not conflict with older `REVIEWER_INSTRUCTIONS.md`; the current production connector behavior in this file takes precedence.
-

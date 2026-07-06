@@ -456,7 +456,7 @@ export default function SettingsRoute() {
                 ))}
               </div>
               <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 px-4 py-3 text-xs leading-5 text-slate-400">
-                Privacy or deletion requests: use the support contact published in the Shopify App Store listing. Include your Shopify store domain and enough detail to identify the workspace.
+                Privacy or deletion requests: contact BluePrintAI Commerce at support@blueprintai.app. Include your Shopify store domain and a non-sensitive description of the request. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.
               </p>
               <BillingNotice className="mt-4" />
             </SettingsPanel>

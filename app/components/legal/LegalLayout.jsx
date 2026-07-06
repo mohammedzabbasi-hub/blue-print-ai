@@ -1,9 +1,9 @@
 /* eslint-disable react/prop-types */
 import { Link } from "react-router";
-import { legalNavItems, legalPages } from "../../content/legal";
+import { BUSINESS_DETAILS, legalNavItems, legalPages, supportSentence } from "../../content/legal";
 
 // Keep policy behavior aligned with production data handling and the published
-// Shopify listing. Exact operator/contact details are configured outside UI copy.
+// Shopify listing. Keep operator/contact details centralized in legal content.
 
 export function LegalPage({ appPath = false, pageId }) {
   const page = legalPages[pageId] || legalPages.terms;
@@ -208,6 +208,9 @@ export function LegalFooter({ basePath = "" }) {
           </Link>
         ))}
       </nav>
+      <p className="mt-4 text-sm leading-6 text-slate-400">
+        BluePrintAI is operated by {BUSINESS_DETAILS.companyName}. {supportSentence}
+      </p>
     </footer>
   );
 }

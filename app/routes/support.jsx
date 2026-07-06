@@ -36,10 +36,12 @@ export default function SupportRoute() {
               </h2>
 
               <p className="mt-3 leading-7 text-slate-400">
-                Current Shopify embedded app workflows support saved creative
-                records, uploaded creative analysis, generated briefs,
-                recommendations, and revenue blueprints. TikTok Shop OAuth/API
-                connection is not live yet.
+                Google Ads reporting is available when configured and authorized.
+                The optional Google Ads integration is read-only/reporting-only
+                and cannot create, edit, pause, enable, delete, or launch ads or
+                campaigns. TikTok Ads and Meta Ads are not currently available.
+                CSV import, Shopify product context, and manual uploads remain
+                supported core data paths without connecting Google Ads.
               </p>
             </section>
 
@@ -64,10 +66,11 @@ export default function SupportRoute() {
               <h2 className="text-xl font-black text-white">Contact</h2>
 
               <p className="mt-3 leading-7 text-slate-400">
-                Use the support contact published in the Shopify App Store
-                listing for support, privacy, data deletion, billing, copyright,
-                or legal questions. Do not send passwords, API keys, access
-                tokens, or other secrets.
+                For support, contact BluePrintAI Commerce at
+                {" "}support@blueprintai.app. Include your Shopify store domain
+                and a non-sensitive description of the issue. Do not send
+                passwords, API keys, OAuth codes, access tokens, refresh tokens,
+                developer tokens, or private ad-account credentials.
               </p>
             </section>
           </div>

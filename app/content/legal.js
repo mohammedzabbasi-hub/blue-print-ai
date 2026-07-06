@@ -1,12 +1,14 @@
 export const BUSINESS_DETAILS = {
-  companyName: "BluePrintAI",
+  companyName: "BluePrintAI Commerce",
   effectiveDate: "July 1, 2026",
-  operatorLabel: "the BluePrintAI app operator",
-  supportChannel: "the Support page in BluePrintAI or the support contact published in the Shopify App Store listing",
+  operatorLabel: "BluePrintAI Commerce",
+  supportEmail: "support@blueprintai.app",
+  supportChannel: "BluePrintAI Commerce at support@blueprintai.app",
 };
 
 const LEGAL_PLACEHOLDERS = BUSINESS_DETAILS;
-const contactSentence = `For questions or requests, use ${BUSINESS_DETAILS.supportChannel}. Include your Shopify store domain and do not send passwords, API keys, or access tokens.`;
+export const supportSentence = `For support, contact ${BUSINESS_DETAILS.supportChannel}. Include your Shopify store domain and a non-sensitive description of the issue. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.`;
+const contactSentence = supportSentence;
 const refundPosition =
   "BluePrintAI is currently free during its MVP/testing period. We do not currently charge users directly for access to the app. If paid Shopify billing is introduced in the future, charges, cancellations, and refunds will be handled through Shopify's billing system and according to the refund terms presented at the time of purchase.";
 
@@ -20,7 +22,7 @@ export const legalPages = {
     sections: [
       {
         title: "Service Operator",
-        body: `BluePrintAI is provided by ${LEGAL_PLACEHOLDERS.operatorLabel}. Current operator and support contact details are published through the Shopify App Store listing and the app's Support page.`,
+        body: `BluePrintAI is operated by ${LEGAL_PLACEHOLDERS.operatorLabel}.`,
       },
       {
         title: "App Description",
@@ -60,7 +62,7 @@ export const legalPages = {
       },
       {
         title: "Intellectual Property",
-        body: "BluePrintAI, its design, software, workflows, names, and documentation are owned by the app operator or its licensors. You may not copy, modify, reverse engineer, or misuse the app except as allowed by law or a written agreement.",
+        body: "BluePrintAI, its design, software, workflows, names, and documentation are owned by BluePrintAI Commerce or its licensors. You may not copy, modify, reverse engineer, or misuse the app except as allowed by law or a written agreement.",
       },
       {
         title: "Billing, Subscriptions, Trials, Cancellations, And Refunds",
@@ -76,11 +78,11 @@ export const legalPages = {
       },
       {
         title: "Warranty Disclaimer",
-        body: "BluePrintAI is provided on an as-available basis. To the extent permitted by applicable law, the app operator disclaims warranties not expressly stated in these Terms, including implied warranties of merchantability, fitness for a particular purpose, and non-infringement.",
+        body: "BluePrintAI is provided on an as-available basis. To the extent permitted by applicable law, BluePrintAI Commerce disclaims warranties not expressly stated in these Terms, including implied warranties of merchantability, fitness for a particular purpose, and non-infringement.",
       },
       {
         title: "Limitation Of Liability",
-        body: "To the extent permitted by applicable law, the app operator is not responsible for indirect, incidental, special, consequential, or punitive damages, or for lost profits, revenue, data, or business opportunities arising from use of the app or reliance on its outputs.",
+        body: "To the extent permitted by applicable law, BluePrintAI Commerce is not responsible for indirect, incidental, special, consequential, or punitive damages, or for lost profits, revenue, data, or business opportunities arising from use of the app or reliance on its outputs.",
       },
       {
         title: "Indemnification",
@@ -92,7 +94,7 @@ export const legalPages = {
       },
       {
         title: "Governing Law",
-        body: "These Terms are governed by the laws that apply to the app operator and the merchant, without overriding any mandatory rights available under applicable law.",
+        body: "These Terms are governed by the laws that apply to BluePrintAI Commerce and the merchant, without overriding any mandatory rights available under applicable law.",
       },
       {
         title: "Dispute Resolution",
@@ -125,7 +127,7 @@ export const legalPages = {
       },
       {
         title: "Google Ads Authorization And Data",
-        body: "Google Ads data is accessed only after a merchant authorizes BluePrintAI. The app stores the connection per Shopify store, protects the refresh token server-side, and does not persist Google access tokens. Authorized users can disconnect Google Ads from Connections. Synced Google Ads metrics remain identified as connected-platform data and are distinct from manual, CSV-imported, and clearly labeled demo data; demo or fabricated metrics are not presented as Google Ads results.",
+        body: "Google Ads is an optional, read-only/reporting-only integration available when configured and authorized. It does not create, edit, pause, enable, delete, or launch ads or campaigns. The app stores the connection per Shopify store, protects the refresh token server-side, and does not persist Google access tokens. Authorized users can disconnect Google Ads from Connections. CSV import, Shopify product context, and manual uploads remain available without connecting Google Ads. Synced Google Ads metrics remain identified as connected-platform data and are distinct from manual, CSV-imported, and clearly labeled demo data; demo or fabricated metrics are not presented as Google Ads results.",
       },
       {
         title: "Prompt And Input Data",
@@ -181,7 +183,7 @@ export const legalPages = {
       },
       {
         title: "International Data Transfers",
-        body: "BluePrintAI and its service providers may process information in countries other than the merchant's location. Where required, the app operator uses appropriate contractual or legal safeguards for those transfers.",
+        body: "BluePrintAI and its service providers may process information in countries other than the merchant's location. Where required, BluePrintAI Commerce uses appropriate contractual or legal safeguards for those transfers.",
       },
       {
         title: "Security Safeguards",
@@ -189,7 +191,7 @@ export const legalPages = {
       },
       {
         title: "Breach And Contact Procedure",
-        body: `Use ${LEGAL_PLACEHOLDERS.supportChannel} for security, privacy, or data-protection questions. The app operator will investigate reported incidents and provide notices when required by applicable law.`,
+        body: `Use ${LEGAL_PLACEHOLDERS.supportChannel} for security, privacy, or data-protection questions. BluePrintAI Commerce will investigate reported incidents and provide notices when required by applicable law.`,
       },
       {
         title: "Changes To Policy",
@@ -424,7 +426,7 @@ export const legalPages = {
       },
       {
         title: "Operator Details",
-        body: "Current app-operator and support details are published in the Shopify App Store listing.",
+        body: "BluePrintAI is operated by BluePrintAI Commerce.",
       },
       {
         title: "Official Support Channel",
@@ -432,7 +434,7 @@ export const legalPages = {
       },
       {
         title: "Service Name",
-        body: LEGAL_PLACEHOLDERS.companyName,
+        body: "BluePrintAI, operated by BluePrintAI Commerce",
       },
       {
         title: "Privacy And Data Deletion Requests",
@@ -457,7 +459,7 @@ export const legalPages = {
       },
       {
         title: "Requesting Deletion While Installed",
-        body: `The app does not currently provide a user-facing control that deletes the entire workspace while it remains installed. To request deletion, use ${LEGAL_PLACEHOLDERS.supportChannel} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, or access tokens.`,
+        body: `The app does not currently provide a user-facing control that deletes the entire workspace while it remains installed. To request deletion, contact ${LEGAL_PLACEHOLDERS.supportChannel} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.`,
       },
       {
         title: "Request Handling",

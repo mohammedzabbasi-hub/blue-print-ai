@@ -16,8 +16,8 @@ These actions require the owner, hosting environment, Shopify Dashboard, or exte
 
 ## P0 — owner/legal/support
 
-- [ ] Publish the real operator/legal entity disclosures required for the listing and jurisdiction.
-- [ ] Publish one staffed support contact in the Shopify listing.
+- [ ] Publish BluePrintAI Commerce as the operator and complete any additional entity disclosures required for the listing and jurisdiction.
+- [ ] Publish and test support@blueprintai.app in the Shopify listing.
 - [ ] Make that contact operational for support, privacy, deletion, copyright, security, and billing questions.
 - [ ] Obtain qualified review/approval of Terms, Privacy, retention, transfer, incident, dispute, and deletion procedures.
 - [ ] Define internal identity verification and response-time procedures for privacy/deletion requests.

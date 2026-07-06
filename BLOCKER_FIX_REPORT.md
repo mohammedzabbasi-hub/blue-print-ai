@@ -57,7 +57,7 @@ These pages still require owner/qualified review. Neutral copy is not a substitu
 
 1. A real deployed HTTPS URL has not been supplied. `shopify.app.toml` must be updated before `shopify app deploy`.
 2. The owner must publish and staff a real support contact and ensure it matches the Support page, privacy process, and listing.
-3. The owner should obtain qualified review of the Terms and Privacy Policy and provide real operator/entity disclosures required for their jurisdiction.
+3. The owner should obtain qualified review of the Terms and Privacy Policy and complete any additional BluePrintAI Commerce entity disclosures required for their jurisdiction.
 4. Production PostgreSQL, private object storage, analyzer deployment (if advertised), webhooks, clean install/uninstall, and embedded-browser behavior remain unverified.
 5. The existing heuristic formulas are now honestly labeled but remain directional formulas. Longer-term, replace them with user-selected real metrics or documented methodology.
 6. Catalogs above 1,000 products receive a visible partial-context warning rather than unbounded loading.

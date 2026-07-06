@@ -31,8 +31,9 @@
 ## Support and legal
 
 - [x] Public and embedded privacy, terms, support, contact, deletion, AI disclaimer, refund, cookies, and acceptable-use routes exist.
-- [ ] Finalize legal operator identity, address/jurisdiction as applicable, effective date, subprocessors/retention, and qualified legal review.
-- [ ] Publish and test a professional support email/contact; match it in the listing and app pages.
+- [x] App pages identify BluePrintAI Commerce as the operator and support@blueprintai.app as the owner-approved support email.
+- [ ] Finalize address/jurisdiction as applicable, effective date, subprocessors/retention, and qualified legal review.
+- [ ] Publish and test support@blueprintai.app; match it in the listing and app pages.
 
 ## Listing and screenshots
 
@@ -81,4 +82,3 @@
 - [ ] `git status --short`
 - [ ] `git diff --stat`
 - [ ] Run `./scripts/review-check.sh` in the deployed commit/environment where appropriate.
-

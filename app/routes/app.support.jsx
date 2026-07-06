@@ -50,19 +50,23 @@ export default function AppSupportRoute() {
         <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
           <h2 className="text-2xl font-black">Known Limitations</h2>
           <p className="mt-4 leading-7 text-slate-400">
-            Direct ad-platform connections are optional and not currently
-            available. Shopify product context, CSV imports, and manual uploads
-            remain the supported core data paths.
+            Google Ads reporting is available when configured and authorized.
+            The optional Google Ads integration is read-only/reporting-only and
+            cannot create, edit, pause, enable, delete, or launch ads or
+            campaigns. TikTok Ads and Meta Ads are not currently available. CSV
+            import, Shopify product context, and manual uploads remain supported
+            core data paths without connecting Google Ads.
           </p>
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
           <h2 className="text-2xl font-black">Contact Guidance</h2>
           <p className="mt-4 leading-7 text-slate-400">
-            Use the support contact published in the Shopify App Store listing.
-            Include your store domain, the page or workflow, what you expected,
-            and what happened. Do not send passwords, API keys, private tokens,
-            or other secrets.
+            For support, contact BluePrintAI Commerce at
+            {" "}support@blueprintai.app. Include your Shopify store domain and a
+            non-sensitive description of the issue. Do not send passwords, API
+            keys, OAuth codes, access tokens, refresh tokens, developer tokens,
+            or private ad-account credentials.
           </p>
         </section>
       </div>

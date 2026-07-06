@@ -10,7 +10,7 @@ Complete this against the active production configuration and listing immediatel
 | App proxy | Not configured because the repository declares no app proxy. If Dashboard differs, stop and reconcile before submission | ☐ |  |
 | Distribution type | Select the intended public App Store distribution; confirm it matches the submission and is not a custom/single-merchant distribution by mistake | ☐ |  |
 | Pricing / free listing | **Free**; no recurring, one-time, usage, or external charge. Production uses `SHOPIFY_BILLING_REQUIRED=false` and `SHOPIFY_BILLING_BYPASS=false` | ☐ |  |
-| Contact/support email | Real, staffed, owner-approved address; matches public Support page and reviewer instructions; test receipt/reply without exposing it in repo screenshots unnecessarily | ☐ |  |
+| Contact/support email | `support@blueprintai.app`; owner-approved address for BluePrintAI Commerce; matches public Support page and reviewer instructions; test receipt/reply without exposing messages in repo screenshots | ☐ |  |
 | Privacy URL | `https://blueprintai-app.onrender.com/privacy`; public, HTTPS, current, no placeholders | ☐ |  |
 | Terms URL | `https://blueprintai-app.onrender.com/terms`; public, HTTPS, current, no placeholders | ☐ |  |
 | Support URL | `https://blueprintai-app.onrender.com/support`; public, HTTPS, matches staffed contact/process | ☐ |  |
@@ -36,7 +36,7 @@ Complete this against the active production configuration and listing immediatel
 - [ ] Active redirects, scopes, embedded setting, and webhooks match `shopify.app.toml` exactly.
 - [ ] Listing claims match the behavior observed during the clean install and Google Ads tests.
 - [ ] All manual evidence rows pass and screenshot inventory is complete.
-- [ ] No unresolved owner/legal placeholder, private test credential, or stale tunnel URL appears in the listing or public pages.
+- [ ] The listing identifies BluePrintAI Commerce as operator and support@blueprintai.app as the support email; no unresolved legal placeholder, private test credential, or stale tunnel URL appears in the listing or public pages.
 
 ## Consolidated references
 
@@ -47,4 +47,3 @@ Complete this against the active production configuration and listing immediatel
 - `SHOPIFY_REVIEW_TEST_SCRIPT.md` — deeper clean-store QA matrix.
 - `SHOPIFY_SUBMISSION_HANDOFF.md` and `MANUAL_SUBMISSION_TODO.md` — previous owner/infrastructure handoff; historical test counts and connector availability may be outdated.
 - `FINAL_SHOPIFY_REVIEW_AUDIT.md`, `SHOPIFY_REVIEW_SIMULATION_REPORT.md`, `WEBHOOK_READINESS_REPORT.md`, and `STORAGE_PRODUCTION_REPORT.md` — supporting code-side audit history.
-

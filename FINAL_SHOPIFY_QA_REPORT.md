@@ -84,7 +84,7 @@ Analyzer, optional connectors, and paid billing variables are not required for t
 | Data Import | Required/optional columns, 500-row/2 MB constraints, preview, errors, warnings, confirm, success summary, and destinations are visible. | Strong automated coverage; browser file E2E required. |
 | Settings | Manual/Shopify product context, preferences, legal links, and neutral support routing exist. | Ready; production save/refresh required. |
 | Onboarding | Supports catalog, primary product, and manual product context; legal acceptance links exist; skip remains usable. | Catalog limit copy fixed; clean install required. |
-| Terms / Privacy / Support | Public and embedded routes are linked and contain no owner-action markers or personal Gmail. | Owner must publish actual operator/support details and approve policies. |
+| Terms / Privacy / Support | Public and embedded routes are linked and contain no owner-action markers or personal Gmail. | BluePrintAI Commerce and support@blueprintai.app must match the listing; owner must approve policies. |
 | Connections | Direct ad-platform cards are disabled as “Coming soon”; CSV import remains the active alternative. | Optional and non-blocking. Underlying direct OAuth routes should not be advertised in reviewer notes. |
 
 ## Upload and import provenance
@@ -102,7 +102,7 @@ Analyzer, optional connectors, and paid billing variables are not required for t
 
 1. Real deployment origin and callback are not yet configured in TOML/Dashboard.
 2. No clean Shopify install, iframe navigation, uninstall/reinstall, or webhook delivery has been executed against this exact build.
-3. Actual operator/legal entity and staffed support contact are not published; neutral UI wording is not a replacement for owner disclosure.
+3. BluePrintAI Commerce and support@blueprintai.app must be published consistently in the listing, and any additional required legal-entity disclosures still need owner review.
 4. Production PostgreSQL and private S3 behavior are not verified.
 5. Analyzer is disabled by default. Either deploy it or ensure the listing/reviewer notes describe upload-only behavior.
 6. Browser/mobile/keyboard/console QA could not be executed in this environment.

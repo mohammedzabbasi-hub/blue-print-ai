@@ -834,7 +834,7 @@ export default function CreativeLibraryRoute() {
       {visibleCreatives.length === 0 && (
         <EmptyWorkspaceState
           title="No creatives yet"
-          description="Upload a creative, use the analyzer when configured, or import CSV performance data to begin building this shop's Creative Library. Direct ad-platform connections are optional and currently unavailable."
+          description="Upload a creative, use the analyzer when configured, or import CSV performance data to begin building this shop's Creative Library. Optional read-only Google Ads reporting is available when configured and authorized; TikTok Ads and Meta Ads are not currently available. CSV import remains available without connecting Google Ads."
           primaryText="Open Review Studio"
           primaryLink="/app/video-analysis"
           secondaryText="Import CSV Data"

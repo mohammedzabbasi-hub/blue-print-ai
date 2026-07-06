@@ -48,9 +48,9 @@ Shopify CLI requires concrete URLs in `shopify.app.toml`; it does not substitute
 
 ## Support/legal owner actions
 
-- [ ] Publish a real staffed support contact in the Shopify App Store listing.
+- [ ] Publish and test support@blueprintai.app in the Shopify App Store listing.
 - [ ] Ensure the listing contact is also the operational route for support, privacy, copyright, billing, and deletion requests.
-- [ ] Publish the actual operator/legal entity details required for the owner's jurisdiction and listing.
+- [ ] Publish BluePrintAI Commerce as the operator and complete any additional entity details required for the owner's jurisdiction and listing.
 - [ ] Obtain qualified review of Terms, Privacy, retention, transfers, dispute, liability, and deletion procedures.
 - [ ] Verify support and deletion requests can be received, authenticated to a shop, answered, and logged.
 
