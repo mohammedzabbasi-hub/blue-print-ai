@@ -1,18 +1,23 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   buildGoogleAdsDemoRows,
   clearGoogleAdsDemoData,
+  createConnection,
+  normalizeShopIdentifier,
   seedGoogleAdsDemoData,
 } from "./ad-platform-connection.server.js";
 
-function demoClient(initialRows = []) {
+function demoClient(initialRows = [], connectionOverrides = {}) {
   const rows = [...initialRows];
+  const connection = { id: "connection-1", shop: "demo.myshopify.com", platform: "google", externalAccountId: "1234567890", encryptedRefreshToken: "encrypted-token", status: "connected", ...connectionOverrides };
   const client = {
     rows,
+    connection,
     adPlatformConnection: {
-      findUnique: async () => ({ id: "connection-1", shop: "demo.myshopify.com", platform: "google", externalAccountId: "1234567890" }),
+      findUnique: async () => connection,
     },
     adPerformanceDaily: {
       upsert: async ({ create }) => {
@@ -24,7 +29,7 @@ function demoClient(initialRows = []) {
       deleteMany: async ({ where }) => {
         const before = rows.length;
         for (let index = rows.length - 1; index >= 0; index -= 1) {
-          if (rows[index].shop === where.shop && rows[index].platform === where.platform && rows[index].isDemo === where.isDemo) rows.splice(index, 1);
+          if (rows[index].shop === where.shop && rows[index].platform === where.platform && rows[index].source === where.source && rows[index].isDemo === where.isDemo) rows.splice(index, 1);
         }
         return { count: before - rows.length };
       },
@@ -38,7 +43,51 @@ test("connected account with zero rows shows the demo load action", async () => 
   const source = await readFile(new URL("../routes/app.connections.jsx", import.meta.url), "utf8");
   assert.match(source, /Google Ads connected\. No live performance rows were found for this account\./);
   assert.match(source, /Load demo Google Ads data/);
-  assert.match(source, /get\("synced"\) === "0"/);
+  assert.match(source, /googleLiveRowCount === 0/);
+  assert.doesNotMatch(source, /get\("synced"\) === "0"/);
+});
+
+test("OAuth connection upsert and loader use the same normalized shop identifier", async () => {
+  const previousKey = process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY;
+  process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  let operation;
+  const client = {
+    adPlatformConnection: {
+      upsert: async (input) => {
+        operation = input;
+        return input.create;
+      },
+    },
+  };
+
+  try {
+    const connection = await createConnection("  Demo.MyShopify.Com  ", {
+      platform: "google",
+      status: "connected",
+      externalAccountId: "123-456-7890",
+      refreshToken: "oauth-refresh-token",
+    }, { client });
+    assert.equal(connection.shop, "demo.myshopify.com");
+    assert.equal(connection.platform, "google");
+    assert.equal(connection.status, "connected");
+    assert.equal(connection.externalAccountId, "123-456-7890");
+    assert.ok(connection.encryptedRefreshToken);
+    assert.deepEqual(operation.where, {
+      shop_platform: { shop: "demo.myshopify.com", platform: "google" },
+    });
+    assert.equal(normalizeShopIdentifier("DEMO.MYSHOPIFY.COM"), connection.shop);
+  } finally {
+    if (previousKey === undefined) delete process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY;
+    else process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY = previousKey;
+  }
+});
+
+test("OAuth callback persists Google Ads authorization before redirecting", async () => {
+  const source = await readFile(new URL("../routes/auth.google-ads.callback.jsx", import.meta.url), "utf8");
+  assert.match(source, /await createConnection\(stateData\.shop/);
+  assert.match(source, /platform: "google"/);
+  assert.match(source, /refreshToken: tokens\.refresh_token/);
+  assert.match(source, /status: "needs_account_selection"/);
 });
 
 test("loading demo Google Ads data creates realistic labeled rows", async () => {
@@ -56,6 +105,8 @@ test("loading demo Google Ads data creates realistic labeled rows", async () => 
   assert.equal(payload.source, "demo");
   assert.equal(payload.isDemo, true);
   assert.ok(payload.costMicros > 0 && payload.ctr > 0 && payload.cpc > 0 && payload.roas > 0);
+  assert.equal(client.connection.encryptedRefreshToken, "encrypted-token");
+  assert.equal(client.connection.status, "connected");
 });
 
 test("demo row builder includes all requested daily metrics", () => {
@@ -73,4 +124,6 @@ test("clearing demo rows removes only demo rows and preserves real sync rows", a
   const result = await clearGoogleAdsDemoData("demo.myshopify.com", { client });
   assert.equal(result.count, 1);
   assert.deepEqual(client.rows, [real, otherShopDemo]);
+  assert.equal(client.connection.externalAccountId, "1234567890");
+  assert.equal(client.connection.encryptedRefreshToken, "encrypted-token");
 });

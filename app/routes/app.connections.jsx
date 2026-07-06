@@ -18,6 +18,7 @@ import {
 import {
   disconnectPlatform,
   countGoogleAdsDemoRows,
+  countGoogleAdsLiveRows,
   getConnectionByPlatform,
   getConnectionsForShop,
   updateConnectionAccount,
@@ -55,9 +56,10 @@ export const meta = () => [{ title: "Connections | BluePrintAI" }];
 
 export const loader = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
-  const [connections, googleDemoRowCount] = await Promise.all([
+  const [connections, googleDemoRowCount, googleLiveRowCount] = await Promise.all([
     getConnectionsForShop(session.shop),
     countGoogleAdsDemoRows(session.shop),
+    countGoogleAdsLiveRows(session.shop),
   ]);
 
   const googleConfiguration = getGoogleAdsIntegrationStatus();
@@ -73,6 +75,7 @@ export const loader = async ({ request }) => {
     })),
     googleConfiguration,
     googleDemoRowCount,
+    googleLiveRowCount,
     shop: session.shop,
   };
 };
@@ -124,7 +127,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ConnectionsRoute() {
-  const { connections, googleConfiguration, googleDemoRowCount, shop } = useLoaderData();
+  const { connections, googleConfiguration, googleDemoRowCount, googleLiveRowCount, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
@@ -180,6 +183,7 @@ export default function ConnectionsRoute() {
             platform={platform}
             googleConfiguration={googleConfiguration}
             googleDemoRowCount={googleDemoRowCount}
+            googleLiveRowCount={googleLiveRowCount}
             search={location.search}
             shop={shop}
             submitting={navigation.state === "submitting"}
@@ -210,7 +214,7 @@ export default function ConnectionsRoute() {
   );
 }
 
-function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, platform, search, shop, submitting }) {
+function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, googleLiveRowCount, platform, search, shop, submitting }) {
   const available = platform.available === "configured" ? googleConfiguration.ok : platform.available;
   const connected = Boolean(connection) && platform.id === "google";
   const visibleConnection = connected ? connection : null;
@@ -248,6 +252,11 @@ function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, pla
           <p className="mt-1 truncate text-sm font-semibold text-slate-200">
             {visibleConnection?.externalAccountId ? visibleConnection.externalAccountName : connected ? "Select an ad account" : "No active connection"}
           </p>
+          {visibleConnection?.externalAccountId && (
+            <p className="mt-1 text-xs text-slate-400">
+              Google Ads customer ID: {visibleConnection.externalAccountId}
+            </p>
+          )}
           {visibleConnection?.lastSyncedAt && (
             <p className="mt-1 text-xs text-slate-500">
               Last synced {new Date(visibleConnection.lastSyncedAt).toLocaleString()}
@@ -261,7 +270,7 @@ function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, pla
           </p>
         )}
 
-        {platform.id === "google" && connected && new URLSearchParams(search).get("synced") === "0" && (
+        {platform.id === "google" && connected && visibleConnection?.externalAccountId && googleLiveRowCount === 0 && (
           <p className="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-100">
             Google Ads connected. No live performance rows were found for this account.
           </p>
@@ -321,7 +330,7 @@ function PlatformCard({ connection, googleConfiguration, googleDemoRowCount, pla
             <>
               <Form action={syncPath} method="post">
                 <button className="bp-primary-cta" disabled={submitting} type="submit">
-                  <RefreshCw aria-hidden="true" size={15} /> Sync now
+                  <RefreshCw aria-hidden="true" size={15} /> Sync latest data
                 </button>
               </Form>
               <Form action={withEmbeddedRouteParams("/app/connections/google-ads/demo", search)} method="post">
@@ -364,7 +373,7 @@ function StatusBadge({ available, connected, needsSelection, setupRequired }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-black ${connected ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200" : "border-slate-500/30 bg-slate-950/50 text-slate-300"}`}>
       {connected && <CheckCircle2 aria-hidden="true" size={13} />}
-      {needsSelection ? "Authorized · select account" : connected ? "Ready to sync" : setupRequired ? "Setup required" : available ? "Disconnected" : "Coming soon"}
+      {needsSelection ? "Connected · select account" : connected ? "Connected" : setupRequired ? "Setup required" : available ? "Disconnected" : "Coming soon"}
     </span>
   );
 }

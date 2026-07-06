@@ -3,6 +3,7 @@ import prisma from "../db.server.js";
 import { encryptToken } from "../utils/token-encryption.server.js";
 
 const SUPPORTED_PLATFORMS = new Set(["tiktok", "meta", "google"]);
+export const GOOGLE_ADS_PLATFORM = "google";
 
 function normalizePlatform(platform) {
   const normalized = String(platform || "").trim().toLowerCase();
@@ -14,7 +15,7 @@ function normalizePlatform(platform) {
   return normalized;
 }
 
-function requireShop(shop) {
+export function normalizeShopIdentifier(shop) {
   const normalized = String(shop || "").trim().toLowerCase();
   if (!normalized) throw new Error("A Shopify shop is required.");
   return normalized;
@@ -51,8 +52,8 @@ function connectionTokenData(input, { requireToken = false } = {}) {
   return data;
 }
 
-export async function createConnection(shop, input) {
-  const normalizedShop = requireShop(shop);
+export async function createConnection(shop, input, { client = prisma } = {}) {
+  const normalizedShop = normalizeShopIdentifier(shop);
   const platform = normalizePlatform(input.platform);
   const tokenData = connectionTokenData(input, { requireToken: true });
   const sharedData = {
@@ -72,7 +73,7 @@ export async function createConnection(shop, input) {
     ...tokenData,
   };
 
-  return prisma.adPlatformConnection.upsert({
+  return client.adPlatformConnection.upsert({
     where: { shop_platform: { shop: normalizedShop, platform } },
     create: { shop: normalizedShop, platform, ...sharedData },
     update: sharedData,
@@ -81,7 +82,7 @@ export async function createConnection(shop, input) {
 
 export function getConnectionsForShop(shop) {
   return prisma.adPlatformConnection.findMany({
-    where: { shop: requireShop(shop) },
+    where: { shop: normalizeShopIdentifier(shop), status: { not: "disconnected" } },
     orderBy: { updatedAt: "desc" },
   });
 }
@@ -90,7 +91,7 @@ export function getConnectionByPlatform(shop, platform) {
   return prisma.adPlatformConnection.findUnique({
     where: {
       shop_platform: {
-        shop: requireShop(shop),
+        shop: normalizeShopIdentifier(shop),
         platform: normalizePlatform(platform),
       },
     },
@@ -101,7 +102,7 @@ export function updateConnectionTokens(shop, platform, input) {
   return prisma.adPlatformConnection.update({
     where: {
       shop_platform: {
-        shop: requireShop(shop),
+        shop: normalizeShopIdentifier(shop),
         platform: normalizePlatform(platform),
       },
     },
@@ -113,7 +114,7 @@ export function updateConnectionAccount(shop, platform, input) {
   return prisma.adPlatformConnection.update({
     where: {
       shop_platform: {
-        shop: requireShop(shop),
+        shop: normalizeShopIdentifier(shop),
         platform: normalizePlatform(platform),
       },
     },
@@ -133,7 +134,7 @@ export function updateConnectionAccount(shop, platform, input) {
 export function disconnectPlatform(shop, platform) {
   return prisma.adPlatformConnection.deleteMany({
     where: {
-      shop: requireShop(shop),
+      shop: normalizeShopIdentifier(shop),
       platform: normalizePlatform(platform),
     },
   });
@@ -297,7 +298,7 @@ export function buildGoogleAdsDemoRows({ days = 30, endDate = new Date() } = {})
 }
 
 export async function seedGoogleAdsDemoData(shop, { client = prisma, endDate } = {}) {
-  const normalizedShop = requireShop(shop);
+  const normalizedShop = normalizeShopIdentifier(shop);
   const connection = await client.adPlatformConnection.findUnique({
     where: { shop_platform: { shop: normalizedShop, platform: "google" } },
   });
@@ -321,12 +322,33 @@ export async function seedGoogleAdsDemoData(shop, { client = prisma, endDate } =
 
 export async function clearGoogleAdsDemoData(shop, { client = prisma } = {}) {
   return client.adPerformanceDaily.deleteMany({
-    where: { shop: requireShop(shop), platform: "google", isDemo: true },
+    where: {
+      shop: normalizeShopIdentifier(shop),
+      platform: GOOGLE_ADS_PLATFORM,
+      source: "demo",
+      isDemo: true,
+    },
   });
 }
 
 export function countGoogleAdsDemoRows(shop) {
   return prisma.adPerformanceDaily.count({
-    where: { shop: requireShop(shop), platform: "google", isDemo: true },
+    where: {
+      shop: normalizeShopIdentifier(shop),
+      platform: GOOGLE_ADS_PLATFORM,
+      source: "demo",
+      isDemo: true,
+    },
+  });
+}
+
+export function countGoogleAdsLiveRows(shop) {
+  return prisma.adPerformanceDaily.count({
+    where: {
+      shop: normalizeShopIdentifier(shop),
+      platform: GOOGLE_ADS_PLATFORM,
+      source: "live",
+      isDemo: false,
+    },
   });
 }

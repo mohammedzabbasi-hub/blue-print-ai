@@ -11,8 +11,10 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
     source("routes/app.connections.google-ads.disconnect.jsx"),
   ]);
 
-  assert.match(connections, /Authorized · select account/);
-  assert.match(connections, /Ready to sync/);
+  assert.match(connections, /Connected · select account/);
+  assert.match(connections, /connected \? "Connected"/);
+  assert.match(connections, /Sync latest data/);
+  assert.match(connections, /googleLiveRowCount === 0/);
   assert.match(connections, /query\.get\("disconnected"\)/);
   assert.match(connections, /query\.get\("warning"\)/);
   assert.match(connections, /0} daily performance rows synced/);
