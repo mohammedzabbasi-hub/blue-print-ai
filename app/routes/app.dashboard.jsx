@@ -323,7 +323,8 @@ function buildCommandCenterData({
     briefs.length > 0 ||
     blueprints.length > 0 ||
     campaigns.length > 0 ||
-    effectivenessRecords.length > 0;
+    effectivenessRecords.length > 0 ||
+    (performanceData.dailyRecords || []).length > 0;
   const productContext = buildProductContext({
     shopifyProducts: merchantData.products || [],
     performanceRecords: performanceData.records || [],
@@ -337,7 +338,7 @@ function buildCommandCenterData({
       analyses.length > 0 || creatives.length > 0 || effectivenessRecords.length > 0,
     hasTimeSeriesData:
       new Set(
-        effectivenessRecords
+        [...effectivenessRecords, ...(performanceData.dailyRecords || [])]
           .filter(hasReportingDate)
           .map((record) => record.reportingDate || record.date)
           .filter(Boolean)

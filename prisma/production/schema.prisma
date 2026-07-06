@@ -318,6 +318,8 @@ model AdPerformanceDaily {
   connectionId        String?
   shop                String
   platform            String
+  source              String                @default("live")
+  isDemo              Boolean               @default(false)
   rowKey              String
   externalAccountId   String
   externalAccountName String?
@@ -346,4 +348,5 @@ model AdPerformanceDaily {
   @@index([shop, reportingDate])
   @@index([shop, platform, externalAccountId])
   @@index([connectionId, reportingDate])
+  @@index([shop, platform, isDemo])
 }

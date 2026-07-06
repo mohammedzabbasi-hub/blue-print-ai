@@ -350,7 +350,9 @@ export async function listCreativePerformance({
     videoViews: record.videoViews,
     platform: record.platform === "google" ? "Google Ads" : record.platform,
     sourcePlatform: record.platform,
-    sourceType: "ad_platform_sync",
+    source: record.source,
+    isDemo: record.isDemo,
+    sourceType: record.isDemo ? "demo" : "ad_platform_sync",
     sourceRecordType: "ad_platform_daily",
   });
   });
@@ -396,14 +398,14 @@ export async function listCreativePerformance({
   );
 
   return {
-    hasDemoPerformanceData: records.some(
+    hasDemoPerformanceData: connectedDailyRecords.some((record) => record.isDemo) || records.some(
       (record) => record.sourcePlatform === "shopify_demo",
     ),
     hasImportedPerformanceData: records.some((record) => {
       const source = `${record.importSource || ""} ${record.sourceRecordType || ""} ${record.sourceType || ""}`.toLowerCase();
       return source.includes("import") || source.includes("csv");
     }),
-    hasMeasuredPerformanceData: connectedDailyRecords.length > 0 || records.some(
+    hasMeasuredPerformanceData: connectedDailyRecords.some((record) => !record.isDemo) || records.some(
       (record) =>
         record.sourcePlatform !== "shopify_demo" && hasPerformanceMetrics(record),
     ),
