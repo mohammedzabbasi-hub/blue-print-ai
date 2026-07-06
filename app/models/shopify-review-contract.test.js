@@ -15,6 +15,8 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(connections, /Connected · select account/);
   assert.match(connections, /connected \? "Connected"/);
   assert.match(connections, /Sync latest data/);
+  assert.match(connections, /Manage campaigns/);
+  assert.match(connections, /Campaign sync scope/);
   assert.match(connections, /Disconnect/);
   assert.match(connections, /googleLiveRowCount === 0/);
   assert.equal(connections.includes(["Load demo", "Google Ads data"].join(" ")), false);
@@ -26,6 +28,9 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(disconnect, /disconnectPlatform\(session\.shop, "google"\)/);
   assert.match(disconnect, /export const loader = \(\) => new Response\("Method not allowed", \{ status: 405/);
   assert.match(sync, /externalAccountId/);
+  assert.match(sync, /Select at least one campaign before syncing\./);
+  assert.match(sync, /campaignIds: syncScope\.campaignIds/);
+  assert.match(sync, /removeGoogleAdsRowsOutsideCampaignScope/);
 });
 
 test("dashboard empty state and manual CSV import remain available", async () => {
@@ -44,15 +49,16 @@ test("dashboard empty state and manual CSV import remain available", async () =>
 });
 
 test("Google Ads integration remains reporting-only", async () => {
-  const [service, sync] = await Promise.all([
+  const [service, sync, campaignRoute] = await Promise.all([
     source("services/google-ads.server.js"),
     source("routes/app.connections.google.sync.jsx"),
+    source("routes/app.connections.google-ads.campaigns.jsx"),
   ]);
 
   assert.match(service, /googleAds:searchStream/);
   assert.match(service, /customers:listAccessibleCustomers/);
   assert.doesNotMatch(
-    `${service}\n${sync}`,
+    `${service}\n${sync}\n${campaignRoute}`,
     /googleAds:(?:mutate|upload)|campaigns:(?:create|update|remove)|adGroups:(?:create|update|remove)/i,
   );
 });

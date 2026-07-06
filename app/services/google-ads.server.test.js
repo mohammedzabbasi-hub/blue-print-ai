@@ -5,6 +5,8 @@ import { buildIntegrationStatuses } from "../models/creative-performance.server.
 import {
   fetchAccessibleGoogleAdsCustomers,
   fetchGoogleAdsCampaignMetrics,
+  fetchGoogleAdsCampaigns,
+  googleAdsCampaignFilter,
   getGoogleAdsIntegrationStatus,
   getGoogleAdsOAuthConfig,
   normalizeGoogleAdsMetricRow,
@@ -150,6 +152,34 @@ test("Google Ads search uses the selected child customer and accepts zero rows",
     if (previousToken === undefined) delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
     else process.env.GOOGLE_ADS_DEVELOPER_TOKEN = previousToken;
   }
+});
+
+test("Google Ads campaign discovery uses read-only GAQL and normalizes campaign fields", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  process.env.GOOGLE_ADS_DEVELOPER_TOKEN = "developer-test-value";
+  let requestedBody = "";
+  global.fetch = async (_url, options) => {
+    requestedBody = String(options.body);
+    return new Response(JSON.stringify([{ results: [{ campaign: { id: "7", name: "Brand", status: "ENABLED", advertisingChannelType: "SEARCH" } }] }]), { status: 200 });
+  };
+  try {
+    assert.deepEqual(await fetchGoogleAdsCampaigns({ accessToken: "access", customerId: "123" }), [{
+      campaignId: "7", campaignName: "Brand", campaignStatus: "ENABLED", advertisingChannelType: "SEARCH",
+    }]);
+    assert.match(requestedBody, /campaign\.advertising_channel_type/);
+    assert.match(requestedBody, /ORDER BY campaign\.name/);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    else process.env.GOOGLE_ADS_DEVELOPER_TOKEN = previousToken;
+  }
+});
+
+test("selected campaign IDs produce a safe GAQL filter while all mode stays unfiltered", () => {
+  assert.equal(googleAdsCampaignFilter(undefined), "");
+  assert.match(googleAdsCampaignFilter(["42", "84"]), /campaign\.id IN \(42, 84\)/);
+  assert.throws(() => googleAdsCampaignFilter([]), /Select at least one campaign before syncing/);
 });
 
 test("Google Ads errors log sanitized metadata without response bodies or secrets", async () => {

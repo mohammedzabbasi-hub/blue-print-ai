@@ -305,12 +305,35 @@ model AdPlatformConnection {
   metadataJson          String?
   lastSyncedAt          DateTime?
   lastSyncError         String?
+  campaignSyncMode      String               @default("all")
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   performanceRows       AdPerformanceDaily[]
+  googleAdsCampaigns    GoogleAdsCampaign[]
 
   @@unique([shop, platform])
   @@index([shop, updatedAt])
+}
+
+model GoogleAdsCampaign {
+  id                     String               @id @default(cuid())
+  connectionId           String
+  shop                   String
+  provider               String               @default("google_ads")
+  customerId             String
+  campaignId             String
+  campaignName           String
+  campaignStatus         String?
+  advertisingChannelType String?
+  selected               Boolean              @default(false)
+  lastSeenAt             DateTime              @default(now())
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  connection             AdPlatformConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([shop, customerId, campaignId])
+  @@index([shop, customerId, selected])
+  @@index([connectionId, lastSeenAt])
 }
 
 model AdPerformanceDaily {

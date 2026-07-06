@@ -68,6 +68,7 @@ export const loader = async ({ request }) => {
       externalAccountName: connection.externalAccountName,
       lastSyncedAt: connection.lastSyncedAt,
       lastSyncError: connection.lastSyncError,
+      campaignSyncMode: connection.campaignSyncMode === "selected" ? "selected" : "all",
       platform: connection.platform,
       status: connection.status,
       metadata: parseMetadata(connection.metadataJson),
@@ -256,6 +257,11 @@ function PlatformCard({ connection, googleConfiguration, googleLiveRowCount, pla
               Last synced {new Date(visibleConnection.lastSyncedAt).toLocaleString()}
             </p>
           )}
+          {visibleConnection?.externalAccountId && (
+            <p className="mt-1 text-xs text-slate-400">
+              Campaign sync scope: {visibleConnection.campaignSyncMode === "selected" ? "Selected campaigns" : "All campaigns"}
+            </p>
+          )}
         </div>
 
         {visibleConnection?.lastSyncError && (
@@ -316,6 +322,7 @@ function PlatformCard({ connection, googleConfiguration, googleLiveRowCount, pla
           )}
           {connected && visibleConnection?.externalAccountId && (
             <>
+              <Link className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200 hover:border-cyan-400/30" to={withEmbeddedRouteParams("/app/connections/google-ads/campaigns", search)}>Manage campaigns</Link>
               <Form action={syncPath} method="post">
                 <button className="bp-primary-cta" disabled={submitting} type="submit">
                   <RefreshCw aria-hidden="true" size={15} /> Sync latest data

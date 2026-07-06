@@ -39,7 +39,7 @@ Production URL: `https://blueprintai-app.onrender.com`
 
 ## Google Ads reporting note
 
-Google Ads is reporting-only. The service uses accessible-customer listing and search-stream reporting calls; it contains no campaign/ad mutation calls. Test accounts can legitimately return 0 rows. A zero-row sync reports: **“Sync completed. No live Google Ads performance rows were found for this account.”** and leaves the connection active.
+Google Ads is reporting-only. The service uses accessible-customer listing and search-stream reporting calls; it contains no campaign/ad mutation calls. Connected accounts default to **All campaigns** and can be changed to **Selected campaigns only** through a read-only discovered campaign list. The app does not create, edit, pause, launch, fund, or spend on campaigns. Selected mode blocks sync until at least one campaign is selected. Test accounts with no campaign activity can legitimately return 0 rows. A zero-row sync reports: **“Sync completed. No live Google Ads performance rows were found for this account.”** and leaves the connection active.
 
 ## Exact reviewer walkthrough
 

@@ -2,6 +2,7 @@ import { redirect } from "react-router";
 import {
   getConnectionByPlatform,
   recordConnectionSyncError,
+  removeGoogleAdsRowsOutsideCampaignScope,
   upsertDailyAdPerformanceRows,
 } from "../models/ad-platform-connection.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
@@ -12,6 +13,7 @@ import {
 } from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { decryptToken } from "../utils/token-encryption.server";
+import { getGoogleAdsSyncScope } from "../models/google-ads-campaign.server";
 
 export const action = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
@@ -37,18 +39,30 @@ export const action = async ({ request }) => {
     if (!customerId) {
       throw new Error("Select a Google Ads customer account before syncing.");
     }
+    const syncScope = await getGoogleAdsSyncScope(session.shop, customerId);
+    if (syncScope.mode === "selected" && !syncScope.campaignIds.length) {
+      throw new Error("Select at least one campaign before syncing.");
+    }
 
     const reportingOptions = {
       accessToken,
       customerId,
       endDate: new Date(),
       startDate: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
+      ...(syncScope.mode === "selected" ? { campaignIds: syncScope.campaignIds } : {}),
     };
     const [campaignRows, adRows] = await Promise.all([
       fetchGoogleAdsCampaignMetrics(reportingOptions),
       fetchGoogleAdsAdMetrics(reportingOptions),
     ]);
     const rows = [...campaignRows, ...adRows];
+    if (syncScope.mode === "selected") {
+      await removeGoogleAdsRowsOutsideCampaignScope(
+        session.shop,
+        customerId,
+        syncScope.campaignIds,
+      );
+    }
     const result = await upsertDailyAdPerformanceRows(
       session.shop,
       "google",

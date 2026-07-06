@@ -127,6 +127,7 @@ export function updateConnectionAccount(shop, platform, input) {
         ? String(input.externalAccountName)
         : null,
       metadataJson: optionalJson(input.metadata),
+      campaignSyncMode: "all",
     },
   });
 }
@@ -257,6 +258,22 @@ export function countGoogleAdsLiveRows(shop) {
       platform: GOOGLE_ADS_PLATFORM,
       source: "live",
       isDemo: false,
+    },
+  });
+}
+
+export function removeGoogleAdsRowsOutsideCampaignScope(shop, customerId, campaignIds) {
+  return prisma.adPerformanceDaily.deleteMany({
+    where: {
+      shop: normalizeShopIdentifier(shop),
+      platform: GOOGLE_ADS_PLATFORM,
+      externalAccountId: String(customerId),
+      source: "live",
+      isDemo: false,
+      OR: [
+        { campaignId: null },
+        { campaignId: { notIn: campaignIds.map(String) } },
+      ],
     },
   });
 }

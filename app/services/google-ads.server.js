@@ -214,6 +214,26 @@ async function searchGoogleAds({ accessToken, customerId, query }) {
   );
 }
 
+export async function fetchGoogleAdsCampaigns({ accessToken, customerId }) {
+  const rows = await searchGoogleAds({
+    accessToken,
+    customerId,
+    query: `SELECT
+      campaign.id,
+      campaign.name,
+      campaign.status,
+      campaign.advertising_channel_type
+    FROM campaign
+    ORDER BY campaign.name`,
+  });
+  return rows.map(({ campaign = {} }) => ({
+    campaignId: String(campaign.id || ""),
+    campaignName: campaign.name || "",
+    campaignStatus: campaign.status || null,
+    advertisingChannelType: campaign.advertisingChannelType || null,
+  }));
+}
+
 function number(value) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -272,11 +292,19 @@ const METRICS = `
   metrics.ctr,
   metrics.average_cpc`;
 
+export function googleAdsCampaignFilter(campaignIds) {
+  if (campaignIds == null) return "";
+  const normalized = [...new Set(campaignIds.map((id) => normalizeCustomerId(id)))];
+  if (!normalized.length) throw new Error("Select at least one campaign before syncing.");
+  return `\n        AND campaign.id IN (${normalized.join(", ")})`;
+}
+
 export async function fetchGoogleAdsCampaignMetrics({
   accessToken,
   customerId,
   startDate,
   endDate,
+  campaignIds,
 }) {
   const rows = await searchGoogleAds({
     accessToken,
@@ -284,7 +312,7 @@ export async function fetchGoogleAdsCampaignMetrics({
     query: `SELECT campaign.id, campaign.name, campaign.status, ${METRICS}
       FROM campaign
       WHERE segments.date BETWEEN '${dateOnly(startDate)}' AND '${dateOnly(endDate)}'
-        AND campaign.status != 'REMOVED'
+        AND campaign.status != 'REMOVED'${googleAdsCampaignFilter(campaignIds)}
       ORDER BY segments.date DESC`,
   });
   return rows.map((row) => normalizeGoogleAdsMetricRow(row, "campaign"));
@@ -309,7 +337,7 @@ export async function fetchGoogleAdsAdMetrics(options) {
         ad_group_ad.ad.id, ad_group_ad.ad.name, ${METRICS}
       FROM ad_group_ad
       WHERE segments.date BETWEEN '${dateOnly(options.startDate)}' AND '${dateOnly(options.endDate)}'
-        AND ad_group_ad.status != 'REMOVED'
+        AND ad_group_ad.status != 'REMOVED'${googleAdsCampaignFilter(options.campaignIds)}
       ORDER BY segments.date DESC`,
   });
   return rows.map((row) => normalizeGoogleAdsMetricRow(row, "ad"));

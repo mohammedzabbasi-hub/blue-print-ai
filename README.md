@@ -114,7 +114,7 @@ Paid plans use Shopify-managed pricing through the authenticated app billing che
 
 ## Optional integrations
 
-Google Ads is available when its server-side configuration is complete. It provides read-only reporting sync and never creates, edits, launches, or mutates campaigns. A connected account remains connected when a sync returns zero performance rows. TikTok and Meta remain placeholders, and manual CSV import remains available for sample or user-provided performance data. See [the Google Ads setup guide](docs/GOOGLE_ADS_INTEGRATION_SETUP.md).
+Google Ads is available when its server-side configuration is complete. It provides read-only reporting sync and never creates, edits, pauses, launches, spends on, or mutates campaigns. Connected accounts default to syncing all campaigns; merchants can use **Manage campaigns** to refresh the reporting-only campaign list and sync only selected campaigns instead. Selected mode requires at least one campaign. A connected account remains connected when a sync returns zero performance rows, including when the account has no campaign activity. TikTok and Meta remain placeholders, and manual CSV import remains available for sample or user-provided performance data. See [the Google Ads setup guide](docs/GOOGLE_ADS_INTEGRATION_SETUP.md).
 
 ## Google Ads development configuration
 
