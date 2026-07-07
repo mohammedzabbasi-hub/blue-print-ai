@@ -1,75 +1,15 @@
-import { Link } from "react-router";
-import { loadShopifyRouteContext } from "../models/route-context.server";
+import { redirect } from "react-router";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const meta = () => {
   return [{ title: "Support | BluePrintAI" }];
 };
 
 export const loader = async ({ request }) => {
-  const { session } = await loadShopifyRouteContext(request);
-
-  return { shop: session.shop };
+  const url = new URL(request.url);
+  throw redirect(withEmbeddedRouteParams("/app/settings?section=legal", url.search));
 };
 
 export default function AppSupportRoute() {
-  return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm font-black uppercase tracking-[0.28em] text-cyan-300">
-            Support
-          </p>
-          <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-foreground">
-            Support
-          </h1>
-          <p className="mt-3 max-w-3xl text-muted-foreground">
-            Get help with current Shopify embedded app workflows and known
-            service limitations.
-          </p>
-        </div>
-
-        <Link
-          to="/support"
-          className="rounded-2xl border border-cyan-400/50 px-5 py-3 text-sm font-black text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/10"
-        >
-          Public support page
-        </Link>
-      </header>
-
-      <div className="grid gap-6 xl:grid-cols-3">
-        <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
-          <h2 className="text-2xl font-black">Current Status</h2>
-          <p className="mt-4 leading-7 text-slate-400">
-            BluePrintAI currently supports saved creative records, uploaded
-            video analysis, generated briefs, planning recommendations, revenue
-            blueprints, workspace settings, and activity logs inside the
-            authenticated Shopify workspace.
-          </p>
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
-          <h2 className="text-2xl font-black">Known Limitations</h2>
-          <p className="mt-4 leading-7 text-slate-400">
-            Google Ads reporting is available when configured and authorized.
-            The optional Google Ads integration is read-only/reporting-only and
-            cannot create, edit, pause, enable, delete, or launch ads or
-            campaigns. TikTok Ads and Meta Ads are not currently available. CSV
-            import, Shopify product context, and manual uploads remain supported
-            core data paths without connecting Google Ads.
-          </p>
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-[#0b1322] p-7">
-          <h2 className="text-2xl font-black">Contact Guidance</h2>
-          <p className="mt-4 leading-7 text-slate-400">
-            For support, contact BluePrintAI Commerce at
-            {" "}support@blueprintai.app. Include your Shopify store domain and a
-            non-sensitive description of the issue. Do not send passwords, API
-            keys, OAuth codes, access tokens, refresh tokens, developer tokens,
-            or private ad-account credentials.
-          </p>
-        </section>
-      </div>
-    </div>
-  );
+  return null;
 }

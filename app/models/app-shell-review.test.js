@@ -29,10 +29,6 @@ test("every sidebar destination has a renderable route module", async () => {
     "app.data-import.jsx",
     "app.connections.jsx",
     "app.settings.jsx",
-    "app.privacy.jsx",
-    "app.terms.jsx",
-    "app.support.jsx",
-    "app.data-deletion.jsx",
   ];
 
   for (const route of expectedRoutes) {
@@ -55,12 +51,18 @@ test("every sidebar destination has a renderable route module", async () => {
     "/app/data-import",
     "/app/connections",
     "/app/settings",
-    "/app/privacy",
-    "/app/terms",
-    "/app/support",
-    "/app/data-deletion",
   ]) {
     assert.match(shell, new RegExp(path.replaceAll("/", "\\/")), path);
+  }
+});
+
+test("sidebar keeps legal and support content consolidated under Settings", async () => {
+  const shell = await readFile(new URL("../routes/app.jsx", import.meta.url), "utf8");
+  const navSource = shell.match(/const navItems = \[([\s\S]*?)\n\];/)?.[1] || "";
+
+  assert.match(navSource, /label: "Settings"/);
+  for (const label of ["Privacy", "Terms", "Support", "Data Deletion"]) {
+    assert.doesNotMatch(navSource, new RegExp(`label: "${label}"`), label);
   }
 });
 

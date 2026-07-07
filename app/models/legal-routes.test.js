@@ -9,11 +9,11 @@ const routeExpectations = [
   ["support.jsx", /SupportRoute/],
   ["contact.jsx", /pageId="contact"/],
   ["data-deletion.jsx", /pageId="data-deletion"/],
-  ["app.privacy.jsx", /pageId="privacy"/],
-  ["app.terms.jsx", /pageId="terms"/],
-  ["app.support.jsx", /AppSupportRoute/],
+  ["app.privacy.jsx", /settings\?section=legal/],
+  ["app.terms.jsx", /settings\?section=legal/],
+  ["app.support.jsx", /settings\?section=legal/],
   ["app.contact.jsx", /pageId="contact"/],
-  ["app.data-deletion.jsx", /pageId="data-deletion"/],
+  ["app.data-deletion.jsx", /settings\?section=legal/],
 ];
 
 test("legal and support route modules exist and render their expected pages", async () => {
@@ -53,20 +53,45 @@ test("legal pages use the approved operator and safe support contact", () => {
   }
 });
 
-test("support copy presents Google Ads as optional reporting and preserves core paths", async () => {
-  const [embeddedSupport, publicSupport] = await Promise.all([
-    readFile(new URL("../routes/app.support.jsx", import.meta.url), "utf8"),
+test("combined settings content covers legal, privacy, support, and deletion", async () => {
+  const [settings, combinedContent] = await Promise.all([
+    readFile(new URL("../routes/app.settings.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/legal/LegalPrivacyContent.jsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(settings, /Legal & Privacy/);
+  assert.match(settings, /<LegalPrivacyContent \/>/);
+  for (const heading of [
+    "Privacy & Data Use",
+    "Google Ads Data Access",
+    "Shopify Store Data",
+    "Read-Only Advertising Data",
+    "Terms of Use",
+    "Support",
+    "Data Deletion / Account Removal",
+    "Contact",
+  ]) {
+    assert.match(combinedContent, new RegExp(heading), heading);
+  }
+  assert.match(combinedContent, /Shopify embedded app/);
+  assert.match(combinedContent, /OAuth-based/);
+  assert.match(combinedContent, /read-only and reporting-only/);
+  assert.match(combinedContent, /Users can disconnect Google Ads at any time/);
+  assert.match(combinedContent, /support@blueprintai\.app/);
+});
+
+test("public support and combined settings describe Google Ads as read-only", async () => {
+  const [combinedContent, publicSupport] = await Promise.all([
+    readFile(new URL("../components/legal/LegalPrivacyContent.jsx", import.meta.url), "utf8"),
     readFile(new URL("../routes/support.jsx", import.meta.url), "utf8"),
   ]);
 
-  for (const source of [embeddedSupport, publicSupport]) {
-    assert.match(source, /optional Google Ads integration/);
-    assert.match(source, /read-only\/reporting-only/);
-    assert.match(source, /TikTok Ads and Meta Ads are not currently available/);
-    assert.match(source, /CSV\s+import/);
-    assert.match(source, /without connecting Google Ads/);
+  assert.match(combinedContent, /read-only and reporting-only/);
+  assert.match(combinedContent, /does not create, edit, pause, launch, bid, set budgets, or spend/);
+  assert.doesNotMatch(combinedContent, /fetch\(|axios|method:\s*["'](?:POST|PUT|PATCH|DELETE)/i);
+
+  for (const source of [combinedContent, publicSupport]) {
     assert.match(source, /support@blueprintai\.app/);
     assert.match(source, /OAuth codes/);
-    assert.doesNotMatch(source, /Direct ad-platform connections are optional and not currently available/);
   }
 });

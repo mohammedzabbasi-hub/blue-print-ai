@@ -112,10 +112,6 @@ const navItems = [
   { to: "/app/data-import", label: "Data Import", icon: "database" },
   { to: "/app/connections", label: "Connections", icon: "plug" },
   { to: "/app/settings", label: "Settings", icon: "settings" },
-  { to: "/app/privacy", label: "Privacy", icon: "list" },
-  { to: "/app/terms", label: "Terms", icon: "list" },
-  { to: "/app/support", label: "Support", icon: "brief" },
-  { to: "/app/data-deletion", label: "Data Deletion", icon: "database" },
 ];
 
 export default function App() {

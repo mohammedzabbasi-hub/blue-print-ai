@@ -22,6 +22,7 @@ import {
   Wrench,
 } from "lucide-react";
 import BillingNotice from "../components/legal/BillingNotice";
+import LegalPrivacyContent from "../components/legal/LegalPrivacyContent";
 import ProductContextEvidence from "../components/ProductContextEvidence";
 import {
   createActivityLogRecord,
@@ -72,9 +73,9 @@ const SETTINGS_SECTIONS = [
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const legacyPanelRoute = {
-    privacy: "/app/privacy",
-    support: "/app/support",
-    terms: "/app/terms",
+    privacy: "/app/settings?section=legal",
+    support: "/app/settings?section=legal",
+    terms: "/app/settings?section=legal",
   }[url.searchParams.get("panel")];
 
   if (legacyPanelRoute) {
@@ -442,22 +443,8 @@ export default function SettingsRoute() {
           )}
 
           {activeSection === "legal" && (
-            <SettingsPanel icon={ShieldCheck} title="Legal & Privacy" description="Policies, disclosures, and data request information.">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  ["Privacy Policy", "/app/privacy"], ["Terms of Service", "/app/terms"],
-                  ["Contact & Data Requests", "/app/contact"], ["Refund Policy", "/app/refund-policy"],
-                  ["Acceptable Use", "/app/acceptable-use"], ["AI Disclaimer", "/app/ai-disclaimer"],
-                  ["Cookies", "/app/cookies"], ["Copyright", "/app/copyright"],
-                ].map(([label, to]) => (
-                  <Link key={to} to={withEmbeddedRouteParams(to, location.search)} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/35 px-3.5 py-3 text-sm font-bold text-slate-200 transition hover:border-cyan-500/35 hover:text-cyan-100">
-                    {label}<ChevronRight className="h-4 w-4 text-slate-500" aria-hidden="true" />
-                  </Link>
-                ))}
-              </div>
-              <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 px-4 py-3 text-xs leading-5 text-slate-400">
-                Privacy or deletion requests: contact BluePrintAI Commerce at support@blueprintai.app. Include your Shopify store domain and a non-sensitive description of the request. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.
-              </p>
+            <SettingsPanel icon={ShieldCheck} title="Legal & Privacy" description="Privacy, data access, terms, support, and deletion information in one place.">
+              <LegalPrivacyContent />
               <BillingNotice className="mt-4" />
             </SettingsPanel>
           )}
