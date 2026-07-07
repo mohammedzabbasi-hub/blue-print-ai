@@ -30,39 +30,37 @@ export const action = async ({ request }) => {
   }
 
   try {
-    const refreshed = await refreshGoogleAdsAccessToken(
-      decryptToken(connection.encryptedRefreshToken),
-    );
-    if (!refreshed.ok) throw new Error(refreshed.message);
-    const accessToken = refreshed.accessToken;
     const customerId = connection.externalAccountId;
     if (!customerId) {
       throw new Error("Select a Google Ads customer account before syncing.");
     }
     const syncScope = await getGoogleAdsSyncScope(session.shop, customerId);
-    if (syncScope.mode === "selected" && !syncScope.campaignIds.length) {
+    if (!syncScope.campaignIds.length) {
       throw new Error("Select at least one campaign before syncing.");
     }
+    const refreshed = await refreshGoogleAdsAccessToken(
+      decryptToken(connection.encryptedRefreshToken),
+    );
+    if (!refreshed.ok) throw new Error(refreshed.message);
+    const accessToken = refreshed.accessToken;
 
     const reportingOptions = {
       accessToken,
       customerId,
       endDate: new Date(),
       startDate: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
-      ...(syncScope.mode === "selected" ? { campaignIds: syncScope.campaignIds } : {}),
+      campaignIds: syncScope.campaignIds,
     };
     const [campaignRows, adRows] = await Promise.all([
       fetchGoogleAdsCampaignMetrics(reportingOptions),
       fetchGoogleAdsAdMetrics(reportingOptions),
     ]);
     const rows = [...campaignRows, ...adRows];
-    if (syncScope.mode === "selected") {
-      await removeGoogleAdsRowsOutsideCampaignScope(
-        session.shop,
-        customerId,
-        syncScope.campaignIds,
-      );
-    }
+    await removeGoogleAdsRowsOutsideCampaignScope(
+      session.shop,
+      customerId,
+      syncScope.campaignIds,
+    );
     const result = await upsertDailyAdPerformanceRows(
       session.shop,
       "google",

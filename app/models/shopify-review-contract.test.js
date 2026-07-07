@@ -16,7 +16,7 @@ test("Google Ads reviewer flow distinguishes authorization, sync readiness, zero
   assert.match(connections, /connected \? "Connected"/);
   assert.match(connections, /Sync latest data/);
   assert.match(connections, /Manage campaigns/);
-  assert.match(connections, /Campaign sync scope/);
+  assert.match(connections, /Choose campaigns to sync/);
   assert.match(connections, /Disconnect/);
   assert.match(connections, /googleLiveRowCount === 0/);
   assert.equal(connections.includes(["Load demo", "Google Ads data"].join(" ")), false);
@@ -75,6 +75,11 @@ test("Google Ads campaign management is inline on Connections", async () => {
   assert.doesNotMatch(connections, /to=\{withEmbeddedRouteParams\("\/app\/connections\/google-ads\/campaigns"/);
   assert.match(connections, /aria-label="Google Ads campaign selector"/);
   assert.match(connections, /max-h-\[280px\][^\n]*overflow-y-auto/);
+  assert.doesNotMatch(connections, /type="radio"/);
+  assert.doesNotMatch(connections, /> All campaigns</);
+  assert.doesNotMatch(connections, /> Selected campaigns only</);
+  assert.match(connections, /name="campaignId" type="checkbox"/);
+  assert.match(campaignModel, /campaignStatus: \{ not: "REMOVED" \}/);
   assert.match(connections, /refresh_google_campaigns/);
   assert.match(connections, /save_google_campaigns/);
   assert.match(connections, /No campaigns loaded yet\. Click Refresh campaign list\./);

@@ -83,7 +83,6 @@ export const loader = async ({ request }) => {
       externalAccountName: connection.externalAccountName,
       lastSyncedAt: connection.lastSyncedAt,
       lastSyncError: connection.lastSyncError,
-      campaignSyncMode: connection.campaignSyncMode === "selected" ? "selected" : "all",
       platform: connection.platform,
       status: connection.status,
       metadata: parseMetadata(connection.metadataJson),
@@ -121,10 +120,9 @@ export const action = async ({ request }) => {
         };
       }
       await saveGoogleAdsCampaignSelection(session.shop, connection.externalAccountId, {
-        mode: String(formData.get("campaignSyncMode") || ""),
         selectedCampaignIds: formData.getAll("campaignId").map(String),
       });
-      return { campaignPanelOpen: true, campaignSuccess: "Campaign sync scope saved." };
+      return { campaignPanelOpen: true, campaignSuccess: "Campaign selection saved." };
     } catch (error) {
       return {
         campaignError: error.message || "Could not update Google Ads campaign selection.",
@@ -309,11 +307,6 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
               Last synced {new Date(visibleConnection.lastSyncedAt).toLocaleString()}
             </p>
           )}
-          {visibleConnection?.externalAccountId && (
-            <p className="mt-1 text-xs text-slate-400">
-              Campaign sync scope: {visibleConnection.campaignSyncMode === "selected" ? "Selected campaigns" : "All campaigns"}
-            </p>
-          )}
         </div>
 
         {visibleConnection?.lastSyncError && (
@@ -409,7 +402,6 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
             actionData={actionData}
             busy={submitting}
             campaigns={googleCampaigns}
-            mode={visibleConnection.campaignSyncMode}
             onDone={() => setCampaignPanelOpen(false)}
           />
         )}
@@ -418,11 +410,11 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
   );
 }
 
-function CampaignSelector({ actionData, busy, campaigns, mode, onDone }) {
+function CampaignSelector({ actionData, busy, campaigns, onDone }) {
   return (
     <section className="mt-4 rounded-xl border border-cyan-400/20 bg-slate-950/60 p-4" aria-label="Google Ads campaign selector">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-bold text-white">Campaign sync scope</h3>
+        <h3 className="font-bold text-white">Choose campaigns to sync</h3>
         <Form method="post">
           <input name="intent" type="hidden" value="refresh_google_campaigns" />
           <button className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-slate-200" disabled={busy} type="submit">
@@ -434,10 +426,6 @@ function CampaignSelector({ actionData, busy, campaigns, mode, onDone }) {
       {actionData?.campaignError && <Notice tone="error">{actionData.campaignError}</Notice>}
       <Form method="post">
         <input name="intent" type="hidden" value="save_google_campaigns" />
-        <fieldset className="mt-4">
-          <label className="flex items-center gap-3 text-sm text-slate-200"><input defaultChecked={mode !== "selected"} name="campaignSyncMode" type="radio" value="all" /> All campaigns</label>
-          <label className="mt-3 flex items-center gap-3 text-sm text-slate-200"><input defaultChecked={mode === "selected"} name="campaignSyncMode" type="radio" value="selected" /> Selected campaigns only</label>
-        </fieldset>
         <div className="mt-4 max-h-[280px] space-y-2 overflow-y-auto pr-1" data-testid="google-campaign-list">
           {campaigns.length ? campaigns.map((campaign) => (
             <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.025] p-3" htmlFor={`campaign-${campaign.id}`} key={campaign.id}>
