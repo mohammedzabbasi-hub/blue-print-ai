@@ -21,6 +21,7 @@ import {
 } from "../utils/billing.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { getLocalDemoAccess } from "../utils/demo-access.server";
+import AssistantWidget from "../components/AssistantWidget";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
@@ -156,6 +157,7 @@ export default function App() {
             <Outlet />
           </main>
         </div>
+        <AssistantWidget />
       </div>
   );
 
