@@ -63,14 +63,22 @@ test("Google Ads integration remains reporting-only", async () => {
   );
 });
 
-test("Google Ads campaign management route is reachable without submitting Connections", async () => {
-  const [connections, campaignRoute] = await Promise.all([
+test("Google Ads campaign management is inline on Connections", async () => {
+  const [connections, campaignRoute, campaignModel] = await Promise.all([
     source("routes/app.connections.jsx"),
     source("routes/app.connections_.google-ads.campaigns.jsx"),
+    source("models/google-ads-campaign.server.js"),
   ]);
 
-  assert.match(connections, /<Link[^>]+to=\{withEmbeddedRouteParams\("\/app\/connections\/google-ads\/campaigns", search\)\}>Manage campaigns<\/Link>/);
-  assert.doesNotMatch(connections, /<button[^>]*>Manage campaigns<\/button>/);
+  assert.match(connections, /setCampaignPanelOpen/);
+  assert.match(connections, /type="button"[\s\S]*Manage campaigns/);
+  assert.doesNotMatch(connections, /to=\{withEmbeddedRouteParams\("\/app\/connections\/google-ads\/campaigns"/);
+  assert.match(connections, /aria-label="Google Ads campaign selector"/);
+  assert.match(connections, /max-h-\[280px\][^\n]*overflow-y-auto/);
+  assert.match(connections, /refresh_google_campaigns/);
+  assert.match(connections, /save_google_campaigns/);
+  assert.match(connections, /No campaigns loaded yet\. Click Refresh campaign list\./);
+  assert.match(campaignModel, /Select at least one campaign before syncing\./);
   assert.match(campaignRoute, /Connect\+and\+select\+a\+Google\+Ads\+account\+first/);
   assert.match(campaignRoute, /formData\.get\("intent"\) === "refresh"/);
   assert.match(campaignRoute, /formData\.get\("intent"\) === "save"/);

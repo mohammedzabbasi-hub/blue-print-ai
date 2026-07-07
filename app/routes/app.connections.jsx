@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import {
   Form,
   Link,
@@ -22,8 +23,18 @@ import {
   getConnectionsForShop,
   updateConnectionAccount,
 } from "../models/ad-platform-connection.server";
+import {
+  listGoogleAdsCampaigns,
+  saveGoogleAdsCampaignSelection,
+  upsertGoogleAdsCampaigns,
+} from "../models/google-ads-campaign.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
-import { getGoogleAdsIntegrationStatus, revokeGoogleAdsToken } from "../services/google-ads.server";
+import {
+  fetchGoogleAdsCampaigns,
+  getGoogleAdsIntegrationStatus,
+  refreshGoogleAdsAccessToken,
+  revokeGoogleAdsToken,
+} from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { getConnectionsNotice } from "../utils/connections-notice";
 import { decryptToken } from "../utils/token-encryption.server";
@@ -62,6 +73,10 @@ export const loader = async ({ request }) => {
   ]);
 
   const googleConfiguration = getGoogleAdsIntegrationStatus();
+  const googleConnection = connections.find(({ platform }) => platform === "google");
+  const googleCampaigns = googleConnection?.externalAccountId
+    ? await listGoogleAdsCampaigns(session.shop, googleConnection.externalAccountId)
+    : [];
   return {
     connections: connections.map((connection) => ({
       externalAccountId: connection.externalAccountId,
@@ -74,6 +89,7 @@ export const loader = async ({ request }) => {
       metadata: parseMetadata(connection.metadataJson),
     })),
     googleConfiguration,
+    googleCampaigns,
     googleLiveRowCount,
     shop: session.shop,
   };
@@ -83,6 +99,39 @@ export const action = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
   const platform = String(formData.get("platform") || "");
+
+  if (["refresh_google_campaigns", "save_google_campaigns"].includes(String(formData.get("intent")))) {
+    const connection = await getConnectionByPlatform(session.shop, "google");
+    if (!connection?.encryptedRefreshToken || !connection.externalAccountId) {
+      return { campaignError: "Connect and select a Google Ads account first." };
+    }
+    try {
+      if (formData.get("intent") === "refresh_google_campaigns") {
+        const refreshed = await refreshGoogleAdsAccessToken(decryptToken(connection.encryptedRefreshToken));
+        if (!refreshed.ok) throw new Error(refreshed.message);
+        const campaigns = await fetchGoogleAdsCampaigns({
+          accessToken: refreshed.accessToken,
+          customerId: connection.externalAccountId,
+        });
+        await upsertGoogleAdsCampaigns(session.shop, connection.externalAccountId, campaigns);
+        return {
+          campaignPanelOpen: true,
+          campaignSuccess: `Campaign list refreshed. ${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} found.`,
+          refreshCompleted: true,
+        };
+      }
+      await saveGoogleAdsCampaignSelection(session.shop, connection.externalAccountId, {
+        mode: String(formData.get("campaignSyncMode") || ""),
+        selectedCampaignIds: formData.getAll("campaignId").map(String),
+      });
+      return { campaignPanelOpen: true, campaignSuccess: "Campaign sync scope saved." };
+    } catch (error) {
+      return {
+        campaignError: error.message || "Could not update Google Ads campaign selection.",
+        campaignPanelOpen: true,
+      };
+    }
+  }
 
   if (formData.get("intent") === "select_google_account") {
     const customerId = String(formData.get("customerId") || "").replace(/\D/g, "");
@@ -126,7 +175,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ConnectionsRoute() {
-  const { connections, googleConfiguration, googleLiveRowCount, shop } = useLoaderData();
+  const { connections, googleCampaigns, googleConfiguration, googleLiveRowCount, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
@@ -178,6 +227,7 @@ export default function ConnectionsRoute() {
             key={platform.id}
             platform={platform}
             googleConfiguration={googleConfiguration}
+            googleCampaigns={platform.id === "google" ? googleCampaigns : []}
             googleLiveRowCount={googleLiveRowCount}
             search={location.search}
             shop={shop}
@@ -209,7 +259,9 @@ export default function ConnectionsRoute() {
   );
 }
 
-function PlatformCard({ connection, googleConfiguration, googleLiveRowCount, platform, search, shop, submitting }) {
+function PlatformCard({ connection, googleCampaigns, googleConfiguration, googleLiveRowCount, platform, search, shop, submitting }) {
+  const actionData = useActionData();
+  const [campaignPanelOpen, setCampaignPanelOpen] = useState(Boolean(actionData?.campaignPanelOpen));
   const available = platform.available === "configured" ? googleConfiguration.ok : platform.available;
   const connected = Boolean(connection) && platform.id === "google";
   const visibleConnection = connected ? connection : null;
@@ -322,7 +374,14 @@ function PlatformCard({ connection, googleConfiguration, googleLiveRowCount, pla
           )}
           {connected && visibleConnection?.externalAccountId && (
             <>
-              <Link className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200 hover:border-cyan-400/30" to={withEmbeddedRouteParams("/app/connections/google-ads/campaigns", search)}>Manage campaigns</Link>
+              <button
+                aria-expanded={campaignPanelOpen}
+                className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200 hover:border-cyan-400/30"
+                onClick={() => setCampaignPanelOpen((open) => !open)}
+                type="button"
+              >
+                Manage campaigns
+              </button>
               <Form action={syncPath} method="post">
                 <button className="bp-primary-cta" disabled={submitting} type="submit">
                   <RefreshCw aria-hidden="true" size={15} /> Sync latest data
@@ -345,8 +404,59 @@ function PlatformCard({ connection, googleConfiguration, googleLiveRowCount, pla
             </Form>
           )}
         </div>
+        {connected && visibleConnection?.externalAccountId && campaignPanelOpen && (
+          <CampaignSelector
+            actionData={actionData}
+            busy={submitting}
+            campaigns={googleCampaigns}
+            mode={visibleConnection.campaignSyncMode}
+            onDone={() => setCampaignPanelOpen(false)}
+          />
+        )}
       </div>
     </article>
+  );
+}
+
+function CampaignSelector({ actionData, busy, campaigns, mode, onDone }) {
+  return (
+    <section className="mt-4 rounded-xl border border-cyan-400/20 bg-slate-950/60 p-4" aria-label="Google Ads campaign selector">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-bold text-white">Campaign sync scope</h3>
+        <Form method="post">
+          <input name="intent" type="hidden" value="refresh_google_campaigns" />
+          <button className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-slate-200" disabled={busy} type="submit">
+            <RefreshCw aria-hidden="true" size={14} /> Refresh campaign list
+          </button>
+        </Form>
+      </div>
+      {actionData?.campaignSuccess && <Notice tone="success">{actionData.campaignSuccess}</Notice>}
+      {actionData?.campaignError && <Notice tone="error">{actionData.campaignError}</Notice>}
+      <Form method="post">
+        <input name="intent" type="hidden" value="save_google_campaigns" />
+        <fieldset className="mt-4">
+          <label className="flex items-center gap-3 text-sm text-slate-200"><input defaultChecked={mode !== "selected"} name="campaignSyncMode" type="radio" value="all" /> All campaigns</label>
+          <label className="mt-3 flex items-center gap-3 text-sm text-slate-200"><input defaultChecked={mode === "selected"} name="campaignSyncMode" type="radio" value="selected" /> Selected campaigns only</label>
+        </fieldset>
+        <div className="mt-4 max-h-[280px] space-y-2 overflow-y-auto pr-1" data-testid="google-campaign-list">
+          {campaigns.length ? campaigns.map((campaign) => (
+            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.025] p-3" htmlFor={`campaign-${campaign.id}`} key={campaign.id}>
+              <input defaultChecked={campaign.selected} id={`campaign-${campaign.id}`} name="campaignId" type="checkbox" value={campaign.campaignId} />
+              <span className="sr-only">Select campaign</span>
+              <span><span className="block text-sm font-semibold text-white">{campaign.campaignName}</span><span className="mt-1 block text-xs text-slate-400">{campaign.campaignStatus || "Unknown status"} · {campaign.advertisingChannelType || "Unknown channel"}</span></span>
+            </label>
+          )) : (
+            <p className="rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-300">
+              {actionData?.refreshCompleted ? "No campaigns were found in this Google Ads account." : "No campaigns loaded yet. Click Refresh campaign list."}
+            </p>
+          )}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button className="bp-primary-cta" disabled={busy} type="submit"><CheckCircle2 aria-hidden="true" size={15} /> Save selection</button>
+          <button className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200" onClick={onDone} type="button">Done</button>
+        </div>
+      </Form>
+    </section>
   );
 }
 
