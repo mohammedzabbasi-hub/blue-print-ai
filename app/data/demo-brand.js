@@ -692,8 +692,8 @@ export function demoRecommendations() {
         "Keep lifestyle visuals, but only scale versions where the product appears in the first three seconds.",
       basis:
         "Demo performance data: direct proof and objection-handling angles outperform broad routine-only edits.",
-      actionLabel: "Open Recommendations",
-      href: "/app/recommendations",
+      actionLabel: "Open Command Center",
+      href: "/app/dashboard",
     },
   ];
 }

@@ -16,7 +16,6 @@ const ROUTE_CONTEXTS = [
   ["/app/revenue-blueprint", "I can explain estimates and identify the evidence that would make this blueprint stronger.", ["What does this estimate mean?", "What data improves the blueprint?", "What should I plan next?"]],
   ["/app/campaigns", "I can help organize local campaign plans and tests. I cannot launch or edit ads on an external platform.", ["What is a local campaign?", "Will this launch ads?", "How should I organize tests?"]],
   ["/app/settings", "I can point you to workspace, support, legal, and privacy settings.", ["Where is legal and privacy info?", "How do I change store context?", "How do I contact support?"]],
-  ["/app/recommendations", "Ask for evidence-grounded guidance from across your current workspace.", ["What should I do next?", "Which creative should I fix first?", "What data is missing from my store?"]],
   ["/app/creators", "I can help interpret creator signals and plan who or what to test next.", ["Which creator should I reuse?", "What creator data is missing?", "What style should I test next?"]],
   ["/app/dashboard", "I can help prioritize the next action from the evidence visible across your workspace.", ["What should I do next?", "Which area needs attention?", "What data is missing?"]],
 ];
@@ -28,4 +27,3 @@ export function getAssistantContext(pathname = "") {
   if (!match) return DEFAULT_CONTEXT;
   return { intro: match[1], prompts: match[2] };
 }
-

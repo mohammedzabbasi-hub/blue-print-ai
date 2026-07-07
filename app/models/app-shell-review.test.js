@@ -23,7 +23,6 @@ test("every sidebar destination has a renderable route module", async () => {
     "app.creative-library.jsx",
     "app.video-analysis.jsx",
     "app.ad-briefs.jsx",
-    "app.recommendations.jsx",
     "app.revenue-blueprint.jsx",
     "app.creators.jsx",
     "app.data-import.jsx",
@@ -45,7 +44,6 @@ test("every sidebar destination has a renderable route module", async () => {
     "/app/creative-library",
     "/app/video-analysis",
     "/app/ad-briefs",
-    "/app/recommendations",
     "/app/revenue-blueprint",
     "/app/creators",
     "/app/data-import",
@@ -54,6 +52,21 @@ test("every sidebar destination has a renderable route module", async () => {
   ]) {
     assert.match(shell, new RegExp(path.replaceAll("/", "\\/")), path);
   }
+});
+
+test("standalone AI Advisor is retired while the global assistant remains", async () => {
+  const [shell, retiredRoute] = await Promise.all([
+    readFile(new URL("../routes/app.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../routes/app.recommendations.jsx", import.meta.url), "utf8"),
+  ]);
+  const navSource = shell.match(/const navItems = \[([\s\S]*?)\n\];/)?.[1] || "";
+
+  assert.doesNotMatch(navSource, /AI Advisor|\/app\/recommendations/);
+  assert.match(shell, /<AssistantWidget \/>/);
+  assert.match(retiredRoute, /redirect\(withEmbeddedRouteParams\("\/app\/dashboard"/);
+  assert.doesNotMatch(retiredRoute, /AI Advisor|Store intelligence|advisor-question/);
+  assert.match(retiredRoute, /export const action/);
+  assert.match(retiredRoute, /buildAdvisorResponse/);
 });
 
 test("sidebar keeps legal and support content consolidated under Settings", async () => {

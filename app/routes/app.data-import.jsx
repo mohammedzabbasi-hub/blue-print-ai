@@ -694,12 +694,6 @@ export default function DataImportRoute() {
               Open Creative Library
             </Link>
             <Link
-              to={withEmbeddedRouteParams("/app/recommendations", location.search)}
-              className="bp-primary-cta"
-            >
-              View Recommendations
-            </Link>
-            <Link
               to={withEmbeddedRouteParams("/app/creators", location.search)}
               className="bp-primary-cta"
             >

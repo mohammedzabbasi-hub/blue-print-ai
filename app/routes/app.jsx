@@ -103,7 +103,6 @@ const navItems = [
   { to: "/app/creative-library", label: "Creative Library", icon: "layers" },
   { to: "/app/video-analysis", label: "AI Review Studio", icon: "video" },
   { to: "/app/ad-briefs", label: "Ad Briefs", icon: "brief" },
-  { to: "/app/recommendations", label: "AI Advisor", icon: "sparkles" },
   {
     to: "/app/revenue-blueprint",
     label: "Revenue Blueprint",

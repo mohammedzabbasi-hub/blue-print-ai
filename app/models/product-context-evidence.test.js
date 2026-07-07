@@ -31,12 +31,8 @@ describe("product context evidence UI", () => {
     assert.match(route, /AI used this context/);
   });
 
-  it("shows recommendation evidence with canonical source labels", async () => {
-    const [route, model] = await Promise.all([
-      source("routes/app.recommendations.jsx"),
-      source("models/product-context.js"),
-    ]);
-    assert.match(route, /Product evidence used/);
+  it("keeps canonical product source labels after retiring the advisor page", async () => {
+    const model = await source("models/product-context.js");
     assert.match(model, /Shopify product/);
     assert.match(model, /Imported product context/);
     assert.match(model, /Demo product/);
