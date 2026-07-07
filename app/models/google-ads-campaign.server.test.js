@@ -66,8 +66,11 @@ test("campaign selection saves mode and only selected campaign IDs", async () =>
   assert.deepEqual(client.calls.updateMany[1].where.campaignId.in, ["7"]);
 });
 
-test("selected mode with no campaigns is blocked clearly", async () => {
-  await assert.rejects(saveGoogleAdsCampaignSelection("shop.example", "123", { selectedCampaignIds: [] }, { client: fakeClient() }), /Select at least one campaign before syncing/);
+test("an empty campaign selection is persisted safely", async () => {
+  const client = fakeClient();
+  const result = await saveGoogleAdsCampaignSelection("shop.example", "123", { selectedCampaignIds: [] }, { client });
+  assert.deepEqual(result, { mode: "selected", selectedCampaignIds: [] });
+  assert.equal(client.calls.updateMany.length, 1);
 });
 
 test("selected sync scope returns only persisted campaign IDs", async () => {

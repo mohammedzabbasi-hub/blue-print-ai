@@ -71,9 +71,6 @@ export async function saveGoogleAdsCampaignSelection(
 ) {
   const normalizedShop = normalizeShopIdentifier(shop);
   const ids = [...new Set(selectedCampaignIds.map(String))];
-  if (!ids.length) {
-    throw new Error("Select at least one campaign before syncing.");
-  }
   const connection = await client.adPlatformConnection.findUnique({
     where: { shop_platform: { shop: normalizedShop, platform: "google" } },
   });

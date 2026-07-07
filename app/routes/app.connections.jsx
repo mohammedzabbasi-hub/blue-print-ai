@@ -7,11 +7,12 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Form,
   Link,
   useActionData,
+  useFetcher,
   useLoaderData,
   useLocation,
   useNavigation,
@@ -119,10 +120,14 @@ export const action = async ({ request }) => {
           refreshCompleted: true,
         };
       }
-      await saveGoogleAdsCampaignSelection(session.shop, connection.externalAccountId, {
+      const selection = await saveGoogleAdsCampaignSelection(session.shop, connection.externalAccountId, {
         selectedCampaignIds: formData.getAll("campaignId").map(String),
       });
-      return { campaignPanelOpen: true, campaignSuccess: "Campaign selection saved." };
+      return {
+        campaignPanelOpen: true,
+        campaignSuccess: "Campaign selection saved.",
+        selectedCampaignIds: selection.selectedCampaignIds,
+      };
     } catch (error) {
       return {
         campaignError: error.message || "Could not update Google Ads campaign selection.",
@@ -397,11 +402,12 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
             </Form>
           )}
         </div>
-        {connected && visibleConnection?.externalAccountId && campaignPanelOpen && (
+        {connected && visibleConnection?.externalAccountId && (
           <CampaignSelector
             actionData={actionData}
             busy={submitting}
             campaigns={googleCampaigns}
+            hidden={!campaignPanelOpen}
             onDone={() => setCampaignPanelOpen(false)}
           />
         )}
@@ -410,40 +416,93 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
   );
 }
 
-function CampaignSelector({ actionData, busy, campaigns, onDone }) {
+function CampaignSelector({ actionData, busy, campaigns, hidden, onDone }) {
+  const saveFetcher = useFetcher();
+  const saveTimer = useRef(null);
+  const initialSelectedCampaignIds = campaigns.filter((campaign) => campaign.selected).map((campaign) => campaign.campaignId);
+  const selectedCampaignIdsRef = useRef(initialSelectedCampaignIds);
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState(initialSelectedCampaignIds);
+  const [saveStatus, setSaveStatus] = useState("");
+
+  useEffect(() => () => clearTimeout(saveTimer.current), []);
+
+  useEffect(() => {
+    if (!actionData?.refreshCompleted || saveStatus !== "") return;
+    const refreshedSelection = campaigns.filter((campaign) => campaign.selected).map((campaign) => campaign.campaignId);
+    selectedCampaignIdsRef.current = refreshedSelection;
+    setSelectedCampaignIds(refreshedSelection);
+  }, [actionData?.refreshCompleted, campaigns, saveStatus]);
+
+  useEffect(() => {
+    if (saveFetcher.state !== "idle") {
+      setSaveStatus("saving");
+    } else if (saveFetcher.data?.campaignError) {
+      setSaveStatus("error");
+    } else if (saveFetcher.data?.campaignSuccess) {
+      setSaveStatus("saved");
+    }
+  }, [saveFetcher.data, saveFetcher.state]);
+
+  const toggleCampaign = (campaignId) => {
+    const current = selectedCampaignIdsRef.current;
+    const next = current.includes(campaignId)
+      ? current.filter((id) => id !== campaignId)
+      : [...current, campaignId];
+    selectedCampaignIdsRef.current = next;
+    setSelectedCampaignIds(next);
+    setSaveStatus("saving");
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const formData = new FormData();
+      formData.set("intent", "save_google_campaigns");
+      next.forEach((id) => formData.append("campaignId", id));
+      saveFetcher.submit(formData, { method: "post" });
+    }, 350);
+  };
+
   return (
-    <section className="mt-4 rounded-xl border border-cyan-400/20 bg-slate-950/60 p-4" aria-label="Google Ads campaign selector">
+    <section className="mt-4 rounded-xl border border-cyan-400/20 bg-slate-950/60 p-4" aria-label="Google Ads campaign selector" hidden={hidden}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-bold text-white">Choose campaigns to sync</h3>
         <Form method="post">
           <input name="intent" type="hidden" value="refresh_google_campaigns" />
-          <button className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-slate-200" disabled={busy} type="submit">
+          <button className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-slate-200" disabled={busy} onClick={() => setSaveStatus("")} type="submit">
             <RefreshCw aria-hidden="true" size={14} /> Refresh campaign list
           </button>
         </Form>
       </div>
       {actionData?.campaignSuccess && <Notice tone="success">{actionData.campaignSuccess}</Notice>}
       {actionData?.campaignError && <Notice tone="error">{actionData.campaignError}</Notice>}
-      <Form method="post">
-        <input name="intent" type="hidden" value="save_google_campaigns" />
-        <div className="mt-4 max-h-[280px] space-y-2 overflow-y-auto pr-1" data-testid="google-campaign-list">
-          {campaigns.length ? campaigns.map((campaign) => (
-            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.025] p-3" htmlFor={`campaign-${campaign.id}`} key={campaign.id}>
-              <input defaultChecked={campaign.selected} id={`campaign-${campaign.id}`} name="campaignId" type="checkbox" value={campaign.campaignId} />
-              <span className="sr-only">Select campaign</span>
-              <span><span className="block text-sm font-semibold text-white">{campaign.campaignName}</span><span className="mt-1 block text-xs text-slate-400">{campaign.campaignStatus || "Unknown status"} · {campaign.advertisingChannelType || "Unknown channel"}</span></span>
+      <p className="mt-3 text-xs leading-5 text-slate-400">
+        Selected campaigns only affect which read-only Google Ads reporting rows BluePrintAI syncs. BluePrintAI does not edit, launch, pause, remove, or spend on campaigns.
+      </p>
+      <div className="mt-3 max-h-[260px] overflow-y-auto rounded-lg border border-white/10" data-testid="google-campaign-list">
+        {campaigns.length ? campaigns.map((campaign) => {
+          const selected = selectedCampaignIds.includes(campaign.campaignId);
+          return (
+            <label aria-label={`Select ${campaign.campaignName}`} className={`flex cursor-pointer items-start gap-3 border-b border-white/10 px-3 py-2.5 last:border-b-0 hover:bg-white/[0.04] ${selected ? "bg-cyan-500/[0.06]" : "bg-transparent"}`} htmlFor={`campaign-${campaign.id}`} key={campaign.id}>
+              <input
+                checked={selected}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-400"
+                id={`campaign-${campaign.id}`}
+                onChange={() => toggleCampaign(campaign.campaignId)}
+                type="checkbox"
+              />
+              <span className="min-w-0"><span className="block truncate text-sm font-semibold text-white">{campaign.campaignName}</span><span className="mt-0.5 block text-xs text-slate-400">{campaign.campaignStatus || "Unknown status"} · {campaign.advertisingChannelType || "Unknown type"}</span></span>
             </label>
-          )) : (
-            <p className="rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-300">
-              {actionData?.refreshCompleted ? "No campaigns were found in this Google Ads account." : "No campaigns loaded yet. Click Refresh campaign list."}
-            </p>
-          )}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="bp-primary-cta" disabled={busy} type="submit"><CheckCircle2 aria-hidden="true" size={15} /> Save selection</button>
-          <button className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-200" onClick={onDone} type="button">Done</button>
-        </div>
-      </Form>
+          );
+        }) : (
+          <p className="p-4 text-center text-sm text-slate-300">
+            {actionData?.refreshCompleted ? "No campaigns were found in this Google Ads account." : "No campaigns loaded yet. Refresh the campaign list to get started."}
+          </p>
+        )}
+      </div>
+      <div className="mt-3 flex min-h-9 items-center justify-between gap-3">
+        <p className={`text-xs ${saveStatus === "error" ? "text-red-300" : "text-slate-400"}`} aria-live="polite">
+          {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : saveStatus === "error" ? (saveFetcher.data?.campaignError || "Could not save the campaign selection. Try again.") : "Changes save automatically."}
+        </p>
+        <button className="rounded-lg border border-white/10 px-3 py-2 text-sm font-bold text-slate-200 hover:border-cyan-400/30" onClick={onDone} type="button">Done</button>
+      </div>
     </section>
   );
 }
