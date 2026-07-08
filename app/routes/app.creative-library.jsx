@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Form,
   Link,
@@ -386,6 +387,8 @@ function toCreativeCard(record) {
     sourceLabel:
       record.importSource === "creative_upload_performance_import"
         ? "Imported creative + performance"
+        : record.sourcePlatform === "video_analysis"
+          ? "AI Review Studio"
         : platformLabel(record.sourcePlatform),
     syncStatus: record.syncStatus,
     hasPerformanceMetrics: hasPerformanceMetrics(record),
@@ -1117,9 +1120,9 @@ function CreativeDetailsModal({ creative, onClose }) {
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-md sm:p-6"
+      className="fixed inset-0 z-[100] flex min-w-0 items-center justify-center overflow-y-auto bg-slate-950/85 p-3 backdrop-blur-md sm:p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -1128,7 +1131,7 @@ function CreativeDetailsModal({ creative, onClose }) {
       <section
         aria-labelledby="creative-details-title"
         aria-modal="true"
-        className="glass-strong relative max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-cyan-400/20 p-5 shadow-2xl shadow-cyan-950/40 sm:p-7"
+        className="glass-strong relative my-auto max-h-[calc(100vh-1.5rem)] w-[min(100%,72rem)] min-w-0 max-w-6xl overflow-x-hidden overflow-y-auto break-words rounded-2xl border border-cyan-400/20 p-5 shadow-2xl shadow-cyan-950/40 sm:max-h-[calc(100vh-3rem)] sm:p-7"
         role="dialog"
       >
         <button
@@ -1140,12 +1143,12 @@ function CreativeDetailsModal({ creative, onClose }) {
           ×
         </button>
 
-        <div className="pr-12">
+        <div className="min-w-0 pr-12">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">
             {creative.sourceLabel || "Creative details"}
           </p>
           <h2
-            className="mt-2 font-display text-2xl font-semibold text-white sm:text-3xl"
+            className="mt-2 break-words font-display text-2xl font-semibold text-white sm:text-3xl"
             id="creative-details-title"
           >
             {creative.title || "Untitled Creative"}
@@ -1155,8 +1158,8 @@ function CreativeDetailsModal({ creative, onClose }) {
           </p>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
-          <div className="space-y-4">
+        <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+          <div className="min-w-0 space-y-4">
             <CreativePreview compact creative={creative} />
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
@@ -1186,14 +1189,15 @@ function CreativeDetailsModal({ creative, onClose }) {
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
             Insight
           </p>
-          <p className="mt-2 text-sm leading-6 text-slate-200">
+          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
             {creative.insight ||
               creative.transcript_summary ||
               "No insight available."}
           </p>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

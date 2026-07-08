@@ -315,7 +315,7 @@ export async function saveCreativeRecord(shop, creative) {
     angle: creative.angle,
     payload: creative.payload || creative,
   });
-  const existing = creative.sourceId
+  let existing = creative.sourceId
     ? await db.savedCreative.findFirst({
         where: {
           shop,
@@ -326,6 +326,20 @@ export async function saveCreativeRecord(shop, creative) {
       })
     : await findRecordByPersistenceKey("savedCreative", shop, persistenceKey);
 
+  if (!existing) {
+    const incomingMediaKeys = savedCreativeMediaKeys(creative.payload || creative);
+    if (incomingMediaKeys.size) {
+      const candidates = await db.savedCreative.findMany({
+        where: { shop, sourceType: creative.sourceType },
+        orderBy: { createdAt: "desc" },
+      });
+      existing = candidates.find((candidate) => {
+        const candidateKeys = savedCreativeMediaKeys(parsePayload(candidate.payloadJson));
+        return [...incomingMediaKeys].some((key) => candidateKeys.has(key));
+      });
+    }
+  }
+
   if (existing) {
     const mergedPayload = {
       ...parsePayload(existing.payloadJson),
@@ -334,6 +348,7 @@ export async function saveCreativeRecord(shop, creative) {
     const updated = await db.savedCreative.update({
       where: { id: existing.id },
       data: {
+        sourceId: creative.sourceId || existing.sourceId,
         productId: creative.productId,
         productTitle: creative.productTitle,
         title: creative.title,
@@ -378,6 +393,25 @@ export async function saveCreativeRecord(shop, creative) {
     payload: parsePayload(saved.payloadJson),
     wasCreated: true,
   };
+}
+
+function savedCreativeMediaKeys(payload = {}) {
+  const media = payload.media || payload.result?.media || {};
+  const metadata = payload.metadata || payload.result?.metadata || {};
+  return new Set(
+    [
+      payload.mediaFingerprint,
+      media.fingerprint,
+      metadata.media_fingerprint,
+      payload.mediaUrl,
+      payload.videoUrl,
+      payload.video_url,
+      media.mediaUrl,
+      metadata.media_url,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
 }
 
 export async function deleteSavedCreative(shop, creativeId) {

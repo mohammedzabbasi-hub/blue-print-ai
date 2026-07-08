@@ -80,4 +80,33 @@ describe("saved review to Creative Library", () => {
     assert.equal(library.records[0].hookScore, 8);
     assert.equal(library.records[0].videoFilename, "glow-demo.mp4");
   });
+
+  it("reuses a saved review creative when the same upload is saved under its analysis id", async () => {
+    const shop = `review-media-dedupe-${Date.now()}.myshopify.com`;
+    shops.add(shop);
+    const mediaUrl = "/app/media/video-analysis/abc123-TTAD2.mp4";
+    const first = await saveCreativeRecord(shop, {
+      sourceType: "video_analysis",
+      sourceId: "upload:fingerprint-1",
+      productId: "product-1",
+      productTitle: "Product",
+      title: "TTAD2",
+      angle: "Review",
+      payload: { mediaFingerprint: "fingerprint-1", mediaUrl, video_url: mediaUrl },
+    });
+    const second = await saveCreativeRecord(shop, {
+      sourceType: "video_analysis",
+      sourceId: "analysis-1",
+      productId: "product-1",
+      productTitle: "Product",
+      title: "TTAD2 reviewed",
+      angle: "Updated review",
+      payload: { mediaFingerprint: "fingerprint-1", mediaUrl, video_url: mediaUrl },
+    });
+
+    assert.equal(second.wasCreated, false);
+    assert.equal(second.id, first.id);
+    assert.equal(second.sourceId, "analysis-1");
+    assert.equal(await db.savedCreative.count({ where: { shop } }), 1);
+  });
 });

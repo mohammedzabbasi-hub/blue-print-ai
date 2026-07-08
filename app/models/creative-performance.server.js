@@ -1214,6 +1214,7 @@ export function hasPerformanceMetrics(record = {}) {
 export function platformLabel(platform = "") {
   const labels = {
     manual: "Manual Upload",
+    video_analysis: "AI Review Studio",
     public_engagement_import: "Public Engagement Import",
     tiktok: "TikTok import",
     instagram: "Instagram import",
@@ -1259,7 +1260,7 @@ function creativeRecordToPerformance(record = {}, index = 0) {
         shopifyProductId: record.productId || payload.shopifyProductId,
         sourceCreativeId: record.sourceId || record.id,
         sourcePlatform:
-          record.sourceType === "creative_performance_manual" ? "manual" : "manual",
+          record.sourceType === "video_analysis" ? "video_analysis" : "manual",
         syncStatus: payload.syncStatus || "saved_in_app",
         thumbnailUrl: payload.thumbnailUrl || payload.thumbnail,
         transcript: payload.transcript || payload.transcript_summary || payload.brief,
@@ -1303,7 +1304,7 @@ function videoAnalysisToPerformance(record = {}, index = 0) {
     productTitle: record.productTitle,
     shopifyProductId: record.productId,
     sourceCreativeId: record.id,
-    sourcePlatform: "manual",
+    sourcePlatform: "video_analysis",
     sourceRecordId: record.id || "",
     sourceRecordType: "video_analysis",
     storageRecordId: record.id || "",

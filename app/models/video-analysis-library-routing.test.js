@@ -34,5 +34,9 @@ describe("saved review Creative Library routing", () => {
     assert.match(source, /onError=\{\(\) => setPreviewFailed\(true\)\}/);
     assert.match(source, /Preview unavailable/);
     assert.match(source, /creative\.fileName/);
+    assert.match(source, /createPortal\(/);
+    assert.match(source, /overflow-x-hidden overflow-y-auto break-words/);
+    assert.match(source, /grid min-w-0 grid-cols-1/);
+    assert.doesNotMatch(source, /grid-cols-\[minmax\(280px/);
   });
 });
