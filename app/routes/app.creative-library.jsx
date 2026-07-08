@@ -27,6 +27,7 @@ import { generateCreativeTitleAndSummary } from "../utils/creative-display.serve
 import { persistUploadedVideoFile } from "../utils/upload-storage.server";
 import { assertUploadRequestSize } from "../utils/upload-storage.server";
 import { assignCampaignRecords, listCampaigns } from "../models/campaign.server";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const meta = () => {
   return [{ title: "Creative Library | BluePrintAI" }];
@@ -405,12 +406,23 @@ function safeCreativeText(value = "") {
 }
 
 function CreativePreview({ creative, compact = false }) {
+  const location = useLocation();
   const candidate =
     creative.video_url || creative.videoUrl || creative.asset_url ||
     creative.assetUrl || creative.source_url || creative.sourceUrl || "";
-  const initialVideoUrl = isPlayableVideoUrl(candidate) ? resolveMediaUrl(candidate) : "";
+  const resolvedCandidate = resolveMediaUrl(candidate);
+  const initialVideoUrl = isPlayableVideoUrl(resolvedCandidate)
+    ? resolvedCandidate.startsWith("/app/")
+      ? withEmbeddedRouteParams(resolvedCandidate, location.search)
+      : resolvedCandidate
+    : "";
   const [previewFailed, setPreviewFailed] = useState(false);
-  const posterUrl = resolveMediaUrl(creative.thumbnail || creative.thumbnail_url || "");
+  const resolvedPoster = resolveMediaUrl(
+    creative.thumbnail || creative.thumbnail_url || creative.poster || "",
+  );
+  const posterUrl = resolvedPoster.startsWith("/app/")
+    ? withEmbeddedRouteParams(resolvedPoster, location.search)
+    : resolvedPoster;
 
   useEffect(() => setPreviewFailed(false), [initialVideoUrl, posterUrl]);
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useFetcher, useLoaderData } from "react-router";
+import { Link, useFetcher, useLoaderData, useLocation } from "react-router";
 import {
   CartesianGrid,
   Line,
@@ -25,6 +25,7 @@ import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server";
 import { assertUploadRequestSize } from "../utils/upload-storage.server";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import db from "../db.server";
 import {
   analyzerEvidence,
@@ -876,6 +877,7 @@ function RetentionDropOffAnalyzer({ retentionAnalysis }) {
 }
 
 function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
+  const location = useLocation();
   const analysisSaveFetcher = useFetcher();
   const saveFetcher = useFetcher();
   const blueprintFetcher = useFetcher();
@@ -1027,12 +1029,12 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
           </button>
 
           {libraryCreativeId ? (
-            <a
-              href={`/app/creative-library?creativeId=${encodeURIComponent(libraryCreativeId)}`}
+            <Link
+              to={withEmbeddedRouteParams(`/app/creative-library?creativeId=${encodeURIComponent(libraryCreativeId)}`, location.search)}
               className="rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 font-semibold text-emerald-100 hover:bg-emerald-500/25"
             >
               Open in Creative Library
-            </a>
+            </Link>
           ) : (
             <button
               type="button"
@@ -1473,6 +1475,7 @@ export default function VideoAnalysisRoute() {
 }
 
 function SavedReviewCard({ creativeId: initialCreativeId, review, onView }) {
+  const location = useLocation();
   const saveFetcher = useFetcher();
   const creativeId = saveFetcher.data?.creativeId || initialCreativeId;
   const saving = saveFetcher.state !== "idle";
@@ -1512,12 +1515,12 @@ function SavedReviewCard({ creativeId: initialCreativeId, review, onView }) {
           View full review
         </button>
         {creativeId ? (
-          <a
-            href={`/app/creative-library?creativeId=${encodeURIComponent(creativeId)}`}
+          <Link
+            to={withEmbeddedRouteParams(`/app/creative-library?creativeId=${encodeURIComponent(creativeId)}`, location.search)}
             className="inline-flex w-fit items-center rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-3 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-500/25"
           >
             Open in Creative Library
-          </a>
+          </Link>
         ) : (
           <saveFetcher.Form method="post">
             <input name="intent" type="hidden" value="saveCreative" />
