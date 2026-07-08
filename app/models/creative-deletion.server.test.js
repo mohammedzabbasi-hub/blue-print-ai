@@ -50,6 +50,63 @@ describe("Creative Library imported creative deletion", () => {
     assert.equal(await deleteSavedCreative(shop, first.id), null);
   });
 
+  it("deletes duplicate saved creatives by media identity once and remains shop-scoped", async () => {
+    const suffix = Date.now();
+    const shop = `creative-media-delete-${suffix}.myshopify.com`;
+    const otherShop = `creative-media-delete-other-${suffix}.myshopify.com`;
+    shops.add(shop);
+    shops.add(otherShop);
+    const mediaUrl = "/uploaded/creative-library/shared-video.mp4";
+    const mediaFingerprint = "shared-media-fingerprint";
+    const sharedPayload = {
+      fileName: "shared-video.mp4",
+      mediaFingerprint,
+      mediaUrl,
+      video_url: mediaUrl,
+    };
+    const [first] = await Promise.all([
+      db.savedCreative.create({
+        data: {
+          shop,
+          sourceType: "manual_upload",
+          sourceId: "upload:first-source",
+          productId: "media-product",
+          productTitle: "Media product",
+          title: "Uploaded media duplicate A",
+          payloadJson: JSON.stringify(sharedPayload),
+        },
+      }),
+      db.savedCreative.create({
+        data: {
+          shop,
+          sourceType: "video_analysis",
+          sourceId: "review-second-source",
+          productId: "media-product",
+          productTitle: "Media product",
+          title: "Uploaded media duplicate B",
+          payloadJson: JSON.stringify(sharedPayload),
+        },
+      }),
+      db.savedCreative.create({
+        data: {
+          shop: otherShop,
+          sourceType: "manual_upload",
+          sourceId: "upload:first-source",
+          productId: "media-product",
+          productTitle: "Media product",
+          title: "Other shop media duplicate",
+          payloadJson: JSON.stringify(sharedPayload),
+        },
+      }),
+    ]);
+
+    const deleted = await deleteSavedCreative(shop, first.id);
+
+    assert.equal(deleted?.id, first.id);
+    assert.equal(await db.savedCreative.count({ where: { shop } }), 0);
+    assert.equal(await db.savedCreative.count({ where: { shop: otherShop } }), 1);
+  });
+
   it("exposes TTAD1-TTAD5 as local performance records and removes each creative group with campaign links", async () => {
     const shop = `creative-delete-${Date.now()}.myshopify.com`;
     shops.add(shop);

@@ -421,18 +421,51 @@ export async function deleteSavedCreative(shop, creativeId) {
     return null;
   }
 
-  const duplicateRecords = existing.sourceId
+  const existingMediaKeys = savedCreativeMediaKeys(existing.payload);
+  const sourceDuplicateRecords = existing.sourceId
     ? await db.savedCreative.findMany({
         where: {
           shop,
           sourceId: existing.sourceId,
           sourceType: existing.sourceType,
         },
-        select: { id: true },
+        select: { id: true, payloadJson: true, sourceId: true, sourceType: true },
       })
-    : [{ id: existing.id }];
-  const duplicateIds = duplicateRecords.map(({ id }) => id);
-  const sourceReferences = [existing.id, existing.sourceId, ...duplicateIds].filter(Boolean);
+    : [];
+  const mediaDuplicateRecords = existingMediaKeys.size
+    ? await db.savedCreative.findMany({
+        where: { shop },
+        select: { id: true, payloadJson: true, sourceId: true, sourceType: true },
+      })
+    : [];
+  const duplicateRecords = [existing, ...sourceDuplicateRecords, ...mediaDuplicateRecords].filter(
+    (record, index, records) =>
+      records.findIndex((candidate) => candidate.id === record.id) === index,
+  );
+  const duplicateIds = duplicateRecords
+    .filter((record) => {
+      if (record.id === existing.id) return true;
+      if (
+        existing.sourceId &&
+        record.sourceId === existing.sourceId &&
+        record.sourceType === existing.sourceType
+      ) {
+        return true;
+      }
+
+      const recordPayload =
+        record.payload || parsePayload(record.payloadJson);
+      const recordMediaKeys = savedCreativeMediaKeys(recordPayload);
+
+      return [...recordMediaKeys].some((key) => existingMediaKeys.has(key));
+    })
+    .map(({ id }) => id);
+  const sourceReferences = [
+    existing.id,
+    existing.sourceId,
+    ...duplicateRecords.map((record) => record.sourceId),
+    ...duplicateIds,
+  ].filter(Boolean);
   const linkedPerformance = sourceReferences.length
     ? await db.creativePerformance.findFirst({
         where: { shop, sourceRecordId: { in: sourceReferences } },
@@ -443,9 +476,9 @@ export async function deleteSavedCreative(shop, creativeId) {
     await deleteCreativePerformanceGroup(shop, linkedPerformance);
   }
 
-  // Saved reviews may have been written more than once with the same source
-  // identity. Remove the whole local identity group so a duplicate card cannot
-  // make a successful delete appear to have failed.
+  // Saved reviews/uploads may have been written more than once with the same
+  // source or media identity. Remove the whole shop-local identity group so a
+  // duplicate card cannot make a successful delete appear to have failed.
   await db.$transaction([
     db.adCampaignCreative.deleteMany({
       where: { shop, savedCreativeId: { in: duplicateIds } },
