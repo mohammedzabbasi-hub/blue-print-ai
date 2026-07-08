@@ -863,24 +863,45 @@ export async function upsertWorkspaceSetting(shop, key, value) {
 }
 
 export async function deleteWorkspaceData(shop) {
-  const storage = await deleteUploadedWorkspaceFiles(shop);
+  if (!shop || typeof shop !== "string" || !shop.trim()) {
+    throw new Error("A Shopify shop is required to delete workspace data.");
+  }
+
+  const shopScope = shop.trim();
+  const storage = await deleteUploadedWorkspaceFiles(shopScope);
   await db.$transaction([
-    db.adCampaignCreative.deleteMany({ where: { shop } }),
-    db.creatorAttribution.deleteMany({ where: { shop } }),
-    db.adCampaign.deleteMany({ where: { shop } }),
-    db.adPerformanceDaily.deleteMany({ where: { shop } }),
-    db.adPlatformConnection.deleteMany({ where: { shop } }),
-    db.savedBrief.deleteMany({ where: { shop } }),
-    db.videoAnalysis.deleteMany({ where: { shop } }),
-    db.savedCreative.deleteMany({ where: { shop } }),
-    db.revenueBlueprint.deleteMany({ where: { shop } }),
-    db.workspaceRequest.deleteMany({ where: { shop } }),
-    db.workspaceSetting.deleteMany({ where: { shop } }),
-    db.activityLog.deleteMany({ where: { shop } }),
-    db.creator.deleteMany({ where: { shop } }),
-    db.creativePerformance.deleteMany({ where: { shop } }),
+    db.adCampaignCreative.deleteMany({ where: { shop: shopScope } }),
+    db.creatorAttribution.deleteMany({ where: { shop: shopScope } }),
+    db.adCampaign.deleteMany({ where: { shop: shopScope } }),
+    db.adPerformanceDaily.deleteMany({ where: { shop: shopScope } }),
+    db.adPlatformConnection.deleteMany({ where: { shop: shopScope } }),
+    db.savedBrief.deleteMany({ where: { shop: shopScope } }),
+    db.videoAnalysis.deleteMany({ where: { shop: shopScope } }),
+    db.savedCreative.deleteMany({ where: { shop: shopScope } }),
+    db.revenueBlueprint.deleteMany({ where: { shop: shopScope } }),
+    db.workspaceRequest.deleteMany({ where: { shop: shopScope } }),
+    db.workspaceSetting.deleteMany({ where: { shop: shopScope } }),
+    db.activityLog.deleteMany({ where: { shop: shopScope } }),
+    db.creator.deleteMany({ where: { shop: shopScope } }),
+    db.creativePerformance.deleteMany({ where: { shop: shopScope } }),
   ]);
-  return { shop, storage };
+  return { shop: shopScope, storage };
+}
+
+export async function deleteWorkspaceDataFromSettingsForm(shop, formData) {
+  if (String(formData.get("confirmation") || "") !== "DELETE") {
+    return { deletionError: "Type DELETE to confirm data deletion." };
+  }
+
+  try {
+    const deletion = await deleteWorkspaceData(shop);
+    return {
+      deletion,
+      deletionSuccess: "BluePrintAI data was deleted for this Shopify store.",
+    };
+  } catch (error) {
+    return { deletionError: error.message || "Could not delete BluePrintAI data." };
+  }
 }
 
 export const DEMO_WORKSPACE_RESET_MODELS = [

@@ -60,7 +60,7 @@ test("combined settings content covers legal, privacy, support, and deletion", a
   ]);
 
   assert.match(settings, /Legal & Privacy/);
-  assert.match(settings, /<LegalPrivacyContent \/>/);
+  assert.match(settings, /<LegalPrivacyContent/);
   for (const heading of [
     "Privacy & Data Use",
     "Google Ads Data Access",
@@ -78,6 +78,26 @@ test("combined settings content covers legal, privacy, support, and deletion", a
   assert.match(combinedContent, /read-only and reporting-only/);
   assert.match(combinedContent, /Users can disconnect Google Ads at any time/);
   assert.match(combinedContent, /support@blueprintai\.app/);
+  assert.match(combinedContent, /Delete BluePrintAI data/);
+  assert.match(combinedContent, /This deletes BluePrintAI-stored data for this shop/);
+  assert.match(settings, /Type DELETE to confirm/);
+  assert.match(settings, /deletionConfirmation !== "DELETE"/);
+  assert.match(settings, /deleteWorkspaceDataFromSettingsForm\(session\.shop, formData\)/);
+});
+
+test("merchant deletion does not call Shopify or Google Ads deletion APIs", async () => {
+  const blueprint = await readFile(
+    new URL("./blueprint.server.js", import.meta.url),
+    "utf8",
+  );
+  const deletionFunction = blueprint.slice(
+    blueprint.indexOf("export async function deleteWorkspaceData(shop)"),
+    blueprint.indexOf("export const DEMO_WORKSPACE_RESET_MODELS"),
+  );
+
+  assert.doesNotMatch(deletionFunction, /admin\.graphql|googleAds|customers\.delete|products\.delete/);
+  assert.match(deletionFunction, /db\.adPlatformConnection\.deleteMany/);
+  assert.match(deletionFunction, /deleteUploadedWorkspaceFiles/);
 });
 
 test("public support and combined settings describe Google Ads as read-only", async () => {

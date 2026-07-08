@@ -26,6 +26,7 @@ import LegalPrivacyContent from "../components/legal/LegalPrivacyContent";
 import ProductContextEvidence from "../components/ProductContextEvidence";
 import {
   createActivityLogRecord,
+  deleteWorkspaceDataFromSettingsForm,
   getWorkspaceProfile,
   getWorkspaceSettingsMap,
   mergeWorkspaceProfileWithProduct,
@@ -58,6 +59,7 @@ const SETTINGS_DEFAULTS = {
 
 const ANALYSIS_DEPTH_OPTIONS = new Set(["standard", "deep", "fast"]);
 const RESET_DEMO_WORKSPACE_INTENT = "resetDemoWorkspace";
+const DELETE_WORKSPACE_DATA_INTENT = "deleteWorkspaceData";
 const DEFAULT_SETTINGS_SECTION = "workspace";
 
 const SETTINGS_SECTIONS = [
@@ -187,6 +189,10 @@ export const action = async ({ request }) => {
     return result;
   }
 
+  if (intent === DELETE_WORKSPACE_DATA_INTENT) {
+    return deleteWorkspaceDataFromSettingsForm(session.shop, formData);
+  }
+
   if (intent !== "savePreferences") {
     return { error: "Unknown settings action." };
   }
@@ -260,12 +266,17 @@ export default function SettingsRoute() {
   const navigation = useNavigation();
   const [resetConfirmation, setResetConfirmation] = useState("");
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [deletionConfirmation, setDeletionConfirmation] = useState("");
+  const [deletionModalOpen, setDeletionModalOpen] = useState(false);
   const savingPreferences =
     navigation.state === "submitting" &&
     navigation.formData?.get("intent") === "savePreferences";
   const resettingWorkspace =
     navigation.state === "submitting" &&
     navigation.formData?.get("intent") === RESET_DEMO_WORKSPACE_INTENT;
+  const deletingWorkspace =
+    navigation.state === "submitting" &&
+    navigation.formData?.get("intent") === DELETE_WORKSPACE_DATA_INTENT;
   const currentSettings = actionData?.settings || settings;
   const currentProfile = actionData?.profile || profile;
   const resetUiKey = actionData?.resetSuccess ? `reset-${actionData.reset?.shop || shop}` : "current";
@@ -284,6 +295,13 @@ export default function SettingsRoute() {
       setResetConfirmation("");
     }
   }, [actionData?.resetSuccess]);
+
+  useEffect(() => {
+    if (actionData?.deletionSuccess) {
+      setDeletionModalOpen(false);
+      setDeletionConfirmation("");
+    }
+  }, [actionData?.deletionSuccess]);
 
   return (
     <div className="mx-auto w-full max-w-[1320px] space-y-6">
@@ -444,7 +462,12 @@ export default function SettingsRoute() {
 
           {activeSection === "legal" && (
             <SettingsPanel icon={ShieldCheck} title="Legal & Privacy" description="Privacy, data access, terms, support, and deletion information in one place.">
-              <LegalPrivacyContent />
+              {actionData?.deletionError && <SettingsAlert tone="error">{actionData.deletionError}</SettingsAlert>}
+              {actionData?.deletionSuccess && <SettingsAlert tone="success">{actionData.deletionSuccess}</SettingsAlert>}
+              <LegalPrivacyContent
+                deleting={deletingWorkspace}
+                onDelete={() => setDeletionModalOpen(true)}
+              />
               <BillingNotice className="mt-4" />
             </SettingsPanel>
           )}
@@ -464,6 +487,36 @@ export default function SettingsRoute() {
           )}
         </main>
       </div>
+
+      {deletionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 py-8 backdrop-blur-sm" role="presentation">
+          <div aria-modal="true" className="w-full max-w-2xl rounded-3xl border border-red-500/50 bg-[#100915] p-7 shadow-2xl" role="dialog" aria-labelledby="delete-workspace-title">
+            <div className="flex items-start justify-between gap-5">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-red-300">Dangerous action</p>
+                <h2 className="mt-2 text-2xl font-black" id="delete-workspace-title">Delete BluePrintAI data?</h2>
+              </div>
+              <button aria-label="Close deletion confirmation" className="rounded-full border border-slate-700 px-3 py-1 text-lg font-black text-slate-300" disabled={deletingWorkspace} onClick={() => setDeletionModalOpen(false)} type="button">×</button>
+            </div>
+            <p className="mt-6 text-sm leading-6 text-slate-200">
+              This permanently deletes BluePrintAI records and uploaded media for {shop}. It does not delete data from Shopify, Google Ads, or other external platforms.
+            </p>
+            <Form className="mt-6 space-y-5" method="post">
+              <input name="intent" type="hidden" value={DELETE_WORKSPACE_DATA_INTENT} />
+              <label className="block">
+                <span className="mb-2 block text-sm font-black text-red-100">Type DELETE to confirm</span>
+                <input autoComplete="off" className="w-full rounded-2xl border border-red-500/40 bg-slate-950 px-4 py-4 font-black text-red-50 outline-none focus:border-red-300" disabled={deletingWorkspace} name="confirmation" onChange={(event) => setDeletionConfirmation(event.target.value)} value={deletionConfirmation} />
+              </label>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button className="rounded-2xl border border-slate-700 px-6 py-3 font-black text-slate-300" disabled={deletingWorkspace} onClick={() => setDeletionModalOpen(false)} type="button">Cancel</button>
+                <button className="rounded-2xl border border-red-400/70 bg-red-500/20 px-6 py-3 font-black text-red-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={deletionConfirmation !== "DELETE" || deletingWorkspace} type="submit">
+                  {deletingWorkspace ? "Deleting..." : "Delete BluePrintAI data"}
+                </button>
+              </div>
+            </Form>
+          </div>
+        </div>
+      )}
 
       {showDeveloperTools && resetModalOpen && (
         <div

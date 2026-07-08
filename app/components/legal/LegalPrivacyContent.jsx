@@ -33,7 +33,7 @@ const sections = [
   },
 ];
 
-export default function LegalPrivacyContent() {
+export default function LegalPrivacyContent({ deleting = false, onDelete }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -44,6 +44,22 @@ export default function LegalPrivacyContent() {
           >
             <h3 className="text-lg font-black text-slate-100">{title}</h3>
             <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
+            {title === "Data Deletion / Account Removal" && (
+              <div className="mt-4 border-t border-red-500/20 pt-4">
+                <p className="text-sm leading-6 text-slate-300">
+                  This deletes BluePrintAI-stored data for this shop. It does not
+                  delete data from Shopify, Google Ads, or other external platforms.
+                </p>
+                <button
+                  className="mt-4 rounded-xl border border-red-400/60 bg-red-500/15 px-4 py-2.5 text-sm font-black text-red-100 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={deleting}
+                  onClick={onDelete}
+                  type="button"
+                >
+                  Delete BluePrintAI data
+                </button>
+              </div>
+            )}
           </section>
         ))}
       </div>

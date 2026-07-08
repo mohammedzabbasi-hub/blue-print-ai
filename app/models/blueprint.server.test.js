@@ -15,6 +15,7 @@ import {
   buildRecommendations,
   buildRevenueBlueprint,
   deleteWorkspaceData,
+  deleteWorkspaceDataFromSettingsForm,
   getWorkspaceProfile,
   loadMerchantData,
   mergeWorkspaceProfileWithProduct,
@@ -506,6 +507,62 @@ describe("BluePrintAI demo workspace reset", () => {
 
     await assert.rejects(readFile(uploadPath), { code: "ENOENT" });
     assert.equal(await db.workspaceSetting.count({ where: { shop } }), 0);
+  });
+
+  it("requires exact DELETE confirmation for merchant data deletion", async () => {
+    const shop = `delete-confirmation-${Date.now()}.myshopify.com`;
+    const formData = new FormData();
+    resetTestShops.add(shop);
+    await db.workspaceSetting.create({ data: { shop, key: "test", value: "true" } });
+
+    formData.set("confirmation", "delete");
+    const rejected = await deleteWorkspaceDataFromSettingsForm(shop, formData);
+
+    assert.equal(rejected.deletionError, "Type DELETE to confirm data deletion.");
+    assert.equal(await db.workspaceSetting.count({ where: { shop } }), 1);
+  });
+
+  it("deletes only the authenticated shop workspace and preserves its Shopify session", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const shop = `delete-scope-${suffix}.myshopify.com`;
+    const otherShop = `delete-scope-other-${suffix}.myshopify.com`;
+    const sessionId = `delete-scope-session-${suffix}`;
+    const formData = new FormData();
+    resetTestShops.add(shop);
+    resetTestShops.add(otherShop);
+    resetTestSessionIds.add(sessionId);
+    await seedResetWorkspace(shop, sessionId);
+    await seedResetWorkspace(otherShop);
+    await db.adPlatformConnection.create({
+      data: {
+        id: `google-connection-${suffix}`,
+        shop,
+        platform: "google_ads",
+        encryptedAccessToken: "encrypted-test-token",
+      },
+    });
+
+    formData.set("confirmation", "DELETE");
+    const result = await deleteWorkspaceDataFromSettingsForm(shop, formData);
+
+    assert.equal(result.deletion.shop, shop);
+    assert.equal(result.deletionSuccess, "BluePrintAI data was deleted for this Shopify store.");
+    assert.deepEqual(await countResetWorkspaceRows(shop), {
+      adCampaign: 0,
+      adCampaignCreative: 0,
+      activityLog: 0,
+      creativePerformance: 0,
+      revenueBlueprint: 0,
+      savedBrief: 0,
+      savedCreative: 0,
+      videoAnalysis: 0,
+      workspaceRequest: 0,
+      workspaceSetting: 0,
+    });
+    assert.equal(await db.adPlatformConnection.count({ where: { shop } }), 0);
+    assert.equal(await db.session.count({ where: { id: sessionId, shop } }), 1);
+    assert.equal(await db.savedCreative.count({ where: { shop: otherShop } }), 1);
+    assert.equal(await db.workspaceSetting.count({ where: { shop: otherShop } }), 1);
   });
 
   it("lists persisted CreativePerformance rows without demo fallback rows", async () => {
