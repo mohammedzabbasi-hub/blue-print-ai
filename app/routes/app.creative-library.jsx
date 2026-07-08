@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Form,
@@ -381,6 +381,8 @@ function toCreativeCard(record) {
     video100PercentWatched: record.video100PercentWatched,
     createdAt: record.firstSeenAt,
     source_platform: record.sourcePlatform,
+    deletionKey:
+      record.sourceCreativeId || record.sourceRecordId || `${recordType}:${recordId}`,
     recordId,
     campaignRecordId: record.id,
     recordType,
@@ -483,6 +485,8 @@ export default function CreativeLibraryRoute() {
   const [search, setSearch] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("all");
   const [deletedCreativeIds, setDeletedCreativeIds] = useState([]);
+  const [deletedCreativeKeys, setDeletedCreativeKeys] = useState([]);
+  const [deleteNotice, setDeleteNotice] = useState("");
   const [selectedCreativeId, setSelectedCreativeId] = useState(() =>
     new URLSearchParams(location.search).get("creativeId"),
   );
@@ -525,10 +529,22 @@ export default function CreativeLibraryRoute() {
     setUploadOpen(false);
   }
 
-  function markCreativeDeleted(creativeId) {
+  function markCreativeDeleted(creative) {
     setDeletedCreativeIds((current) =>
-      current.includes(creativeId) ? current : [...current, creativeId],
+      current.includes(creative.id) ? current : [...current, creative.id],
     );
+    setDeletedCreativeKeys((current) =>
+      current.includes(creative.deletionKey)
+        ? current
+        : [...current, creative.deletionKey],
+    );
+    setDeleteNotice("Creative removed from this workspace.");
+    if (
+      String(selectedCreativeId) === String(creative.id) ||
+      String(selectedCreativeId) === String(creative.recordId)
+    ) {
+      closeCreativeDetails();
+    }
   }
 
   const creatives = newestCreativesFirst(
@@ -540,7 +556,11 @@ export default function CreativeLibraryRoute() {
           ),
         ]
       : loaderCreatives,
-  ).filter((creative) => !deletedCreativeIds.includes(creative.id));
+  ).filter(
+    (creative) =>
+      !deletedCreativeIds.includes(creative.id) &&
+      !deletedCreativeKeys.includes(creative.deletionKey),
+  );
 
   const visibleCreatives = creatives.filter(
     (creative) => !deletedCreativeIds.includes(creative.id),
@@ -952,14 +972,19 @@ export default function CreativeLibraryRoute() {
         <CreativeDetailsModal
           creative={selectedCreative}
           onClose={closeCreativeDetails}
+          onDeleted={markCreativeDeleted}
         />
+      )}
+      {deleteNotice && (
+        <p className="fixed bottom-5 right-5 z-[120] rounded-xl border border-emerald-500/40 bg-emerald-950 px-4 py-3 text-sm font-semibold text-emerald-100" role="status">
+          {deleteNotice}
+        </p>
       )}
     </div>
   );
 }
 
 function CreativeCard({ campaigns, creative, onDeleted, onViewDetails }) {
-  const deleteFetcher = useFetcher();
   const videoCandidate =
     creative.video_url ||
     creative.videoUrl ||
@@ -977,16 +1002,6 @@ function CreativeCard({ campaigns, creative, onDeleted, onViewDetails }) {
     creative.importSource === "public_engagement_import" &&
     Boolean(sourceUrl) &&
     !isPlayableVideoUrl(videoCandidate);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const deleting =
-    deleteFetcher.state !== "idle" &&
-    deleteFetcher.formData?.get("intent") === "deleteCreative";
-  const deleteError = deleteFetcher.data?.error || "";
-
-  useEffect(() => {
-    if (!deleteFetcher.data?.ok) return;
-    onDeleted?.(creative.id);
-  }, [creative.id, deleteFetcher.data, onDeleted]);
 
   return (
     <div className="glass rounded-2xl p-6 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
@@ -1057,53 +1072,79 @@ function CreativeCard({ campaigns, creative, onDeleted, onViewDetails }) {
             View creative details →
           </button>
 
-          {!creative.canDelete ? null : confirmingDelete ? (
-            <deleteFetcher.Form method="post" className="flex flex-wrap items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2">
-              <input name="intent" type="hidden" value="deleteCreative" />
-              <input name="displayId" type="hidden" value={creative.id} />
-              <input name="recordId" type="hidden" value={creative.recordId} />
-              <input name="recordType" type="hidden" value={creative.recordType} />
-              <span className="w-full text-xs font-semibold text-red-100 sm:w-auto">
-                Remove this creative from BluePrintAI? External ad platform data will not be deleted.
-              </span>
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={deleting}
-                className="rounded-lg border border-border-strong bg-surface-2/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={deleting}
-                className="rounded-lg border border-red-500/50 bg-red-950/50 px-3 py-1.5 text-xs font-semibold text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {deleting ? "Deleting..." : "Confirm delete"}
-              </button>
-            </deleteFetcher.Form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className="rounded-lg border border-red-500/40 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-500/10"
-            >
-              Delete
-            </button>
+          {creative.canDelete && (
+            <CreativeDeleteControl creative={creative} onDeleted={onDeleted} />
           )}
         </div>
-
-        {deleteError && (
-          <p className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs font-semibold text-red-100">
-            {deleteError}
-          </p>
-        )}
       </div>
     </div>
   );
 }
 
-function CreativeDetailsModal({ creative, onClose }) {
+function CreativeDeleteControl({ creative, onDeleted }) {
+  const deleteFetcher = useFetcher();
+  const [confirming, setConfirming] = useState(false);
+  const submittedRef = useRef(false);
+  const deleting = deleteFetcher.state !== "idle";
+  const deleteError = deleteFetcher.data?.error || "";
+
+  useEffect(() => {
+    if (deleteFetcher.state !== "idle" || !submittedRef.current) return;
+    submittedRef.current = false;
+    if (
+      deleteFetcher.data?.ok &&
+      String(deleteFetcher.data.deletedRecordId) === String(creative.recordId) &&
+      deleteFetcher.data.deletedRecordType === creative.recordType
+    ) {
+      onDeleted?.(creative);
+    }
+  }, [creative, deleteFetcher.data, deleteFetcher.state, onDeleted]);
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="rounded-lg border border-red-500/40 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-500/10"
+      >
+        Delete
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <deleteFetcher.Form
+        method="post"
+        className="flex flex-wrap items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2"
+        onSubmit={(event) => {
+          if (deleting || submittedRef.current) {
+            event.preventDefault();
+            return;
+          }
+          submittedRef.current = true;
+        }}
+      >
+        <input name="intent" type="hidden" value="deleteCreative" />
+        <input name="displayId" type="hidden" value={creative.id} />
+        <input name="recordId" type="hidden" value={creative.recordId} />
+        <input name="recordType" type="hidden" value={creative.recordType} />
+        <span className="w-full text-xs font-semibold text-red-100 sm:w-auto">
+          Remove this creative from BluePrintAI? External ad platform data will not be deleted.
+        </span>
+        <button type="button" onClick={() => setConfirming(false)} disabled={deleting} className="rounded-lg border border-border-strong bg-surface-2/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60">
+          Cancel
+        </button>
+        <button type="submit" disabled={deleting} className="rounded-lg border border-red-500/50 bg-red-950/50 px-3 py-1.5 text-xs font-semibold text-red-100 disabled:cursor-not-allowed disabled:opacity-60">
+          {deleting ? "Deleting…" : "Confirm delete"}
+        </button>
+      </deleteFetcher.Form>
+      {deleteError && <p className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs font-semibold text-red-100" role="alert">{deleteError}</p>}
+    </div>
+  );
+}
+
+function CreativeDetailsModal({ creative, onClose, onDeleted }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
 
@@ -1195,6 +1236,11 @@ function CreativeDetailsModal({ creative, onClose }) {
               "No insight available."}
           </p>
         </div>
+        {creative.canDelete && (
+          <div className="mt-6">
+            <CreativeDeleteControl creative={creative} onDeleted={onDeleted} />
+          </div>
+        )}
       </section>
     </div>,
     document.body,

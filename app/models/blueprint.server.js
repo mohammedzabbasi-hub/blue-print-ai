@@ -421,7 +421,18 @@ export async function deleteSavedCreative(shop, creativeId) {
     return null;
   }
 
-  const sourceReferences = [existing.id, existing.sourceId].filter(Boolean);
+  const duplicateRecords = existing.sourceId
+    ? await db.savedCreative.findMany({
+        where: {
+          shop,
+          sourceId: existing.sourceId,
+          sourceType: existing.sourceType,
+        },
+        select: { id: true },
+      })
+    : [{ id: existing.id }];
+  const duplicateIds = duplicateRecords.map(({ id }) => id);
+  const sourceReferences = [existing.id, existing.sourceId, ...duplicateIds].filter(Boolean);
   const linkedPerformance = sourceReferences.length
     ? await db.creativePerformance.findFirst({
         where: { shop, sourceRecordId: { in: sourceReferences } },
@@ -430,14 +441,19 @@ export async function deleteSavedCreative(shop, creativeId) {
 
   if (linkedPerformance) {
     await deleteCreativePerformanceGroup(shop, linkedPerformance);
-  } else {
-    await db.$transaction([
-      db.adCampaignCreative.deleteMany({
-        where: { shop, savedCreativeId: existing.id },
-      }),
-      db.savedCreative.delete({ where: { id: existing.id } }),
-    ]);
   }
+
+  // Saved reviews may have been written more than once with the same source
+  // identity. Remove the whole local identity group so a duplicate card cannot
+  // make a successful delete appear to have failed.
+  await db.$transaction([
+    db.adCampaignCreative.deleteMany({
+      where: { shop, savedCreativeId: { in: duplicateIds } },
+    }),
+    db.savedCreative.deleteMany({
+      where: { shop, id: { in: duplicateIds } },
+    }),
+  ]);
 
   await createActivityLogRecord(shop, {
     type: "creative_deleted",

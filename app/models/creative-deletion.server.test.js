@@ -4,6 +4,7 @@ import { after, describe, it } from "node:test";
 import db from "../db.server.js";
 import {
   deleteCreativePerformanceRecord,
+  deleteSavedCreative,
 } from "./blueprint.server.js";
 import { listCreativePerformance } from "./creative-performance.server.js";
 
@@ -21,6 +22,34 @@ after(async () => {
 });
 
 describe("Creative Library imported creative deletion", () => {
+  it("deletes duplicate saved-review identities once and remains shop-scoped", async () => {
+    const suffix = Date.now();
+    const shop = `creative-saved-delete-${suffix}.myshopify.com`;
+    const otherShop = `creative-saved-delete-other-${suffix}.myshopify.com`;
+    shops.add(shop);
+    shops.add(otherShop);
+    const sharedData = {
+      sourceType: "video_analysis",
+      sourceId: "idempotent-review-source",
+      productId: "review-product",
+      productTitle: "Review product",
+      title: "Saved review",
+      payloadJson: "{}",
+    };
+    const [first] = await Promise.all([
+      db.savedCreative.create({ data: { shop, ...sharedData } }),
+      db.savedCreative.create({ data: { shop, ...sharedData } }),
+      db.savedCreative.create({ data: { shop: otherShop, ...sharedData } }),
+    ]);
+
+    const deleted = await deleteSavedCreative(shop, first.id);
+
+    assert.equal(deleted?.id, first.id);
+    assert.equal(await db.savedCreative.count({ where: { shop } }), 0);
+    assert.equal(await db.savedCreative.count({ where: { shop: otherShop } }), 1);
+    assert.equal(await deleteSavedCreative(shop, first.id), null);
+  });
+
   it("exposes TTAD1-TTAD5 as local performance records and removes each creative group with campaign links", async () => {
     const shop = `creative-delete-${Date.now()}.myshopify.com`;
     shops.add(shop);
