@@ -101,11 +101,36 @@ export function transcriptEvidence(transcript) {
 
 export function analyzerEvidence(analyzer) {
   const source = analyzer && typeof analyzer === "object" ? analyzer : {};
+  const nestedAnalysis =
+    source.analysis && typeof source.analysis === "object" ? source.analysis : {};
+  const analysis = {
+    ...nestedAnalysis,
+    hook_score: nestedAnalysis.hook_score ?? nestedAnalysis.hookScore ?? source.hookScore,
+    cta_score: nestedAnalysis.cta_score ?? nestedAnalysis.ctaScore ?? source.ctaScore,
+    clarity_score:
+      nestedAnalysis.clarity_score ?? nestedAnalysis.clarityScore ?? source.clarityScore,
+    overall_score:
+      nestedAnalysis.overall_score ?? nestedAnalysis.overallScore ?? source.overallScore,
+    summary:
+      nestedAnalysis.summary ?? nestedAnalysis.executiveSummary ?? source.executiveSummary,
+    strengths: nestedAnalysis.strengths ?? source.strengths,
+    weaknesses: nestedAnalysis.weaknesses ?? source.weaknesses,
+    recommendations: nestedAnalysis.recommendations ?? source.recommendations,
+    messaging_angle:
+      nestedAnalysis.messaging_angle ?? nestedAnalysis.messagingAngle ?? source.messagingAngle,
+    visual_elements:
+      nestedAnalysis.visual_elements ?? nestedAnalysis.visualElements ?? source.visualElements,
+    next_test_plan:
+      nestedAnalysis.next_test_plan ?? nestedAnalysis.nextTestPlan ?? source.nextTestPlan,
+    ad_format: nestedAnalysis.ad_format ?? nestedAnalysis.adFormat ?? source.adFormat,
+  };
+
+  for (const key of Object.keys(analysis)) {
+    if (analysis[key] === undefined) delete analysis[key];
+  }
+
   return {
-    analysis:
-      source.analysis && typeof source.analysis === "object"
-        ? { ...source.analysis }
-        : {},
+    analysis,
     metadata:
       source.metadata && typeof source.metadata === "object"
         ? { ...source.metadata }

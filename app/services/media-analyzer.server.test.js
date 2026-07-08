@@ -43,6 +43,8 @@ test("successful analyzer output is preserved", async () => {
     fetchImpl: async (_url, options) => {
       assert.equal(options.headers.Authorization, "Bearer test-key");
       assert.ok(options.body instanceof FormData);
+      assert.equal(options.body.get("file").name, "review.mp4");
+      assert.equal(options.body.get("file").type, "video/mp4");
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -50,6 +52,30 @@ test("successful analyzer output is preserved", async () => {
     },
   });
   assert.deepEqual(result, { available: true, ...payload });
+});
+
+test("legacy backend result envelope is normalized", async () => {
+  const result = await analyzeUploadedVideoFile(videoFile(), {
+    env: configuredEnv,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          filename: "review.mp4",
+          result: {
+            analysis: { hook_score: 8 },
+            transcript: { full_text: "Hello" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  });
+
+  assert.deepEqual(result, {
+    available: true,
+    analysis: { hook_score: 8 },
+    transcript: { full_text: "Hello" },
+  });
 });
 
 test("non-2xx and malformed responses return safe failures without results", async () => {
@@ -70,6 +96,21 @@ test("non-2xx and malformed responses return safe failures without results", asy
   assert.equal(malformed.available, false);
   assert.equal(malformed.reason, "malformed_response");
   assert.equal("analysis" in malformed, false);
+});
+
+test("network failures return no analysis", async () => {
+  const result = await analyzeUploadedVideoFile(videoFile(), {
+    env: configuredEnv,
+    fetchImpl: async () => {
+      throw new TypeError("connection refused");
+    },
+  });
+
+  assert.deepEqual(result, {
+    available: false,
+    reason: "network_error",
+    message: "Analyzer service is temporarily unavailable.",
+  });
 });
 
 test("timeout aborts the analyzer request and returns no results", async () => {

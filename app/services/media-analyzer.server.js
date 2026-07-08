@@ -68,7 +68,15 @@ export async function analyzeUploadedVideoFile(
       return failure("service_error", "Analyzer service could not analyze this video.");
     }
 
-    return { available: true, ...payload };
+    // The legacy FastAPI endpoint returns analyzer evidence inside `result`,
+    // while managed analyzers may return the evidence at the top level.
+    // Normalize both contracts before the route builds its display payload.
+    const analyzerPayload =
+      payload.result && typeof payload.result === "object" && !Array.isArray(payload.result)
+        ? payload.result
+        : payload;
+
+    return { available: true, ...analyzerPayload };
   } catch (error) {
     if (error?.name === "AbortError" || controller.signal.aborted) {
       return failure("timeout", `Analyzer request timed out after ${runtime.timeoutMs} ms.`);

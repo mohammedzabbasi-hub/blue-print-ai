@@ -22,6 +22,38 @@ test("partial analyzer output is preserved without synthesized fields", () => {
   assert.equal(evidence.retention_analysis.available, false);
 });
 
+test("top-level backend success fields map into the visible report analysis", () => {
+  const evidence = analyzerEvidence({
+    hookScore: 8,
+    ctaScore: 7,
+    clarityScore: 9,
+    overallScore: 8,
+    executiveSummary: "Clear product-led creative.",
+    strengths: ["Immediate demonstration"],
+    weaknesses: ["CTA is late"],
+    recommendations: ["Move the CTA earlier"],
+    messagingAngle: "Fast relief",
+    visualElements: ["Product close-up"],
+    nextTestPlan: ["Test a result-first hook"],
+    adFormat: { type: "Product demo" },
+    transcript: { full_text: "See the result, then shop now." },
+  });
+
+  assert.equal(evidence.analysis.hook_score, 8);
+  assert.equal(evidence.analysis.cta_score, 7);
+  assert.equal(evidence.analysis.clarity_score, 9);
+  assert.equal(evidence.analysis.overall_score, 8);
+  assert.equal(evidence.analysis.summary, "Clear product-led creative.");
+  assert.deepEqual(evidence.analysis.strengths, ["Immediate demonstration"]);
+  assert.deepEqual(evidence.analysis.weaknesses, ["CTA is late"]);
+  assert.deepEqual(evidence.analysis.recommendations, ["Move the CTA earlier"]);
+  assert.equal(evidence.analysis.messaging_angle, "Fast relief");
+  assert.deepEqual(evidence.analysis.visual_elements, ["Product close-up"]);
+  assert.deepEqual(evidence.analysis.next_test_plan, ["Test a result-first hook"]);
+  assert.equal(evidence.analysis.ad_format.type, "Product demo");
+  assert.equal(evidence.transcript.full_text, "See the result, then shop now.");
+});
+
 test("missing retention remains unavailable instead of receiving fake defaults", () => {
   const retention = normalizeRetentionAnalysis(undefined);
 

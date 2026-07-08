@@ -886,6 +886,9 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
     .filter(Boolean)
     .slice(0, 5)
     .join(" | ");
+  const visualElements = pickList(analysis.visual_elements, analysis.visualElements).join(
+    " | ",
+  );
 
   useEffect(() => {
     setCurrentResult(result);
@@ -1096,7 +1099,7 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
         </SectionCard>
 
         <SectionCard title="Visual Elements" subtitle="Branding, text, product focus">
-          <p>{detectedText || "Not available"}</p>
+          <p>{visualElements || detectedText || "Not available"}</p>
         </SectionCard>
       </div>
 
@@ -1134,7 +1137,11 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
           </p>
         </SectionCard>
 
-        <ListCard title="Next Test Plan" items={analysis.next_test_plan || []} accent />
+        <ListCard
+          title="Next Test Plan"
+          items={analysis.next_test_plan || analysis.nextTestPlan || []}
+          accent
+        />
       </div>
     </section>
   );

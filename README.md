@@ -258,6 +258,8 @@ Video uploads are stored using the existing private media-storage flow. Analysis
 
 The app posts the uploaded video as multipart form field `file` and authenticates with `Authorization: Bearer <ANALYZER_API_KEY>`. When the analyzer is disabled, incompletely configured, unreachable, times out, returns a non-2xx response, or returns malformed data, AI Review Studio reports that analysis is unavailable and renders no fallback scores, retention data, drop-off claims, or conclusions. Partial responses show only returned fields; missing metrics display `Not available`. Analyzer-declared heuristic or estimated output is labeled `Estimated`.
 
+For the legacy FastAPI backend, use `http://127.0.0.1:8000/video-analysis/analyze` locally and `https://<backend-render-service>.onrender.com/video-analysis/analyze` in production. Set the same long random `ANALYZER_API_KEY` in both services. The key is a service credential, not a user login JWT.
+
 See `.env.example` for safe configuration examples. Never expose `ANALYZER_API_KEY` to browser code or commit a real key.
 
 ## Verification
