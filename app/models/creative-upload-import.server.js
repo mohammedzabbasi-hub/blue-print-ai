@@ -293,7 +293,13 @@ export async function importMatchedCreativeRows({
           }));
         storedByIndex.set(matchedEntry.index, stored);
         record.videoUrl = stored.mediaUrl;
+        record.mediaUrl = stored.mediaUrl;
         record.assetUrl = record.assetUrl || stored.mediaUrl;
+        record.mediaFingerprint = stored.fingerprint;
+        record.mediaMimeType = stored.fileType;
+        record.mediaPath = stored.storedFileName;
+        record.mediaSizeBytes = stored.fileSize;
+        record.originalFilename = stored.originalName;
         record.uploadedVideo = {
           fileSize: stored.fileSize,
           fileType: stored.fileType,

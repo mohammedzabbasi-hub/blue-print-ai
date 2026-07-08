@@ -16,6 +16,7 @@ import {
   useLoaderData,
   useLocation,
   useNavigation,
+  useRouteError,
 } from "react-router";
 import {
   disconnectPlatform,
@@ -177,12 +178,37 @@ export const action = async ({ request }) => {
   }
 };
 
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message = error?.data || error?.message || "Connections could not load.";
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-2xl border border-red-500/25 bg-[#0b1220] p-6 md:p-8">
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-red-300">
+          Connections
+        </p>
+        <h1 className="mt-2 font-display text-3xl font-semibold text-white">
+          Return to Connections
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+          {String(message)}
+        </p>
+        <a className="bp-primary-cta mt-5" href="/app/connections" target="_top" rel="noreferrer">
+          Return to Connections
+        </a>
+      </section>
+    </div>
+  );
+}
+
 export default function ConnectionsRoute() {
   const { connections, googleCampaigns, googleConfiguration, googleLiveRowCount, shop } = useLoaderData();
   const actionData = useActionData();
   const location = useLocation();
   const navigation = useNavigation();
   const query = new URLSearchParams(location.search);
+  const missingEmbeddedContext = !query.get("host") && query.get("googleAds") === "connected";
   const googleAdsConnection = connections.find(
     (connection) => connection.platform === "google",
   );
@@ -220,11 +246,16 @@ export default function ConnectionsRoute() {
       </section>
 
       {notice && <Notice tone="success">{notice}</Notice>}
+      {missingEmbeddedContext && (
+        <Notice tone="warning">
+          Shopify context was not included in the OAuth return. <a className="underline" href={withEmbeddedRouteParams("/app/connections", location.search)} target="_top" rel="noreferrer">Return to Connections</a>
+        </Notice>
+      )}
       {warning && <Notice tone="warning">{warning}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
 
       <section className="grid gap-4 lg:grid-cols-3" aria-label="Ad platforms">
-      {PLATFORMS.map((platform) => (
+        {PLATFORMS.map((platform) => (
           <PlatformCard
             connection={connectionMap.get(platform.id)}
             key={platform.id}
@@ -274,7 +305,7 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
   );
   const connectPath = withEmbeddedRouteParams(
     platform.id === "google"
-      ? `/auth/google-ads/start?shop=${encodeURIComponent(shop)}`
+      ? `/auth/google-ads/start?shop=${encodeURIComponent(shop)}&returnTo=${encodeURIComponent("/app/connections")}`
       : `/auth/${platform.id}/start`,
     search,
   );

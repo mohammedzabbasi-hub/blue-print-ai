@@ -9,8 +9,13 @@ import {
 export async function loader({ request }) {
   const { session } = await loadShopifyRouteContext(request);
   const redirectUri = getGoogleAdsRedirectUri(request);
-  const { cookieHeader, state } = await createGoogleAdsOAuthState({
+  const { context, cookieHeader, state } = await createGoogleAdsOAuthState({
     request,
+    shop: session.shop,
+  });
+  console.info("Google Ads OAuth start", {
+    hostPresent: Boolean(context.host),
+    returnTo: context.returnTo,
     shop: session.shop,
   });
   const authorization = buildGoogleOAuthUrl({ redirectUri, state });

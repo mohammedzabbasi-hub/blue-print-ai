@@ -3,6 +3,7 @@ import { createCookie } from "react-router";
 import { getEmbeddedRouteSearch } from "./embedded-routing.js";
 
 const STATE_MAX_AGE_SECONDS = 10 * 60;
+const DEFAULT_RETURN_TO = "/app/connections";
 
 function getStateSecret() {
   const secret =
@@ -120,19 +121,60 @@ export function getGoogleAdsRedirectUri(request, env = process.env) {
   return `${getPublicOrigin(request, env)}/auth/google-ads/callback`;
 }
 
+function sanitizeReturnTo(value) {
+  const candidate = String(value || DEFAULT_RETURN_TO).trim();
+  if (!candidate || candidate.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(candidate)) {
+    return DEFAULT_RETURN_TO;
+  }
+
+  try {
+    const url = new URL(candidate, "https://blueprintai.local");
+    return url.origin === "https://blueprintai.local" && url.pathname.startsWith("/app/")
+      ? `${url.pathname}${url.search}${url.hash}`
+      : DEFAULT_RETURN_TO;
+  } catch {
+    return DEFAULT_RETURN_TO;
+  }
+}
+
+function getShopifyOAuthContext({ request, shop }) {
+  const url = new URL(request.url);
+  const embeddedSearch = new URLSearchParams(getEmbeddedRouteSearch(url.search));
+  const host = embeddedSearch.get("host") || "";
+  const embedded = embeddedSearch.get("embedded") || (host ? "1" : "");
+  const returnTo = sanitizeReturnTo(url.searchParams.get("returnTo"));
+
+  if (shop) embeddedSearch.set("shop", shop);
+  if (host) embeddedSearch.set("host", host);
+  if (embedded) embeddedSearch.set("embedded", embedded);
+
+  return {
+    embedded,
+    host,
+    returnSearch: embeddedSearch.toString() ? `?${embeddedSearch}` : "",
+    returnTo,
+    shop,
+  };
+}
+
 export async function createGoogleAdsOAuthState({ request, shop }) {
   const state = crypto.randomBytes(32).toString("base64url");
-  const returnSearch = getEmbeddedRouteSearch(new URL(request.url).search);
+  const context = getShopifyOAuthContext({ request, shop });
   const cookie = getStateCookie();
 
   return {
     state,
     cookieHeader: await cookie.serialize({
+      embedded: context.embedded,
+      host: context.host,
+      nonce: state,
+      returnTo: context.returnTo,
       state,
       shop,
-      returnSearch,
+      returnSearch: context.returnSearch,
       createdAt: Date.now(),
     }),
+    context,
   };
 }
 
@@ -157,6 +199,9 @@ export async function validateGoogleAdsOAuthState(request, receivedState) {
 
   return {
     clearCookieHeader: await cookie.serialize("", { maxAge: 0 }),
+    embedded: stored.embedded || "",
+    host: stored.host || "",
+    returnTo: sanitizeReturnTo(stored.returnTo),
     returnSearch: getEmbeddedRouteSearch(stored.returnSearch),
     shop: stored.shop,
   };

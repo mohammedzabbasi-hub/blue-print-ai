@@ -29,6 +29,15 @@ describe("saved review Creative Library routing", () => {
 
   it("authenticates private media and falls back instead of leaving a blank player", async () => {
     const source = await readFile(creativeLibraryRoute, "utf8");
+    const mediaTarget = withEmbeddedRouteParams(
+      "/app/media/creative-library/abc123-TTAD2.mp4",
+      "?shop=test.myshopify.com&host=encoded-host&embedded=1&id_token=token",
+    );
+
+    assert.equal(
+      mediaTarget,
+      "/app/media/creative-library/abc123-TTAD2.mp4?embedded=1&host=encoded-host&id_token=token&shop=test.myshopify.com",
+    );
 
     assert.match(source, /withEmbeddedRouteParams\(resolvedCandidate, location\.search\)/);
     assert.match(source, /onError=\{\(\) => setPreviewFailed\(true\)\}/);

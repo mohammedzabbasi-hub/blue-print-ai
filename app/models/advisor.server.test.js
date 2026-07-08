@@ -4,10 +4,11 @@ import { describe, it } from "node:test";
 import {
   buildAdvisorContext,
   buildAdvisorResponse,
+  buildAssistantResponse,
 } from "./advisor.server.js";
 
 function context(overrides = {}) {
-  return buildAdvisorContext({
+  const advisorContext = buildAdvisorContext({
     analyses: [],
     blueprints: [],
     briefs: [],
@@ -18,6 +19,8 @@ function context(overrides = {}) {
     profile: {},
     ...overrides,
   });
+  if (overrides.pathname) advisorContext.pathname = overrides.pathname;
+  return advisorContext;
 }
 
 describe("AI Advisor action engine", () => {
@@ -116,5 +119,96 @@ describe("AI Advisor action engine", () => {
     const result = buildAdvisorResponse(context(), "Pause my bad campaign and publish a replacement");
     assert.doesNotMatch(`${result.answer} ${result.nextAction}`, /I (paused|published|changed|deleted)|has been (paused|published|changed|deleted)/i);
     assert.ok(result.nextActions.every((action) => action.href.startsWith("/app/")));
+  });
+
+  it("answers Creative Library page-help without anchoring to TTAD2.mp4", () => {
+    const result = buildAdvisorResponse(
+      context({
+        performance: {
+          hasMeasuredPerformanceData: true,
+          records: [{ id: "creative-ttad2", creativeTitle: "TTAD2.mp4", clicks: 100, orders: 1, revenue: 50 }],
+        },
+        pathname: "/app/creative-library",
+      }),
+      "What does this Creative Library page help me do?",
+    );
+
+    assert.equal(result.meta.intent, "page_help");
+    assert.match(result.answer, /organize creative evidence/i);
+    assert.doesNotMatch(result.answer, /TTAD2\.mp4/i);
+  });
+
+  it("uses TTAD2 context when the question asks about TTAD2.mp4", () => {
+    const result = buildAdvisorResponse(
+      context({
+        performance: {
+          hasMeasuredPerformanceData: true,
+          records: [{ id: "creative-ttad2", creativeTitle: "TTAD2.mp4", clicks: 100, orders: 1, revenue: 50 }],
+        },
+        pathname: "/app/creative-library",
+      }),
+      "What should I fix about TTAD2.mp4?",
+    );
+
+    assert.equal(result.meta.intent, "specific_creative_advice");
+    assert.match(result.answer, /TTAD2\.mp4/i);
+  });
+
+  it("explains Google Ads as read-only reporting", () => {
+    const result = buildAdvisorResponse(context({ pathname: "/app/connections" }), "Can Google Ads launch campaigns?");
+
+    assert.equal(result.meta.intent, "google_ads_help");
+    assert.match(result.answer, /read-only reporting/i);
+    assert.match(result.answer, /does not create, edit, pause, launch, delete, or spend/i);
+  });
+
+  it("explains CSV and video import generally", () => {
+    const result = buildAdvisorResponse(context({ pathname: "/app/data-import" }), "How does data import work?");
+
+    assert.equal(result.meta.intent, "data_import_help");
+    assert.match(result.answer, /CSV performance rows/i);
+    assert.match(result.answer, /video/i);
+  });
+
+  it("uses Llama provider content when the server provider succeeds", async () => {
+    const result = await buildAssistantResponse(
+      context({ pathname: "/app/dashboard" }),
+      "What should I do next?",
+      {
+        completeChat: async ({ messages }) => {
+          const prompt = messages.map((message) => message.content).join(" ");
+          assert.match(prompt, /advisory only|advisory/i);
+          assert.doesNotMatch(prompt, /LLAMA_API_KEY|secret/i);
+          return {
+            content: "Import recent creative performance first. That gives the assistant measured evidence before ranking a winner.",
+            ok: true,
+            provider: "llama",
+          };
+        },
+      },
+    );
+
+    assert.equal(result.meta.provider, "llama");
+    assert.equal(result.meta.deterministic, false);
+    assert.match(result.answer, /Import recent creative performance first/);
+  });
+
+  it("falls back safely when the Llama provider is unavailable", async () => {
+    const result = await buildAssistantResponse(
+      context({ pathname: "/app/dashboard" }),
+      "What should I do next?",
+      {
+        completeChat: async () => ({
+          fallback: true,
+          message: "The live assistant is temporarily unavailable.",
+          ok: false,
+          provider: "fallback",
+          reason: "provider_error",
+        }),
+      },
+    );
+
+    assert.equal(result.meta.providerFallback, true);
+    assert.doesNotMatch(result.answer, /stack|LLAMA_API_KEY|secret|raw/i);
   });
 });

@@ -1,4 +1,5 @@
 import { buildProductContext, productContextLabel } from "./product-context.js";
+import { completeAssistantChat } from "../services/llm.server.js";
 
 const ACTIONS = {
   briefs: { label: "Generate Brief", href: "/app/ad-briefs", type: "primary" },
@@ -66,8 +67,32 @@ export function buildAdvisorContext({
 }
 
 export function buildAdvisorResponse(context, question = "What should I do next?") {
+  const assistantIntent = classifyAssistantIntent(question);
+  if (assistantIntent === "page_help") {
+    return withResponseMeta(answerPageHelp(context.pathname), context, assistantIntent, []);
+  }
+  if (assistantIntent === "navigation_help") {
+    return withResponseMeta(answerNavigationHelp(context.pathname), context, assistantIntent, []);
+  }
+  if (assistantIntent === "google_ads_help") {
+    return withResponseMeta(answerGoogleAdsHelp(), context, assistantIntent, []);
+  }
+  if (assistantIntent === "data_import_help") {
+    return withResponseMeta(answerDataImportHelp(), context, assistantIntent, []);
+  }
+  if (assistantIntent === "settings_legal_help") {
+    return withResponseMeta(answerSettingsLegalHelp(), context, assistantIntent, []);
+  }
+
+  const namedCreative = assistantIntent === "specific_creative_advice"
+    ? findMentionedCreative(context.rankings?.creatives || [], question)
+    : null;
+  if (namedCreative) {
+    return withResponseMeta(answerCreative(namedCreative, context.gaps, /fix|improve|weak|problem|change/i.test(question)), context, assistantIntent, namedCreative.evidence);
+  }
+
   const intent = detectIntent(question);
-  const { rankings, counts, gaps } = context;
+  const { rankings, gaps } = context;
   let result;
 
   if (intent === "missing") result = answerMissingData(context);
@@ -85,6 +110,54 @@ export function buildAdvisorResponse(context, question = "What should I do next?
   else if (intent === "test") result = answerTest(context);
   else result = answerNext(context);
 
+  return withResponseMeta(result, context, assistantIntent || intent, result.evidence || []);
+}
+
+export async function buildAssistantResponse(context, question = "What should I do next?", options = {}) {
+  const enrichedContext = {
+    ...context,
+    pathname: options.pathname || context.pathname || "/app/dashboard",
+    selectedCreativeId: options.selectedCreativeId || "",
+    selectedCreativeName: options.selectedCreativeName || "",
+  };
+  const intent = classifyAssistantIntent(question, enrichedContext);
+  const deterministic = buildAdvisorResponse(enrichedContext, question);
+  const messages = buildAssistantMessages(enrichedContext, question, intent);
+  const completeChat = options.completeChat || completeAssistantChat;
+  const provider = await completeChat({ messages });
+
+  if (!provider.ok) {
+    return {
+      ...deterministic,
+      risks: unique([
+        provider.reason === "provider_error" ? provider.message : "",
+        ...(deterministic.risks || []),
+      ]),
+      meta: {
+        ...deterministic.meta,
+        provider: provider.provider,
+        providerFallback: true,
+        providerReason: provider.reason,
+      },
+    };
+  }
+
+  const parsed = formatProviderContent(provider.content);
+  return {
+    ...deterministic,
+    answer: provider.content,
+    recommendation: parsed.recommendation,
+    why: parsed.why,
+    meta: {
+      ...deterministic.meta,
+      deterministic: false,
+      provider: provider.provider,
+      providerFallback: false,
+    },
+  };
+}
+
+function withResponseMeta(result, context, intent) {
   const risks = unique([
     ...(result.risks || []),
     context.sourceStatus.productError
@@ -117,7 +190,7 @@ export function buildAdvisorResponse(context, question = "What should I do next?
       deterministic: true,
       evidenceCount: evidence.length,
       intent,
-      recordsConsidered: counts.performanceRecords,
+      recordsConsidered: context.counts.performanceRecords,
     },
   };
 }
@@ -274,6 +347,216 @@ function answerTest(context) {
     risks: unique([...(creative?.risks || []), ...(campaign?.risks || [])]),
     nextAction: "Write a brief with one explicit hypothesis and import the next result with spend, clicks, orders, and revenue.",
     nextActions: [ACTIONS.briefs, ACTIONS.import],
+  };
+}
+
+export function classifyAssistantIntent(question = "", context = {}) {
+  const q = String(question || "").toLowerCase();
+  const selectedCreative = String(context.selectedCreativeName || "").toLowerCase();
+  if (/\bgoogle\b|\bads?\b|connection|connect|sync|zero rows|no data/.test(q)) return "google_ads_help";
+  if (/csv|import|upload|video file|data import|fields|columns|match/.test(q)) return "data_import_help";
+  if (/settings|legal|privacy|terms|support|contact|delete data|billing/.test(q)) return "settings_legal_help";
+  if (/where|how do i get|navigate|find|open\b|go to/.test(q)) return "navigation_help";
+  if (/what (does|can|is).*(page|screen|tab|library)|what.*(creative library|dashboard|connections|campaigns|settings).*(do|for|help)|help me do|what can i do here/.test(q)) return "page_help";
+  if (selectedCreative && q.includes(selectedCreative)) return "specific_creative_advice";
+  if (context.selectedCreativeId && /this creative|selected creative|current creative|fix it|improve it/.test(q)) return "specific_creative_advice";
+  if (/\bttad\d+\b|\.mp4\b|specific creative|this creative|selected creative/.test(q)) return "specific_creative_advice";
+  if (/campaign/.test(q) && /specific|this campaign|selected campaign|fix|weak|problem|improve/.test(q)) return "specific_campaign_advice";
+  if (/creative/.test(q) && /fix|improve|weak|problem|selected|this/.test(q)) return "specific_creative_advice";
+  return "general_strategy";
+}
+
+function buildAssistantMessages(context, question, intent) {
+  const creative = intent === "specific_creative_advice"
+    ? findMentionedCreative(context.rankings?.creatives || [], `${question} ${context.selectedCreativeName || ""} ${context.selectedCreativeId || ""}`)
+    : null;
+  const campaign = intent === "specific_campaign_advice"
+    ? findMentionedCampaign(context.rankings?.campaigns || [], question)
+    : null;
+  const userContext = {
+    counts: context.counts,
+    currentRoute: context.pathname || "/app/dashboard",
+    gaps: context.gaps?.slice(0, 4).map(({ recommendation, why }) => ({ recommendation, why })) || [],
+    intent,
+    page: pageSummary(context.pathname),
+    productContext: productContextLabel(context.productContext),
+    selectedCampaign: campaign ? summarizeRankedRow(campaign) : null,
+    selectedCreative: creative ? summarizeRankedRow(creative) : null,
+  };
+
+  return [
+    {
+      role: "system",
+      content: [
+        "You are the BluePrintAI embedded Shopify assistant.",
+        "Answer merchants with concise, practical, review-safe guidance.",
+        "Google Ads access is read-only reporting. Never claim you can create, edit, pause, launch, delete, spend on, or mutate ads, campaigns, Shopify resources, Google Ads, or external platforms.",
+        "Advice is advisory only. The user must review and perform external actions themselves.",
+        "If the question is generic page help, answer about the page generally and do not mention individual creative filenames.",
+        "Use selectedCreative or selectedCampaign only when present. Do not infer a first creative as selected.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        context: userContext,
+        question,
+      }),
+    },
+  ];
+}
+
+function formatProviderContent(content) {
+  const clean = String(content || "").replace(/\s+/g, " ").trim();
+  if (!clean) {
+    return {
+      recommendation: "The assistant could not produce a response.",
+      why: "Try asking again with a little more detail.",
+    };
+  }
+  const [first, ...rest] = clean.split(/(?<=\.)\s+/);
+  return {
+    recommendation: first.slice(0, 500),
+    why: rest.join(" ").slice(0, 900),
+  };
+}
+
+function answerPageHelp(pathname = "") {
+  const summary = pageSummary(pathname);
+  return {
+    recommendation: summary.title,
+    why: summary.description,
+    evidence: [{ label: "Current page", value: summary.route }],
+    risks: [],
+    nextAction: summary.nextAction,
+    nextActions: summary.actions,
+  };
+}
+
+function answerNavigationHelp(pathname = "") {
+  return {
+    recommendation: "Use the left navigation to move between Dashboard, Creative Library, Data Import, Connections, Campaigns, and Settings.",
+    why: `You are currently on ${pageSummary(pathname).title}. I can point you to the page that matches the workflow, but I do not change Shopify, ads, or external platforms for you.`,
+    evidence: [{ label: "Current page", value: pathname || "/app/dashboard" }],
+    risks: [],
+    nextAction: "Tell me what task you are trying to complete and I will name the safest page to open.",
+    nextActions: [ACTIONS.library, ACTIONS.import, ACTIONS.campaigns, ACTIONS.settings],
+  };
+}
+
+function answerGoogleAdsHelp() {
+  return {
+    recommendation: "Google Ads in BluePrintAI is read-only reporting.",
+    why: "A connection lets the app sync reporting rows for analysis when configured, but it does not create, edit, pause, launch, delete, or spend on campaigns. If rows are missing, check account selection, campaign selection, date coverage, and whether the account has recent activity.",
+    evidence: [{ label: "Integration", value: "Google Ads read-only reporting" }],
+    risks: ["A successful OAuth connection can still show no rows if the selected account or campaigns have no matching report activity."],
+    nextAction: "Open Connections, confirm the Google Ads account, refresh campaigns, then sync reporting data.",
+    nextActions: [ACTIONS.import],
+  };
+}
+
+function answerDataImportHelp() {
+  return {
+    recommendation: "Use Data Import to add CSV performance rows and optionally match uploaded video files.",
+    why: "CSV rows improve recommendations when they include creative names, platform, dates, views or impressions, clicks, spend, orders, revenue, product names, campaign names, and creator identifiers when available.",
+    evidence: [{ label: "Import type", value: "CSV and matched videos" }],
+    risks: ["Metrics that are not present in the CSV stay unavailable; BluePrintAI should not invent missing revenue, spend, CTR, CVR, or ROAS."],
+    nextAction: "Prepare a CSV with creative-level rows and upload matching videos only when you want playable Creative Library media.",
+    nextActions: [ACTIONS.import, ACTIONS.library],
+  };
+}
+
+function answerSettingsLegalHelp() {
+  return {
+    recommendation: "Settings holds workspace context, support, legal, privacy, and data deletion entry points.",
+    why: "Use it to review store context and find policy/support links. BluePrintAI does not modify Shopify settings or external platform settings from the assistant.",
+    evidence: [{ label: "Page", value: "Settings" }],
+    risks: [],
+    nextAction: "Open Settings and choose the workspace, support, or legal section you need.",
+    nextActions: [ACTIONS.settings],
+  };
+}
+
+function pageSummary(pathname = "") {
+  if (pathname.startsWith("/app/creative-library")) {
+    return {
+      actions: [ACTIONS.library, ACTIONS.import, ACTIONS.review],
+      description: "Creative Library helps you inspect saved creatives, imported performance context, playable matched media, product links, and evidence you can use for briefs or tests. It is a workspace view, not an ad launcher.",
+      nextAction: "Open a creative only when you want creative-specific advice; otherwise use the page to organize evidence and spot what data is missing.",
+      route: "/app/creative-library",
+      title: "Creative Library helps you organize creative evidence.",
+    };
+  }
+  if (pathname.startsWith("/app/connections")) {
+    return {
+      actions: [ACTIONS.import],
+      description: "Connections shows optional ad-platform reporting connections and keeps CSV import available. Google Ads is reporting-only and does not mutate campaigns.",
+      nextAction: "Connect or sync read-only reporting where configured, or use CSV import.",
+      route: "/app/connections",
+      title: "Connections helps you manage optional data sources.",
+    };
+  }
+  if (pathname.startsWith("/app/data-import")) {
+    return {
+      actions: [ACTIONS.import, ACTIONS.library],
+      description: "Data Import lets you bring in CSV performance rows and match local video uploads so BluePrintAI can analyze real workspace evidence.",
+      nextAction: "Import creative-level rows with as many outcome fields as you have.",
+      route: "/app/data-import",
+      title: "Data Import helps you add evidence.",
+    };
+  }
+  if (pathname.startsWith("/app/campaigns")) {
+    return {
+      actions: [ACTIONS.campaigns, ACTIONS.import],
+      description: "Campaigns are local planning groups for organizing creative records and tests. They do not launch or edit ads externally.",
+      nextAction: "Group related creatives and compare imported outcomes.",
+      route: "/app/campaigns",
+      title: "Campaigns helps you organize local test plans.",
+    };
+  }
+  if (pathname.startsWith("/app/settings")) {
+    return {
+      actions: [ACTIONS.settings],
+      description: "Settings contains workspace profile, store context, support, legal, privacy, and data controls.",
+      nextAction: "Review workspace context or open support/legal links.",
+      route: "/app/settings",
+      title: "Settings helps you manage workspace and policy information.",
+    };
+  }
+  return {
+    actions: [ACTIONS.import, ACTIONS.library, ACTIONS.briefs],
+    description: "This app page helps turn Shopify and workspace evidence into advisory creative planning. The assistant does not make changes in Shopify or external ad platforms.",
+    nextAction: "Ask what data is missing or what workflow to open next.",
+    route: pathname || "/app/dashboard",
+    title: "BluePrintAI helps you plan from available evidence.",
+  };
+}
+
+function findMentionedCreative(creatives, question = "") {
+  const q = normalizeText(question);
+  return creatives.find((creative) => {
+    const name = normalizeText(creative.name);
+    const id = normalizeText(creative.id);
+    return (name && q.includes(name)) || (id && q.includes(id));
+  }) || null;
+}
+
+function findMentionedCampaign(campaigns, question = "") {
+  const q = normalizeText(question);
+  return campaigns.find((campaign) => {
+    const name = normalizeText(campaign.name);
+    const id = normalizeText(campaign.id);
+    return (name && q.includes(name)) || (id && q.includes(id));
+  }) || null;
+}
+
+function summarizeRankedRow(row) {
+  return {
+    evidence: row.evidence || [],
+    id: row.id,
+    name: row.name,
+    needsAttention: Boolean(row.needsAttention),
+    risks: row.risks || [],
   };
 }
 
@@ -448,4 +731,12 @@ function dedupeByName(rows) {
     if (!current || row.score > current.score) output.set(key, row);
   }
   return [...output.values()];
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[“”]/g, "\"")
+    .replace(/[^\w.:-]+/g, " ")
+    .trim();
 }

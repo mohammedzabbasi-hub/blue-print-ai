@@ -100,7 +100,8 @@ Webhook subscriptions are app-specific and declared in `shopify.app.toml` using 
 
 - AI provider keys must stay server-side in environment variables such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`.
 - The frontend never receives AI API keys or Shopify access tokens.
-- Current review and recommendation outputs are deterministic or heuristic and are labeled accordingly. They do not require an external generative-AI key.
+- The floating Assistant can use a server-side OpenAI-compatible Llama chat API when configured on the main BluePrintAI web service with `LLM_PROVIDER=llama`, `LLAMA_API_KEY`, `LLAMA_API_BASE_URL`, and `LLAMA_MODEL`. Supported aliases are `LLAMA_API_URL`, `LLAMA_BASE_URL`, `LLAMA_API_TOKEN`, and `LLM_API_KEY`; prefer the `LLAMA_*` names in new deployments.
+- If the Llama provider is unavailable or incomplete, Assistant responses fall back to conservative workspace-evidence guidance without exposing provider errors or secrets to merchants.
 - Do not log Shopify access tokens or AI secrets.
 - Store app-specific AI analysis in the app database only when needed. This build does not require Shopify metaobjects.
 - Before public submission, publish and link a privacy policy describing collected merchant data, retention, subprocessors, and deletion workflow.

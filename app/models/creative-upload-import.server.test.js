@@ -21,6 +21,7 @@ import {
 import { appendSelectedVideoFiles } from "../utils/selected-video-files.js";
 import { createCampaign, getCampaign } from "./campaign.server.js";
 import { listCreatorProfiles } from "./creator-attribution.server.js";
+import { getPrivateMediaObject } from "../utils/upload-storage.server.js";
 
 const testShops = new Set();
 
@@ -185,6 +186,115 @@ describe("creative upload performance import", () => {
       new Set(savedCreatives.map((record) => JSON.parse(record.payloadJson).label)),
       new Set(["Imported creative + performance"]),
     );
+  });
+
+  it("persists a matched TTAD2.mp4 upload as private playable media", async () => {
+    const shop = testShop("ttad2-media");
+    const files = [videoFile("TTAD2.mp4", "ttad2-video")];
+
+    testShops.add(shop);
+
+    const preview = previewFor(
+      [csvRow("ttad2-persist", "TTAD2.mp4", "TTAD2 matched creative")],
+      files,
+    );
+
+    assert.equal(preview.summary.uploadedFilesMatched, 1);
+    assert.equal(preview.rows[0].matchedUploadedFile, "TTAD2.mp4");
+
+    const result = await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: files,
+      upsertPublicEngagementRecord,
+    });
+    const performance = await db.creativePerformance.findFirst({ where: { shop } });
+    const payload = JSON.parse(performance.payloadJson);
+    const storedFileName = performance.videoUrl.split("/").pop();
+    const media = await getPrivateMediaObject({
+      shop,
+      namespace: "creative-library",
+      storedFileName,
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(performance.videoUrl, /^\/app\/media\/creative-library\/.+TTAD2\.mp4$/);
+    assert.equal(payload.mediaUrl, performance.videoUrl);
+    assert.equal(payload.originalFilename, "TTAD2.mp4");
+    assert.equal(payload.mediaMimeType, "video/mp4");
+    assert.equal(payload.mediaSizeBytes, files[0].size);
+    assert.equal(payload.mediaPath, storedFileName);
+    assert.equal(payload.mediaFingerprint.length, 64);
+    assert.equal(media.contentType, "video/mp4");
+    assert.equal(media.contentLength, files[0].size);
+  });
+
+  it("updates one Creative Library card for repeated TTAD2 rows across dates", async () => {
+    const shop = testShop("ttad2-dedupe");
+    const files = [videoFile("TTAD2.mp4", "same-ttad2-video")];
+    const csv = [
+      CSV_HEADER,
+      "row-a,TTAD2.mp4,QA Product,TTAD2 Daily Creative,@qa-creator,TikTok,100,10,2,50,20,2026-06-26,First day",
+      "row-b,TTAD2.mp4,QA Product,TTAD2 Daily Creative,@qa-creator,TikTok,120,12,3,75,25,2026-06-27,Second day",
+    ].join("\n");
+
+    testShops.add(shop);
+
+    const preview = buildCreativeUploadPreview({
+      csvText: csv,
+      parsePublicEngagementCsv,
+      uploadedVideos: files,
+    });
+    const result = await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: files,
+      upsertPublicEngagementRecord,
+    });
+    const [savedCreativeCount, performanceCount, library] = await Promise.all([
+      db.savedCreative.count({ where: { shop } }),
+      db.creativePerformance.count({ where: { shop } }),
+      listCreativePerformance({ shop, limit: 10 }),
+    ]);
+    const ttad2Cards = library.records.filter((record) =>
+      record.videoFilename === "TTAD2.mp4" || record.videoUrl?.includes("TTAD2.mp4"),
+    );
+
+    assert.equal(result.summary.created, 1);
+    assert.equal(result.summary.updated, 1);
+    assert.equal(savedCreativeCount, 1);
+    assert.equal(performanceCount, 2);
+    assert.equal(ttad2Cards.length, 1);
+    assert.match(ttad2Cards[0].videoUrl, /^\/app\/media\/creative-library\//);
+    assert.equal(ttad2Cards[0].importSource, "creative_upload_performance_import");
+  });
+
+  it("does not display creator handles as product context for CSV imports", async () => {
+    const shop = testShop("creator-not-product");
+    const csv = [
+      "creative_id,video_filename,creative_name,creator_handle,platform,views,date",
+      "creator-product-1,,Creator only product check,@mayachen,TikTok,100,2026-06-26",
+    ].join("\n");
+
+    testShops.add(shop);
+
+    const preview = buildCreativeUploadPreview({
+      csvText: csv,
+      parsePublicEngagementCsv,
+      uploadedVideos: [],
+    });
+    await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: [],
+      upsertPublicEngagementRecord,
+    });
+    const library = await listCreativePerformance({ shop, limit: 10 });
+
+    assert.equal(library.records.length, 1);
+    assert.equal(library.records[0].creatorHandle, "@mayachen");
+    assert.notEqual(library.records[0].productTitle, "@mayachen");
+    assert.notEqual(library.records[0].productName, "@mayachen");
   });
 
   it("imports a CSV-only row through the unified creative workflow", async () => {

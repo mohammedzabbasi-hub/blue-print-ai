@@ -785,6 +785,7 @@ describe("BluePrintAI demo workspace reset", () => {
     assert.equal((dataImportSource.match(/name="csvFile"/g) || []).length, 1);
     assert.match(dataImportSource, /creative_upload_performance_import/);
     assert.match(creativeLibrarySource, /Imported creative \+ performance/);
+    assert.doesNotMatch(creativeLibrarySource, /creative\.importSource === "creative_upload_performance_import"[\s\S]{0,400}Manual Upload/);
   });
 
   it("keeps social source URLs non-playable while preserving source links", () => {
@@ -814,6 +815,7 @@ describe("BluePrintAI demo workspace reset", () => {
     assert.match(source, /onError=\{\(\) => setPreviewFailed\(true\)\}/);
     assert.doesNotMatch(source, /GEMINI_API_KEY/);
     assert.match(source, /function isPlayableVideoUrl/);
+    assert.match(source, /Preview unavailable — no video file was attached during import\./);
     assert.match(source, /creative\.source_url/);
     assert.match(source, /href=\{sourceUrl\}/);
   });

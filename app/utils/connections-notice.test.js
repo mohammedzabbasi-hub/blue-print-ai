@@ -3,6 +3,15 @@ import test from "node:test";
 
 import { getConnectionsNotice } from "./connections-notice.js";
 
+test("Google Ads connected query shows the OAuth success banner", () => {
+  const notice = getConnectionsNotice({
+    googleAdsConnection: { platform: "google", status: "needs_account_selection" },
+    query: new URLSearchParams("googleAds=connected"),
+  });
+
+  assert.equal(notice, "Google Ads connected.");
+});
+
 test("zero-row Google Ads sync explains that the connected account has no live data", () => {
   const notice = getConnectionsNotice({
     googleAdsConnection: { platform: "google", status: "connected" },

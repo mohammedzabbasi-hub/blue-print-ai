@@ -1,4 +1,8 @@
 export function getConnectionsNotice({ actionSuccess, googleAdsConnection, query }) {
+  if (query.get("googleAds") === "connected") {
+    return "Google Ads connected.";
+  }
+
   if (query.get("connected")) {
     return `${platformLabel(query.get("connected"))} authorized. Select an accessible account to finish setup.`;
   }

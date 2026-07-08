@@ -162,6 +162,10 @@ This table reflects `.env.example` and the production decisions described by the
 | `ANALYZER_SERVICE_URL` | Conditional HTTPS analyzer endpoint | `<ANALYZER_SERVICE_URL>` | No |
 | `ANALYZER_API_KEY` | Conditional analyzer bearer credential | `<ANALYZER_API_KEY>` | **Yes** |
 | `ANALYZER_TIMEOUT_MS` | Conditional analyzer request deadline | `<ANALYZER_TIMEOUT_MS>` | No |
+| `LLM_PROVIDER` | Floating Assistant provider selector on the main BluePrintAI web service | `llama` | No |
+| `LLAMA_API_KEY` | Floating Assistant Llama bearer credential; server-side only | `<LLAMA_API_KEY>` | **Yes** |
+| `LLAMA_API_BASE_URL` | OpenAI-compatible Llama API base URL for `/chat/completions` | `<LLAMA_API_BASE_URL>` | No |
+| `LLAMA_MODEL` | Llama chat model name | `llama-3.1-8b-instruct` | No |
 | `DEV_BYPASS_SHOPIFY_AUTH` | Development bypass; must remain false in production | `<FALSE_IN_PRODUCTION>` | No |
 | `SHOPIFY_BILLING_REQUIRED` | Owner-approved billing enforcement choice | `<OWNER_APPROVED_TRUE_OR_FALSE>` | No |
 | `SHOPIFY_BILLING_BYPASS` | Development/test bypass; must remain false in production | `<FALSE_IN_PRODUCTION>` | No |

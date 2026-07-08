@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { getAssistantContext } from "./assistant-context.js";
 
@@ -12,3 +13,9 @@ test("returns safe general prompts for unmatched authenticated routes", () => {
   assert.equal(getAssistantContext("/app/activity-log").prompts[0], "What should I do next?");
 });
 
+test("assistant client code does not reference Llama secrets", async () => {
+  const source = await readFile(new URL("../components/AssistantWidget.jsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /LLAMA_API_KEY|LLAMA_API_TOKEN|LLM_API_KEY|process\.env/);
+  assert.match(source, /pathname: location\.pathname/);
+});

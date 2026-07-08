@@ -66,7 +66,7 @@ test("standalone AI Advisor is retired while the global assistant remains", asyn
   assert.match(retiredRoute, /redirect\(withEmbeddedRouteParams\("\/app\/dashboard"/);
   assert.doesNotMatch(retiredRoute, /AI Advisor|Store intelligence|advisor-question/);
   assert.match(retiredRoute, /export const action/);
-  assert.match(retiredRoute, /buildAdvisorResponse/);
+  assert.match(retiredRoute, /buildAssistantResponse/);
 });
 
 test("sidebar keeps legal and support content consolidated under Settings", async () => {

@@ -40,7 +40,11 @@ export default function AssistantWidget() {
     setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", recommendation: nextQuestion }]);
     setQuestion("");
     fetcher.submit(
-      { question: nextQuestion },
+      {
+        pathname: location.pathname,
+        question: nextQuestion,
+        search: location.search,
+      },
       { method: "post", action: `/app/recommendations${location.search}` },
     );
   }
@@ -103,4 +107,3 @@ function AssistantMessage({ message }) {
     </div>
   );
 }
-

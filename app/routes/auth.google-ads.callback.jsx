@@ -1,27 +1,15 @@
-import { redirect } from "react-router";
 import { createConnection } from "../models/ad-platform-connection.server";
 import {
   exchangeGoogleAdsCodeForTokens,
   GOOGLE_ADS_SCOPE,
   listAccessibleCustomers,
 } from "../services/google-ads.server";
-import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { redirectOrRecover } from "../utils/google-ads-oauth-redirect.server";
 import {
   clearGoogleAdsOAuthState,
   getGoogleAdsRedirectUri,
   validateGoogleAdsOAuthState,
 } from "../utils/google-ads-oauth-state.server";
-
-function connectionsRedirect(search, params = {}) {
-  const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) query.set(key, value);
-  });
-  return withEmbeddedRouteParams(
-    `/app/connections${query.size ? `?${query}` : ""}`,
-    search,
-  );
-}
 
 function configuredFallbackCustomer() {
   const customerId = process.env.GOOGLE_ADS_DEFAULT_CUSTOMER_ID?.replace(/\D/g, "");
@@ -31,7 +19,6 @@ function configuredFallbackCustomer() {
 export async function loader({ request }) {
   const url = new URL(request.url);
   let clearCookieHeader;
-  let returnSearch = "";
   let stateData;
 
   try {
@@ -40,13 +27,22 @@ export async function loader({ request }) {
       url.searchParams.get("state"),
     );
     clearCookieHeader = stateData.clearCookieHeader;
-    returnSearch = stateData.returnSearch;
+    console.info("Google Ads OAuth callback state", {
+      hostPresent: Boolean(stateData.host),
+      shop: stateData.shop,
+      stateValid: true,
+    });
   } catch {
     try {
       clearCookieHeader = await clearGoogleAdsOAuthState();
     } catch {
       clearCookieHeader = null;
     }
+    console.warn("Google Ads OAuth callback state", {
+      hostPresent: false,
+      shop: null,
+      stateValid: false,
+    });
     return new Response(
       "Google Ads OAuth state is invalid or has expired. Start the connection again from BluePrintAI.",
       {
@@ -111,16 +107,19 @@ export async function loader({ request }) {
       },
     });
 
-    return redirect(
-      connectionsRedirect(returnSearch, { connected: "google" }),
-      { headers: { "Set-Cookie": clearCookieHeader } },
+    return redirectOrRecover(
+      stateData,
+      { googleAds: "connected" },
+      clearCookieHeader,
     );
   } catch (error) {
-    return redirect(
-      connectionsRedirect(returnSearch, {
+    return redirectOrRecover(
+      stateData,
+      {
         error: error.message || "Google Ads could not be connected.",
-      }),
-      { headers: { "Set-Cookie": clearCookieHeader } },
+      },
+      clearCookieHeader,
+      400,
     );
   }
 }

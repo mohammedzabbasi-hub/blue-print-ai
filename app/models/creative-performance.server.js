@@ -437,11 +437,7 @@ function dedupePerformanceRecords(records = []) {
   const byKey = new Map();
 
   records.forEach((record) => {
-    const key =
-      record.importKey ||
-      record.sourceRecordId ||
-      record.sourceCreativeId ||
-      record.id;
+    const key = performanceRecordDedupeKey(record);
 
     if (!key || !byKey.has(key)) {
       byKey.set(key || `record:${byKey.size}`, record);
@@ -449,10 +445,66 @@ function dedupePerformanceRecords(records = []) {
     }
 
     const existing = byKey.get(key);
-    byKey.set(key, hasPerformanceMetrics(existing) ? existing : record);
+    byKey.set(key, mergeCreativePerformanceRecords(existing, record));
   });
 
   return [...byKey.values()];
+}
+
+function performanceRecordDedupeKey(record = {}) {
+  if (
+    record.importSource === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE ||
+    record.sourceRecordType === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE ||
+    record.sourceType === CREATIVE_UPLOAD_IMPORT_SOURCE_TYPE
+  ) {
+    return (
+      record.sourceCreativeId ||
+      record.sourceRecordId ||
+      record.mediaFingerprint ||
+      record.importKey ||
+      record.id
+    );
+  }
+
+  return (
+    record.importKey ||
+    record.sourceRecordId ||
+    record.sourceCreativeId ||
+    record.id
+  );
+}
+
+function mergeCreativePerformanceRecords(existing = {}, incoming = {}) {
+  const preferred = hasPerformanceMetrics(existing) ? existing : incoming;
+  const secondary = preferred === existing ? incoming : existing;
+  const merged = { ...secondary, ...preferred };
+  const shouldAggregateMetrics =
+    existing.storageRecordType === "creative_performance" &&
+    incoming.storageRecordType === "creative_performance";
+
+  if (shouldAggregateMetrics) {
+    for (const key of DEEPER_PERFORMANCE_KEYS) {
+      const left = nullableNumber(existing[key]);
+      const right = nullableNumber(incoming[key]);
+      if (left !== null || right !== null) merged[key] = (left || 0) + (right || 0);
+    }
+  }
+
+  for (const key of [
+    "videoUrl",
+    "assetUrl",
+    "sourceUrl",
+    "thumbnailUrl",
+    "videoFilename",
+    "mediaFingerprint",
+    "mediaMimeType",
+    "mediaPath",
+    "originalFilename",
+  ]) {
+    merged[key] = preferred[key] || secondary[key] || "";
+  }
+
+  return merged;
 }
 
 function creativePerformanceDbRecordToPerformance(record = {}, index = 0) {
@@ -526,7 +578,10 @@ function creativePerformanceDbRecordToPerformance(record = {}, index = 0) {
     roas: record.roas,
     shares: record.shares,
     shopifyProductId: record.productId ?? payload.shopifyProductId,
-    sourceCreativeId: record.creativeId || record.sourceRecordId || payload.sourceCreativeId,
+    sourceCreativeId:
+      record.sourceRecordType === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE
+        ? record.sourceRecordId || payload.sourceCreativeId || record.creativeId
+        : record.creativeId || record.sourceRecordId || payload.sourceCreativeId,
     sourcePlatform: normalizeImportPlatform(record.platform || record.sourceType || "csv"),
     sourceRecordId: record.sourceRecordId,
     sourceRecordType: record.sourceRecordType || "creative_performance",
@@ -772,7 +827,6 @@ export async function importPublicEngagementRows({ csvText = "", shop }) {
 
 export async function upsertPublicEngagementRecord(shop, row) {
   const record = row.record;
-  const sourceId = `${shop}:${record.importKey}`;
   const importSource =
     record.importSource === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE
       ? CREATIVE_UPLOAD_IMPORT_RECORD_TYPE
@@ -798,6 +852,7 @@ export async function upsertPublicEngagementRecord(shop, row) {
     record.creativeName ||
     record.videoUrl ||
     "Imported creative";
+  const sourceId = buildSavedCreativeSourceId(shop, record, importSource);
   const existing = await db.savedCreative.findFirst({
     where: {
       shop,
@@ -834,6 +889,18 @@ export async function upsertPublicEngagementRecord(shop, row) {
     mediaState:
       record.mediaState || (record.videoUrl ? "direct_video_url" : "metadata_only"),
     mediaUrl: record.videoUrl || "",
+    mediaFingerprint:
+      record.mediaFingerprint || record.uploadedVideo?.fingerprint || "",
+    mediaMimeType: record.mediaMimeType || record.uploadedVideo?.fileType || "",
+    mediaPath:
+      record.mediaPath || record.uploadedVideo?.storedFileName || "",
+    mediaSizeBytes:
+      record.mediaSizeBytes || record.uploadedVideo?.fileSize || null,
+    originalFilename:
+      record.originalFilename ||
+      record.uploadedVideo?.originalName ||
+      record.videoFilename ||
+      "",
     source: record.source || "merchant_provided_csv",
     video_url: record.videoUrl,
   };
@@ -884,6 +951,26 @@ export async function upsertPublicEngagementRecord(shop, row) {
   });
   await syncCreatorAttribution(shop, record, performance);
   return "created";
+}
+
+function buildSavedCreativeSourceId(shop, record = {}, importSource = "") {
+  if (importSource !== CREATIVE_UPLOAD_IMPORT_RECORD_TYPE) {
+    return `${shop}:${record.importKey}`;
+  }
+
+  const mediaFingerprint =
+    record.mediaFingerprint || record.uploadedVideo?.fingerprint || "";
+  const creativeIdentity = [
+    record.sourcePlatform,
+    record.adName || record.creativeTitle || record.creativeName,
+    record.videoFilename || record.uploadedVideo?.originalName,
+    mediaFingerprint,
+  ]
+    .map((value) => cleanText(value).toLowerCase())
+    .join("|");
+  const hash = crypto.createHash("sha256").update(creativeIdentity).digest("hex").slice(0, 24);
+
+  return `${shop}:creative-upload:${hash}`;
 }
 
 async function syncCreatorAttribution(shop, record, performance) {
@@ -1082,6 +1169,21 @@ export function normalizeCreativePerformance(input = {}) {
       ),
     ),
     assetUrl: cleanText(aliased.assetUrl),
+    mediaFingerprint: cleanText(
+      aliased.mediaFingerprint || aliased.uploadedVideo?.fingerprint,
+    ),
+    mediaMimeType: cleanText(
+      aliased.mediaMimeType || aliased.uploadedVideo?.fileType,
+    ),
+    mediaPath: cleanText(
+      aliased.mediaPath || aliased.uploadedVideo?.storedFileName,
+    ),
+    mediaSizeBytes: nullableNumber(
+      aliased.mediaSizeBytes || aliased.uploadedVideo?.fileSize,
+    ),
+    originalFilename: cleanText(
+      aliased.originalFilename || aliased.uploadedVideo?.originalName,
+    ),
     sourceUrl: cleanText(aliased.sourceUrl),
     sourceType: cleanText(aliased.sourceType),
     videoFilename: cleanText(aliased.videoFilename),

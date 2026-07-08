@@ -382,6 +382,10 @@ function toCreativeCard(record) {
       record.mediaFingerprint ||
       extractUploadFingerprint(record.sourceCreativeId) ||
       extractUploadFingerprint(record.sourceRecordId),
+    mediaMimeType: record.mediaMimeType || "",
+    mediaPath: record.mediaPath || "",
+    mediaSizeBytes: record.mediaSizeBytes || null,
+    originalFilename: record.originalFilename || record.videoFilename || "",
     source_url: record.sourceUrl,
     asset_url: record.assetUrl,
     thumbnail: record.thumbnailUrl,
@@ -502,9 +506,14 @@ function CreativePreview({ creative, compact = false }) {
     return <img alt={creative.title || "Creative thumbnail"} className="aspect-video w-full rounded-2xl bg-black object-cover" src={posterUrl} onError={() => setPreviewFailed(true)} />;
   }
 
+  const fallbackMessage =
+    creative.importSource === "creative_upload_performance_import"
+      ? "Preview unavailable — no video file was attached during import."
+      : "Preview unavailable";
+
   return (
     <div className="flex aspect-video w-full flex-col items-center justify-center rounded-2xl border border-slate-800 bg-black p-6 text-center text-slate-400">
-      <span className="font-semibold text-slate-200">Preview unavailable</span>
+      <span className="font-semibold text-slate-200">{fallbackMessage}</span>
       <span className="mt-2 max-w-full truncate text-sm">
         {safeCreativeText(creative.fileName) || safeCreativeText(creative.product) || safeCreativeText(creative.title) || "Creative media"}
       </span>
