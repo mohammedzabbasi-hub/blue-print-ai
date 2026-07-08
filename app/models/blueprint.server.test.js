@@ -742,18 +742,20 @@ describe("BluePrintAI demo workspace reset", () => {
     assert.equal(record.thumbnailUrl, "https://example.com/thumb.jpg");
   });
 
-  it("renders Creative Library media before the no-video placeholder", async () => {
+  it("renders Creative Library media before the clean unavailable-preview fallback", async () => {
     const source = await readFile(
       resolve("app/routes", "app.creative-library.jsx"),
       "utf8",
     );
     const videoIndex = source.indexOf("<video");
     const imageIndex = source.indexOf("<img");
-    const placeholderIndex = source.indexOf("No stored video file");
+    const placeholderIndex = source.indexOf("Preview unavailable");
 
     assert.ok(videoIndex > 0);
     assert.ok(imageIndex > videoIndex);
     assert.ok(placeholderIndex > imageIndex);
+    assert.match(source, /onError=\{\(\) => setPreviewFailed\(true\)\}/);
+    assert.doesNotMatch(source, /GEMINI_API_KEY/);
     assert.match(source, /function isPlayableVideoUrl/);
     assert.match(source, /creative\.source_url/);
     assert.match(source, /href=\{sourceUrl\}/);

@@ -309,9 +309,17 @@ export async function listCreativePerformance({
     ...savedCreatives.map((record, index) =>
       creativeRecordToPerformance(record, index),
     ),
-    ...videoAnalyses.map((record, index) =>
-      videoAnalysisToPerformance(record, index),
-    ),
+    ...videoAnalyses
+      .filter(
+        (record) =>
+          record.savedToLibrary &&
+          !savedCreatives.some(
+            (creative) =>
+              creative.sourceType === "video_analysis" &&
+              creative.sourceId === record.id,
+          ),
+      )
+      .map((record, index) => videoAnalysisToPerformance(record, index)),
   ].filter(Boolean);
   const demoRecords =
     includeDemo && savedRecords.length === 0
@@ -1224,6 +1232,8 @@ export function platformLabel(platform = "") {
 
 function creativeRecordToPerformance(record = {}, index = 0) {
   const payload = record.payload || {};
+  const result = payload.fullResult?.result || payload.fullResult || payload.result || {};
+  const analysis = payload.analysis || result.analysis || {};
   const performance = payload.sourcePlatform
     ? payload
     : {
@@ -1234,7 +1244,16 @@ function creativeRecordToPerformance(record = {}, index = 0) {
           payload.displayTitle || payload.generatedTitle || record.title,
         cta: payload.cta,
         firstSeenAt: record.createdAt,
-        hook: payload.hook || payload.analysis?.hook_type,
+        hook: payload.hook || analysis.hook_type,
+        hookScore: analysis.hook_score || analysis.hookScore,
+        clarityScore: analysis.clarity_score || analysis.clarityScore,
+        ctaScore: analysis.cta_score || analysis.ctaScore,
+        creativeScore:
+          analysis.overall_score ||
+          analysis.overallScore ||
+          analysis.creative_score ||
+          analysis.creativeScore ||
+          analysis.readinessScore,
         lastSyncedAt: record.updatedAt || record.createdAt,
         productTitle: record.productTitle || payload.productTitle,
         shopifyProductId: record.productId || payload.shopifyProductId,
@@ -1245,6 +1264,7 @@ function creativeRecordToPerformance(record = {}, index = 0) {
         thumbnailUrl: payload.thumbnailUrl || payload.thumbnail,
         transcript: payload.transcript || payload.transcript_summary || payload.brief,
         videoUrl: payload.videoUrl || payload.video_url || payload.mediaUrl,
+        videoFilename: payload.originalFilename || payload.fileName,
         ...normalizeMetrics(payload),
       };
 
@@ -1292,6 +1312,7 @@ function videoAnalysisToPerformance(record = {}, index = 0) {
     thumbnailUrl: "",
     transcript: result.transcript?.full_text || payload.brief || "",
     videoUrl: media.mediaUrl || metadata.media_url || "",
+    videoFilename: record.fileName || display.originalFilename || "",
   });
 }
 

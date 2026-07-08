@@ -340,11 +340,12 @@ function toCreativeCard(record) {
     product: record.productTitle,
     creator: record.creatorHandle || record.creatorName || "Manual Creator",
     video_url: record.videoUrl,
+    fileName: record.videoFilename,
     source_url: record.sourceUrl,
     asset_url: record.assetUrl,
     thumbnail: record.thumbnailUrl,
-    insight: record.angle || record.hook || record.transcript,
-    transcript_summary: record.transcript,
+    insight: safeCreativeText(record.angle || record.hook || record.transcript),
+    transcript_summary: safeCreativeText(record.transcript),
     hook: record.hook,
     cta: record.cta,
     angle: record.angle,
@@ -391,6 +392,55 @@ function toCreativeCard(record) {
     campaignId: record.workspaceCampaignId || "",
     campaignName: record.workspaceCampaignName || "",
   };
+}
+
+function safeCreativeText(value = "") {
+  const text = String(value || "").trim();
+
+  if (/api[_ -]?key|not configured|stack trace|\bat .+\(.+:\d+:\d+\)|gemini/i.test(text)) {
+    return "";
+  }
+
+  return text;
+}
+
+function CreativePreview({ creative, compact = false }) {
+  const candidate =
+    creative.video_url || creative.videoUrl || creative.asset_url ||
+    creative.assetUrl || creative.source_url || creative.sourceUrl || "";
+  const initialVideoUrl = isPlayableVideoUrl(candidate) ? resolveMediaUrl(candidate) : "";
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const posterUrl = resolveMediaUrl(creative.thumbnail || creative.thumbnail_url || "");
+
+  useEffect(() => setPreviewFailed(false), [initialVideoUrl, posterUrl]);
+
+  if (initialVideoUrl && !previewFailed) {
+    return (
+      <video
+        className={`aspect-video w-full rounded-2xl bg-black ${compact ? "object-contain" : "object-cover"}`}
+        controls
+        onError={() => setPreviewFailed(true)}
+        poster={posterUrl || undefined}
+        preload="metadata"
+        src={initialVideoUrl}
+      >
+        <track kind="captions" />
+      </video>
+    );
+  }
+
+  if (posterUrl && !previewFailed) {
+    return <img alt={creative.title || "Creative thumbnail"} className="aspect-video w-full rounded-2xl bg-black object-cover" src={posterUrl} onError={() => setPreviewFailed(true)} />;
+  }
+
+  return (
+    <div className="flex aspect-video w-full flex-col items-center justify-center rounded-2xl border border-slate-800 bg-black p-6 text-center text-slate-400">
+      <span className="font-semibold text-slate-200">Preview unavailable</span>
+      <span className="mt-2 max-w-full truncate text-sm">
+        {safeCreativeText(creative.fileName) || safeCreativeText(creative.product) || safeCreativeText(creative.title) || "Creative media"}
+      </span>
+    </div>
+  );
 }
 
 function slugify(value) {
@@ -903,21 +953,15 @@ function CreativeCard({ campaigns, creative, onDeleted, onViewDetails }) {
     creative.source_url ||
     creative.sourceUrl ||
     "";
-  const videoUrl = isPlayableVideoUrl(videoCandidate)
-    ? resolveMediaUrl(videoCandidate)
-    : "";
   const sourceUrl = resolveMediaUrl(
     creative.source_url || creative.sourceUrl || videoCandidate,
-  );
-  const posterUrl = resolveMediaUrl(
-    creative.thumbnail || creative.thumbnail_url || ""
   );
   const isUploadedVideo =
     creative.source_platform === "manual" && Boolean(creative.video_url);
   const isImportedExternalSource =
     creative.importSource === "public_engagement_import" &&
     Boolean(sourceUrl) &&
-    !videoUrl;
+    !isPlayableVideoUrl(videoCandidate);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const deleting =
     deleteFetcher.state !== "idle" &&
@@ -931,51 +975,12 @@ function CreativeCard({ campaigns, creative, onDeleted, onViewDetails }) {
 
   return (
     <div className="glass rounded-2xl p-6 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
-      {videoUrl ? (
-        <video
-          src={videoUrl}
-          poster={posterUrl || undefined}
-          controls
-          preload="metadata"
-          className="w-full rounded-2xl bg-black aspect-video object-cover"
-        >
-          <track kind="captions" />
-        </video>
-      ) : posterUrl ? (
-        <img
-          src={posterUrl}
-          alt={creative.title || "Creative thumbnail"}
-          className="aspect-video w-full rounded-2xl bg-black object-cover"
-        />
-      ) : (
+      {isImportedExternalSource ? (
         <div className="flex aspect-video w-full flex-col items-center justify-center rounded-2xl bg-black p-6 text-center text-slate-400">
-          <span className="font-semibold text-slate-200">
-            {isImportedExternalSource ? "External source link" : "No stored video file"}
-          </span>
-          <span className="mt-2 max-w-full truncate text-sm">
-            {isImportedExternalSource
-              ? sourceUrl
-              : creative.fileName || creative.title || "Metadata-only creative"}
-          </span>
-          <span className="mt-2 text-xs">
-            {isImportedExternalSource
-              ? "Merchant-provided public URL. BluePrintAI is not scraping or embedding the platform post."
-              : creative.mediaState === "file_metadata_only"
-              ? "This older record saved metadata only."
-              : "Save a video file or URL to show a playable preview."}
-          </span>
-          {isImportedExternalSource && (
-            <a
-              className="mt-4 inline-flex rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-500/20"
-              href={sourceUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Open source post
-            </a>
-          )}
+          <span className="font-semibold text-slate-200">External source link</span>
+          <a className="mt-4 inline-flex rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-bold text-cyan-100" href={sourceUrl} rel="noreferrer" target="_blank">Open source post</a>
         </div>
-      )}
+      ) : <CreativePreview creative={creative} />}
 
       <div>
         {isUploadedVideo && (
@@ -1100,21 +1105,6 @@ function CreativeDetailsModal({ creative, onClose }) {
     };
   }, [onClose]);
 
-  const videoCandidate =
-    creative.video_url ||
-    creative.videoUrl ||
-    creative.asset_url ||
-    creative.assetUrl ||
-    creative.source_url ||
-    creative.sourceUrl ||
-    "";
-  const videoUrl = isPlayableVideoUrl(videoCandidate)
-    ? resolveMediaUrl(videoCandidate)
-    : "";
-  const posterUrl = resolveMediaUrl(
-    creative.thumbnail || creative.thumbnail_url || "",
-  );
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-md sm:p-6"
@@ -1155,27 +1145,7 @@ function CreativeDetailsModal({ creative, onClose }) {
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
           <div className="space-y-4">
-            {videoUrl ? (
-              <video
-                className="aspect-video w-full rounded-2xl bg-black object-contain"
-                controls
-                poster={posterUrl || undefined}
-                preload="metadata"
-                src={videoUrl}
-              >
-                <track kind="captions" />
-              </video>
-            ) : posterUrl ? (
-              <img
-                alt={creative.title || "Creative thumbnail"}
-                className="aspect-video w-full rounded-2xl bg-black object-cover"
-                src={posterUrl}
-              />
-            ) : (
-              <div className="flex aspect-video items-center justify-center rounded-2xl border border-slate-800 bg-black p-6 text-center text-sm text-slate-400">
-                No stored preview is available for this creative.
-              </div>
-            )}
+            <CreativePreview compact creative={creative} />
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               <CreativeDetailValue label="Campaign" value={creative.campaignName || "Unassigned"} />

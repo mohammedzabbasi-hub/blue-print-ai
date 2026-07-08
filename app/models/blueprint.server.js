@@ -327,9 +327,26 @@ export async function saveCreativeRecord(shop, creative) {
     : await findRecordByPersistenceKey("savedCreative", shop, persistenceKey);
 
   if (existing) {
+    const mergedPayload = {
+      ...parsePayload(existing.payloadJson),
+      ...(creative.payload || creative),
+    };
+    const updated = await db.savedCreative.update({
+      where: { id: existing.id },
+      data: {
+        productId: creative.productId,
+        productTitle: creative.productTitle,
+        title: creative.title,
+        angle: creative.angle,
+        payloadJson: JSON.stringify(
+          withPersistenceMetadata(mergedPayload, persistenceKey),
+        ),
+      },
+    });
+
     return {
-      ...existing,
-      payload: parsePayload(existing.payloadJson),
+      ...updated,
+      payload: parsePayload(updated.payloadJson),
       wasCreated: false,
     };
   }

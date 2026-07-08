@@ -15,6 +15,7 @@ import {
   getWorkspaceProfile,
   getWorkspaceSettingsMap,
   listVideoAnalyses,
+  listSavedCreatives,
   resolveProductContext,
   saveCreativeRecord,
   saveRevenueBlueprintRecord,
@@ -24,6 +25,7 @@ import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server";
 import { assertUploadRequestSize } from "../utils/upload-storage.server";
+import db from "../db.server";
 import {
   analyzerEvidence,
   normalizeRetentionAnalysis,
@@ -36,8 +38,9 @@ export const meta = () => {
 
 export const loader = async ({ request }) => {
   const { merchantData, session } = await loadShopifyRouteContext(request);
-  const [analyses, settings, profile, performance] = await Promise.all([
+  const [analyses, savedCreatives, settings, profile, performance] = await Promise.all([
     listVideoAnalyses(session.shop, 6),
+    listSavedCreatives(session.shop, 100),
     getWorkspaceSettingsMap(session.shop, {
       auto_save_analyzed_videos: "true",
     }),
@@ -47,6 +50,12 @@ export const loader = async ({ request }) => {
 
   return {
     analyses,
+    libraryCreativeIds: savedCreatives
+      .filter((creative) => creative.sourceType === "video_analysis")
+      .reduce((result, creative) => {
+        if (creative.sourceId) result[creative.sourceId] = creative.id;
+        return result;
+      }, {}),
     analyzerRuntime: getAnalyzerRuntimeStatus(),
     autoSaveAnalyzedVideos: settings.auto_save_analyzed_videos === "true",
     hasDemoPerformanceData: performance.hasDemoPerformanceData,
@@ -233,6 +242,13 @@ export const action = async ({ request }) => {
           video_url: mediaUrl,
         },
       });
+
+      if (analysisPayload.savedAnalysisId) {
+        await db.videoAnalysis.updateMany({
+          where: { id: analysisPayload.savedAnalysisId, shop: session.shop },
+          data: { savedToLibrary: true },
+        });
+      }
 
       return {
         creativeId: creative.id,
@@ -539,6 +555,7 @@ function buildSavedReview(record = {}) {
     metadata,
     retention,
     payload,
+    productId: record.productId || result.productId || "",
   };
 }
 
@@ -865,6 +882,7 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
   const [currentResult, setCurrentResult] = useState(result);
   const [actionMessage, setActionMessage] = useState("");
   const [actionTone, setActionTone] = useState("success");
+  const [libraryCreativeId, setLibraryCreativeId] = useState("");
   const payload = currentResult?.result || {};
   const analysis = payload?.analysis || {};
   const metadata = payload?.metadata || {};
@@ -892,6 +910,7 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
 
   useEffect(() => {
     setCurrentResult(result);
+    setLibraryCreativeId("");
   }, [result]);
 
   useEffect(() => {
@@ -919,6 +938,7 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
       setActionTone("error");
       setActionMessage(data.error);
     } else if (data.success) {
+      if (data.creativeId) setLibraryCreativeId(data.creativeId);
       setActionTone("success");
       setActionMessage(data.success);
     }
@@ -1006,14 +1026,23 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
                 : "Save Analysis"}
           </button>
 
-          <button
-            type="button"
-            onClick={() => submitPersistedAction("saveCreative", saveFetcher)}
-            disabled={saveFetcher.state !== "idle"}
-            className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 font-semibold text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saveFetcher.state !== "idle" ? "Saving..." : "Save to Creative Library"}
-          </button>
+          {libraryCreativeId ? (
+            <a
+              href={`/app/creative-library?creativeId=${encodeURIComponent(libraryCreativeId)}`}
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 font-semibold text-emerald-100 hover:bg-emerald-500/25"
+            >
+              Open in Creative Library
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => submitPersistedAction("saveCreative", saveFetcher)}
+              disabled={saveFetcher.state !== "idle"}
+              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 font-semibold text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saveFetcher.state !== "idle" ? "Saving..." : "Save to Creative Library"}
+            </button>
+          )}
 
           <button
             type="button"
@@ -1155,6 +1184,7 @@ export default function VideoAnalysisRoute() {
     productError,
     products,
     selectedProductId,
+    libraryCreativeIds,
   } = useLoaderData();
   const analyzeFetcher = useFetcher();
   const [file, setFile] = useState(null);
@@ -1417,6 +1447,7 @@ export default function VideoAnalysisRoute() {
                 <SavedReviewCard
                   key={review.id}
                   review={review}
+                  creativeId={libraryCreativeIds[review.id] || ""}
                   onView={() => setSelectedReviewId(review.id)}
                 />
               ))}
@@ -1441,7 +1472,17 @@ export default function VideoAnalysisRoute() {
   );
 }
 
-function SavedReviewCard({ review, onView }) {
+function SavedReviewCard({ creativeId: initialCreativeId, review, onView }) {
+  const saveFetcher = useFetcher();
+  const creativeId = saveFetcher.data?.creativeId || initialCreativeId;
+  const saving = saveFetcher.state !== "idle";
+  const actionPayload = {
+    ...review.payload,
+    savedAnalysisId: review.id,
+    productId: review.productId,
+    productTitle: review.productTitle,
+  };
+
   return (
     <article className="flex h-full flex-col rounded-xl border border-white/10 bg-white/5 p-4">
       <div className="min-w-0">
@@ -1462,13 +1503,44 @@ function SavedReviewCard({ review, onView }) {
         {review.summaryPreview}
       </p>
 
-      <button
-        type="button"
-        onClick={onView}
-        className="mt-4 inline-flex w-fit items-center rounded-xl border border-sky-500/30 bg-sky-500/15 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-500/25"
-      >
-        View full review
-      </button>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onView}
+          className="inline-flex w-fit items-center rounded-xl border border-sky-500/30 bg-sky-500/15 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-500/25"
+        >
+          View full review
+        </button>
+        {creativeId ? (
+          <a
+            href={`/app/creative-library?creativeId=${encodeURIComponent(creativeId)}`}
+            className="inline-flex w-fit items-center rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-3 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-500/25"
+          >
+            Open in Creative Library
+          </a>
+        ) : (
+          <saveFetcher.Form method="post">
+            <input name="intent" type="hidden" value="saveCreative" />
+            <input
+              name="analysisPayload"
+              type="hidden"
+              value={JSON.stringify(actionPayload)}
+            />
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex w-fit items-center rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-3 py-2 text-sm font-bold text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Save to Creative Library"}
+            </button>
+          </saveFetcher.Form>
+        )}
+      </div>
+      {saveFetcher.data?.error && (
+        <p className="mt-3 text-xs font-semibold text-red-200" role="alert">
+          Could not save this review to Creative Library.
+        </p>
+      )}
     </article>
   );
 }
