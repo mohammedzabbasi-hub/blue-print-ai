@@ -492,7 +492,14 @@ function CreativePreview({ creative, compact = false }) {
       <video
         className={`aspect-video w-full rounded-2xl bg-black ${compact ? "object-contain" : "object-cover"}`}
         controls
-        onError={() => setPreviewFailed(true)}
+        onError={() => {
+          console.warn("[creative-library-preview] video preview failed", {
+            mediaUrl: initialVideoUrl,
+            recordId: creative.recordId || creative.id || "",
+            source: creative.sourceLabel || creative.source_platform || "",
+          });
+          setPreviewFailed(true);
+        }}
         poster={posterUrl || undefined}
         preload="metadata"
         src={initialVideoUrl}

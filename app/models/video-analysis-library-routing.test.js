@@ -40,12 +40,23 @@ describe("saved review Creative Library routing", () => {
     );
 
     assert.match(source, /withEmbeddedRouteParams\(resolvedCandidate, location\.search\)/);
-    assert.match(source, /onError=\{\(\) => setPreviewFailed\(true\)\}/);
+    assert.match(source, /\[creative-library-preview\] video preview failed/);
+    assert.match(source, /setPreviewFailed\(true\)/);
     assert.match(source, /Preview unavailable/);
     assert.match(source, /creative\.fileName/);
     assert.match(source, /createPortal\(/);
     assert.match(source, /overflow-x-hidden overflow-y-auto break-words/);
     assert.match(source, /grid min-w-0 grid-cols-1/);
     assert.doesNotMatch(source, /grid-cols-\[minmax\(280px/);
+  });
+
+  it("requires verified uploaded media before saving an AI Review Studio creative", async () => {
+    const source = await readFile(videoAnalysisRoute, "utf8");
+
+    assert.match(source, /resolveReviewPreviewMediaForCreative/);
+    assert.match(source, /REVIEW_PREVIEW_UNAVAILABLE_MESSAGE/);
+    assert.match(source, /return \{ error: REVIEW_PREVIEW_UNAVAILABLE_MESSAGE \}/);
+    assert.match(source, /mediaState: "private_upload"/);
+    assert.match(source, /mediaPath: previewMedia\.mediaPath/);
   });
 });

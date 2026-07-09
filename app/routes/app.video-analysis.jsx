@@ -16,6 +16,8 @@ import {
   getWorkspaceSettingsMap,
   listVideoAnalyses,
   listSavedCreatives,
+  REVIEW_PREVIEW_UNAVAILABLE_MESSAGE,
+  resolveReviewPreviewMediaForCreative,
   resolveProductContext,
   saveCreativeRecord,
   saveRevenueBlueprintRecord,
@@ -174,6 +176,12 @@ export const action = async ({ request }) => {
       analysisPayload.result?.metadata || payload.metadata || payload?.result?.metadata || {};
     const media = analysisPayload.result?.media || payload.media || payload?.result?.media || {};
     const mediaUrl = media.mediaUrl || metadata.media_url || analysisPayload.mediaUrl || "";
+    const mediaPath =
+      media.mediaPath ||
+      media.storedFileName ||
+      metadata.media_path ||
+      analysisPayload.mediaPath ||
+      "";
     const mediaFingerprint =
       media.fingerprint || metadata.media_fingerprint || analysisPayload.mediaFingerprint || "";
     const display =
@@ -215,11 +223,25 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "saveCreative") {
+      let previewMedia;
+      try {
+        previewMedia = await resolveReviewPreviewMediaForCreative({
+          shop: session.shop,
+          reviewId: analysisPayload.savedAnalysisId || "",
+          mediaFingerprint,
+          mediaPath,
+          mediaUrl,
+          originalFilename: display.originalFilename || fileName,
+        });
+      } catch {
+        return { error: REVIEW_PREVIEW_UNAVAILABLE_MESSAGE };
+      }
+
       const creative = await saveCreativeRecord(session.shop, {
         sourceType: "video_analysis",
         sourceId:
           analysisPayload.savedAnalysisId ||
-          (mediaFingerprint ? `upload:${mediaFingerprint}` : null),
+          (previewMedia.mediaFingerprint ? `upload:${previewMedia.mediaFingerprint}` : null),
         productId: product.id,
         productTitle: product.title,
         title: displayTitle,
@@ -233,14 +255,16 @@ export const action = async ({ request }) => {
           fileName,
           fileSize: Number(metadata.file_size || 0),
           fileType: metadata.file_type || "",
-          mediaFingerprint,
-          mediaState: mediaUrl ? "local_public_upload" : "analysis_only",
-          mediaStored: Boolean(mediaUrl),
-          mediaStorage: media.storage || "",
-          mediaUrl,
-          originalFilename: display.originalFilename || fileName,
+          mediaFingerprint: previewMedia.mediaFingerprint,
+          mediaPath: previewMedia.mediaPath,
+          mediaState: "private_upload",
+          mediaStored: true,
+          mediaStorage: previewMedia.mediaStorage || media.storage || "",
+          mediaUrl: previewMedia.mediaUrl,
+          originalFilename: previewMedia.originalFilename || display.originalFilename || fileName,
           source: "video_analysis",
-          video_url: mediaUrl,
+          uploadId: previewMedia.uploadId || "",
+          video_url: previewMedia.mediaUrl,
         },
       });
 
@@ -316,13 +340,17 @@ export function buildVideoAnalysisPayload({
         file_size: fileSize,
         file_type: fileType,
         media_fingerprint: storedVideo?.fingerprint || "",
+        media_path: storedVideo?.storedFileName || "",
         media_url: storedVideo?.mediaUrl || "",
       },
       media: storedVideo
         ? {
             fileName: storedVideo.originalName,
             fingerprint: storedVideo.fingerprint,
+            mediaPath: storedVideo.storedFileName,
             mediaUrl: storedVideo.mediaUrl,
+            originalName: storedVideo.originalName,
+            storedFileName: storedVideo.storedFileName,
             storage: storedVideo.storage,
           }
         : null,

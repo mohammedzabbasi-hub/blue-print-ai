@@ -1358,6 +1358,16 @@ function creativeRecordToPerformance(record = {}, index = 0) {
           analysis.creativeScore ||
           analysis.readinessScore,
         lastSyncedAt: record.updatedAt || record.createdAt,
+        mediaFingerprint:
+          payload.mediaFingerprint ||
+          result.media?.fingerprint ||
+          result.metadata?.media_fingerprint,
+        mediaMimeType: payload.mediaMimeType || payload.fileType || result.metadata?.file_type,
+        mediaPath:
+          payload.mediaPath ||
+          result.media?.mediaPath ||
+          result.media?.storedFileName ||
+          result.metadata?.media_path,
         productTitle: record.productTitle || payload.productTitle,
         shopifyProductId: record.productId || payload.shopifyProductId,
         sourceCreativeId: record.sourceId || record.id,
@@ -1412,6 +1422,9 @@ function videoAnalysisToPerformance(record = {}, index = 0) {
     storageRecordId: record.id || "",
     storageRecordType: "video_analysis",
     syncStatus: "analysis_only",
+    mediaFingerprint: media.fingerprint || metadata.media_fingerprint || "",
+    mediaMimeType: metadata.file_type || media.fileType || "",
+    mediaPath: media.mediaPath || media.storedFileName || metadata.media_path || "",
     thumbnailUrl: "",
     transcript: result.transcript?.full_text || payload.brief || "",
     videoUrl: media.mediaUrl || metadata.media_url || "",

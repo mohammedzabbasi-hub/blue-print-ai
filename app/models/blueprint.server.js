@@ -1,6 +1,9 @@
 import db from "../db.server.js";
 import crypto from "node:crypto";
-import { deleteUploadedWorkspaceFiles } from "../utils/upload-storage.server.js";
+import {
+  deleteUploadedWorkspaceFiles,
+  getPrivateMediaObject,
+} from "../utils/upload-storage.server.js";
 import {
   BRAND_TONE_OPTIONS,
   CREATIVE_GOAL_OPTIONS,
@@ -231,6 +234,37 @@ export async function saveVideoAnalysisRecord({
   const existing = await findRecordByPersistenceKey("videoAnalysis", shop, persistenceKey);
 
   if (existing) {
+    if (savedToLibrary) {
+      const existingPayload = parsePayload(existing.payloadJson);
+      const previewMedia = await resolveReviewPreviewMediaForCreative({
+        shop,
+        reviewId: existing.id,
+        mediaUrl,
+        originalFilename: fileName,
+      });
+      await saveCreativeRecord(shop, {
+        sourceType: "video_analysis",
+        sourceId: existing.id,
+        productId: product.id,
+        productTitle: product.title,
+        title: creativeTitle,
+        angle: creativeSummary,
+        payload: buildVideoAnalysisCreativePayload({
+          analysis: existingPayload,
+          creativeSummary,
+          creativeTitle,
+          fileName,
+          fileSize,
+          fileType,
+          previewMedia,
+        }),
+      });
+      await db.videoAnalysis.updateMany({
+        where: { id: existing.id, shop },
+        data: { savedToLibrary: true },
+      });
+    }
+
     return {
       ...existing,
       payload: parsePayload(existing.payloadJson),
@@ -258,6 +292,12 @@ export async function saveVideoAnalysisRecord({
   });
 
   if (savedToLibrary) {
+    const previewMedia = await resolveReviewPreviewMediaForCreative({
+      shop,
+      reviewId: saved.id,
+      mediaUrl,
+      originalFilename: fileName,
+    });
     await saveCreativeRecord(shop, {
       sourceType: "video_analysis",
       sourceId: saved.id,
@@ -265,22 +305,15 @@ export async function saveVideoAnalysisRecord({
       productTitle: product.title,
       title: creativeTitle,
       angle: creativeSummary,
-      payload: {
+      payload: buildVideoAnalysisCreativePayload({
         analysis,
-        displayTitle: creativeTitle,
-        summary: creativeSummary,
-        description: creativeSummary,
+        creativeSummary,
+        creativeTitle,
         fileName,
-        fileType,
         fileSize,
-        mediaUrl,
-        brief: creativeSummary,
-        mediaStored: Boolean(mediaUrl),
-        mediaState: mediaUrl ? "local_public_upload" : "analysis_only",
-        mediaStorage: mediaUrl ? "local_public_uploads" : "",
-        originalFilename: fileName,
-        video_url: mediaUrl,
-      },
+        fileType,
+        previewMedia,
+      }),
     });
   }
 
@@ -289,6 +322,165 @@ export async function saveVideoAnalysisRecord({
     payload: parsePayload(saved.payloadJson),
     wasCreated: true,
   };
+}
+
+export const REVIEW_PREVIEW_UNAVAILABLE_MESSAGE =
+  "This review could not be saved because the uploaded video preview is unavailable. Please re-upload the video and try again.";
+
+export async function resolveReviewPreviewMediaForCreative({
+  shop,
+  reviewId = "",
+  uploadId = "",
+  mediaFingerprint = "",
+  mediaUrl = "",
+  mediaPath = "",
+  originalFilename = "",
+} = {}) {
+  const review = reviewId
+    ? await db.videoAnalysis.findFirst({ where: { id: reviewId, shop } })
+    : null;
+  const reviewPayload = parsePayload(review?.payloadJson) || {};
+  const payloadResult = reviewPayload.result || reviewPayload;
+  const payloadMedia = payloadResult.media || reviewPayload.media || {};
+  const payloadMetadata = payloadResult.metadata || reviewPayload.metadata || {};
+  const candidates = [
+    {
+      fingerprint: mediaFingerprint,
+      mediaPath,
+      mediaUrl,
+      originalFilename,
+      uploadId,
+    },
+    {
+      fingerprint: payloadMedia.fingerprint || payloadMetadata.media_fingerprint,
+      mediaPath:
+        payloadMedia.mediaPath ||
+        payloadMedia.storedFileName ||
+        payloadMetadata.media_path,
+      mediaUrl: payloadMedia.mediaUrl || payloadMetadata.media_url,
+      originalFilename:
+        payloadMedia.originalName ||
+        payloadMedia.fileName ||
+        payloadResult.display?.originalFilename ||
+        review?.fileName,
+    },
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = await resolvePrivateMediaCandidate(shop, candidate);
+    if (resolved) return resolved;
+  }
+
+  throw new Error(REVIEW_PREVIEW_UNAVAILABLE_MESSAGE);
+}
+
+function buildVideoAnalysisCreativePayload({
+  analysis,
+  creativeSummary,
+  creativeTitle,
+  fileName,
+  fileSize,
+  fileType,
+  previewMedia,
+}) {
+  return {
+    analysis,
+    displayTitle: creativeTitle,
+    summary: creativeSummary,
+    description: creativeSummary,
+    fileName,
+    fileType,
+    fileSize,
+    mediaFingerprint: previewMedia.mediaFingerprint,
+    mediaPath: previewMedia.mediaPath,
+    mediaUrl: previewMedia.mediaUrl,
+    brief: creativeSummary,
+    mediaStored: true,
+    mediaState: "private_upload",
+    mediaStorage: previewMedia.mediaStorage,
+    originalFilename: previewMedia.originalFilename || fileName,
+    source: "video_analysis",
+    uploadId: previewMedia.uploadId || "",
+    video_url: previewMedia.mediaUrl,
+  };
+}
+
+async function resolvePrivateMediaCandidate(shop, candidate = {}) {
+  const parsed = parsePrivateMediaUrl(candidate.mediaUrl);
+  const mediaPath = candidate.mediaPath || parsed?.storedFileName || "";
+  const namespace = parsed?.namespace || "video-analysis";
+
+  if (!mediaPath || !isPlayableMediaPath(mediaPath)) return null;
+  if (candidate.mediaUrl && !parsed) return null;
+
+  try {
+    const media = await getPrivateMediaObject({
+      shop,
+      namespace,
+      storedFileName: mediaPath,
+    });
+    if (!media?.body) return null;
+  } catch {
+    return null;
+  }
+
+  const mediaUrl =
+    parsed?.mediaUrl ||
+    `/app/media/${encodeURIComponent(namespace)}/${encodeURIComponent(mediaPath)}`;
+
+  return {
+    mediaFingerprint: candidate.fingerprint || fingerprintFromStoredFileName(mediaPath),
+    mediaPath,
+    mediaStorage: "private_uploads",
+    mediaUrl,
+    originalFilename: candidate.originalFilename || originalNameFromStoredFileName(mediaPath),
+    uploadId: candidate.uploadId || "",
+  };
+}
+
+function parsePrivateMediaUrl(value = "") {
+  const raw = String(value || "").trim();
+
+  if (!raw || /^https?:\/\//i.test(raw) || /render\.com|\/login\b/i.test(raw)) {
+    return null;
+  }
+
+  let url;
+  try {
+    url = new URL(raw, "https://blueprintai.local");
+  } catch {
+    return null;
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length !== 4 || parts[0] !== "app" || parts[1] !== "media") {
+    return null;
+  }
+
+  const namespace = decodeURIComponent(parts[2] || "");
+  const storedFileName = decodeURIComponent(parts[3] || "");
+
+  if (!namespace || !storedFileName || !isPlayableMediaPath(storedFileName)) {
+    return null;
+  }
+
+  return {
+    mediaUrl: `/app/media/${encodeURIComponent(namespace)}/${encodeURIComponent(storedFileName)}`,
+    namespace,
+    storedFileName,
+  };
+}
+
+function isPlayableMediaPath(value = "") {
+  return /\.(mp4|mov|m4v|webm)$/i.test(String(value || "").split(/[?#]/)[0]);
+}
+
+function fingerprintFromStoredFileName(value = "") {
+  return String(value || "").split("-")[0] || "";
+}
+
+function originalNameFromStoredFileName(value = "") {
+  return String(value || "").replace(/^[a-f0-9]{16}-/i, "");
 }
 
 export async function listSavedCreatives(shop, limit = 12) {
