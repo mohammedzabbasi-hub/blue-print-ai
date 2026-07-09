@@ -18,6 +18,11 @@ import {
   parsePublicEngagementCsv,
   upsertPublicEngagementRecord,
 } from "./creative-performance.server.js";
+import {
+  buildDashboardEffectivenessRecords,
+  buildTrendRows,
+  trendAvailability,
+} from "../utils/ad-effectiveness.js";
 import { appendSelectedVideoFiles } from "../utils/selected-video-files.js";
 import { createCampaign, getCampaign } from "./campaign.server.js";
 import { listCreatorProfiles } from "./creator-attribution.server.js";
@@ -267,6 +272,114 @@ describe("creative upload performance import", () => {
     assert.equal(ttad2Cards.length, 1);
     assert.match(ttad2Cards[0].videoUrl, /^\/app\/media\/creative-library\//);
     assert.equal(ttad2Cards[0].importSource, "creative_upload_performance_import");
+  });
+
+  it("imports TTAD1-TTAD5 across 10 reporting dates as 50 dashboard daily rows", async () => {
+    const shop = testShop("ttad-daily-matrix");
+    const header = "creative_id,video_filename,product_name,creative_name,creator_handle,platform,views,link_clicks,purchases,purchase_value,amount_spent,Reporting Date,insight";
+    const rows = [];
+
+    testShops.add(shop);
+
+    for (let day = 1; day <= 10; day += 1) {
+      for (let creative = 1; creative <= 5; creative += 1) {
+        rows.push(
+          [
+            `ttad-${creative}`,
+            `TTAD${creative}.mp4`,
+            "QA Product",
+            `TTAD${creative}`,
+            "@qa-creator",
+            "TikTok",
+            100 + day,
+            10 + creative,
+            creative,
+            50 + day,
+            20 + creative,
+            `07/${day}/2026`,
+            `Day ${day}`,
+          ].join(","),
+        );
+      }
+    }
+
+    const preview = buildCreativeUploadPreview({
+      csvText: [header, ...rows].join("\n"),
+      parsePublicEngagementCsv,
+      uploadedVideos: [],
+    });
+    const result = await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: [],
+      upsertPublicEngagementRecord,
+    });
+    const [storedRows, performance] = await Promise.all([
+      db.creativePerformance.findMany({ where: { shop } }),
+      listCreativePerformance({ shop, limit: 100 }),
+    ]);
+    const dashboardRows = buildDashboardEffectivenessRecords(performance);
+    const trendRows = buildTrendRows(dashboardRows);
+
+    assert.equal(preview.detectedDateColumn, "Reporting Date");
+    assert.equal(preview.dateSummary.distinctDateCount, 10);
+    assert.equal(preview.dateSummary.firstDate, "2026-07-01");
+    assert.equal(preview.dateSummary.lastDate, "2026-07-10");
+    assert.equal(result.summary.created + result.summary.updated, 50);
+    assert.equal(storedRows.length, 50);
+    assert.equal(performance.records.length, 5);
+    assert.equal(performance.dailyRecords.length, 50);
+    assert.equal(performance.distinctReportingDateCount, 10);
+    assert.equal(dashboardRows.length, 50);
+    assert.equal(trendRows.length, 10);
+    assert.deepEqual(trendAvailability(dashboardRows), {
+      dateCount: 10,
+      hasTrend: true,
+      isSparse: false,
+    });
+
+    const reimport = await importMatchedCreativeRows({
+      preview,
+      shop,
+      uploadedVideos: [],
+      upsertPublicEngagementRecord,
+    });
+
+    assert.equal(reimport.summary.updated, 50);
+    assert.equal(await db.creativePerformance.count({ where: { shop } }), 50);
+  });
+
+  it("resolves common date headers and date formats without falling back to today", () => {
+    const cases = [
+      ["date", "2026-07-01", "2026-07-01"],
+      ["reporting_date", "2026-07-02T00:00:00Z", "2026-07-02"],
+      ["report_date", "2026/07/03", "2026-07-03"],
+      ["day", "7/4/2026", "2026-07-04"],
+      ["Reporting Date", "07-05-2026", "2026-07-05"],
+      ["segments.date", "\"July 6, 2026\"", "2026-07-06"],
+      ["stat_date", "7 Jul 2026", "2026-07-07"],
+      ["timestamp", "1783555200", "2026-07-09"],
+    ];
+
+    for (const [header, value, expected] of cases) {
+      const preview = parsePublicEngagementCsv([
+        `creative_id,platform,creative_name,product_name,views,${header}`,
+        `date-case,TikTok,Date case,QA Product,100,${value}`,
+      ].join("\n"));
+
+      assert.equal(preview.rows[0].status === "error", false);
+      assert.equal(preview.rows[0].record.reportingDate.slice(0, 10), expected);
+      assert.equal(preview.dateSummary.distinctDateCount, 1);
+    }
+
+    const invalid = parsePublicEngagementCsv([
+      "creative_id,platform,creative_name,product_name,views,report_date",
+      "bad-date,TikTok,Bad date,QA Product,100,not-a-date",
+    ].join("\n"));
+
+    assert.equal(invalid.rows[0].status, "error");
+    assert.match(invalid.rows[0].errors.join(" "), /valid date/);
+    assert.equal(invalid.rows[0].record.reportingDate, "");
   });
 
   it("does not display creator handles as product context for CSV imports", async () => {

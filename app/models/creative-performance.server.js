@@ -137,6 +137,30 @@ const OPTIONAL_PERFORMANCE_FIELDS = [
   "creator_spend",
   "creator_engagement_rate",
 ];
+const DATE_HEADER_ALIASES = new Set([
+  "date",
+  "reportingdate",
+  "reportdate",
+  "day",
+  "dailydate",
+  "performancedate",
+  "performanceday",
+  "reportday",
+  "reportingday",
+  "statdate",
+  "statsdate",
+  "segmentsdate",
+  "datestart",
+  "datestop",
+  "startdate",
+  "enddate",
+  "periodstart",
+  "periodstartdate",
+  "createdat",
+  "timestamp",
+  "time",
+  "daydate",
+]);
 const DEEPER_PERFORMANCE_KEYS = [
   "impressions",
   "reach",
@@ -327,6 +351,9 @@ export async function listCreativePerformance({
           demoCreativeToPerformance(creative, index, merchantData.products || []),
         )
       : [];
+  const importedDailyRecords = dbPerformanceRecords
+    .map((record, index) => creativePerformanceDbRecordToPerformance(record, index))
+    .filter((record) => hasReportingDateValue(record.reportingDate || record.date));
   const connectedDailyRecords = platformDailyRecords.map((record) => {
     let payload = {};
     try {
@@ -382,11 +409,13 @@ export async function listCreativePerformance({
       `${record.sourcePlatform}:${record.campaignId}:${date.toISOString().slice(0, 10)}`,
     );
   });
-  const dailyRecords = connectedDailyRecords.length
-    ? nonOverlappingDailyRecords
-    : includeDemo && savedRecords.length === 0
+  const dailyRecords = [
+    ...importedDailyRecords,
+    ...nonOverlappingDailyRecords,
+    ...(includeDemo && savedRecords.length === 0 && !connectedDailyRecords.length
       ? buildDemoPerformanceSeries(30)
-      : [];
+      : []),
+  ];
   const assignmentByPerformance = new Map();
   const assignmentBySaved = new Map();
   campaignAssignments.forEach((assignment) => {
@@ -429,6 +458,7 @@ export async function listCreativePerformance({
       ),
     }),
     dailyRecords,
+    distinctReportingDateCount: distinctReportingDateCount(dailyRecords),
     records,
   };
 }
@@ -729,7 +759,9 @@ export function parsePublicEngagementCsv(csvText = "", { importType = "creative"
     };
   }
 
-  const headers = parsedRows[0].map(normalizeHeader);
+  const rawHeaders = parsedRows[0].map((header) => String(header || "").trim());
+  const headers = rawHeaders.map(normalizeHeader);
+  const detectedDateColumn = detectPerformanceDateColumn(rawHeaders);
   const dataRows = parsedRows
     .slice(1)
     .filter((row) => row.some((cell) => String(cell || "").trim()));
@@ -738,9 +770,11 @@ export function parsePublicEngagementCsv(csvText = "", { importType = "creative"
       Object.fromEntries(headers.map((header, cellIndex) => [header, sanitizeCsvValue(row[cellIndex])])),
       index + 2,
       importType,
+      rawHeaders,
     ),
   );
   const { duplicateRowsMerged, rows } = mergeDuplicateImportRows(validatedRows);
+  const dateSummary = summarizeImportDates(rows, detectedDateColumn);
   const errors = [];
 
   if (dataRows.length > MAX_PUBLIC_IMPORT_ROWS) {
@@ -750,6 +784,8 @@ export function parsePublicEngagementCsv(csvText = "", { importType = "creative"
   return {
     errors,
     headers,
+    dateSummary,
+    detectedDateColumn: detectedDateColumn?.name || "",
     duplicateRowsMerged,
     rows,
     totalRows: dataRows.length,
@@ -851,9 +887,10 @@ export async function upsertPublicEngagementRecord(shop, row) {
     (importSource === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE
       ? CREATIVE_UPLOAD_IMPORT_SOURCE_TYPE
       : PUBLIC_ENGAGEMENT_IMPORT_SOURCE_TYPE);
-  const reportingDate =
-    parseDbDate(record.reportingDate || record.date || record.firstSeenAt) ||
-    new Date();
+  const reportingDate = parseDbDate(record.reportingDate || record.date);
+  if (!reportingDate) {
+    throw new Error("Performance row is missing a valid reporting date.");
+  }
   const productTitle =
     record.productLabel || record.productHandle || "Imported product";
   const productId = record.productHandle
@@ -1047,7 +1084,7 @@ function creativePerformanceDbData(shop, record, sourceId) {
     sourceRecordId: sourceId,
     sourceRecordType: record.sourceRecordType || "public_engagement_import",
     importKey: record.importKey,
-    reportingDate: parseDbDate(record.reportingDate || record.date || record.firstSeenAt),
+    reportingDate: parseDbDate(record.reportingDate || record.date),
     importedAt: parseDbDate(record.importedAt) || new Date(),
     syncedAt: parseDbDate(record.syncedAt || record.lastSyncedAt) || new Date(),
     impressions: nullableNumber(record.impressions),
@@ -1236,6 +1273,7 @@ export function normalizeCreativePerformance(input = {}) {
     averageWatchTime: nullableNumber(aliased.averageWatchTime),
     retentionRate: nullableNumber(aliased.retentionRate),
     reportingDate: aliased.reportingDate || aliased.date || aliased.firstSeenAt || "",
+    date: aliased.reportingDate || aliased.date || "",
     importedAt: aliased.importedAt || aliased.createdAt || "",
     syncedAt: aliased.syncedAt || aliased.lastSyncedAt || aliased.updatedAt || "",
     firstSeenAt: aliased.firstSeenAt || aliased.reportingDate || aliased.date || aliased.createdAt || new Date().toISOString(),
@@ -1598,7 +1636,7 @@ export function normalizeCreativePerformanceRecord(input = {}, sourceType = "") 
   };
 }
 
-function validatePublicEngagementRow(input, rowNumber, importType = "creative") {
+function validatePublicEngagementRow(input, rowNumber, importType = "creative", headers = []) {
   const creatorMode = importType === "creator";
   const row = {
     ...input,
@@ -1615,13 +1653,7 @@ function validatePublicEngagementRow(input, rowNumber, importType = "creative") 
     creator_name:
       input.creator_name ||
       (String(input.creator || "").trim().startsWith("@") ? "" : input.creator),
-    date:
-      input.date ||
-      input.performance_date ||
-      input.reporting_date ||
-      input.day ||
-      input.created_at ||
-      input.first_seen_at,
+    date: input.date,
     creative_launch_date:
       input.creative_launch_date ||
       input.launch_date ||
@@ -1659,7 +1691,8 @@ function validatePublicEngagementRow(input, rowNumber, importType = "creative") 
     rawCreativeUrl,
   );
   const platform = cleanImportText(row.platform);
-  const date = parseImportDate(row.date);
+  const resolvedDate = resolvePerformanceDate(input, headers);
+  const date = resolvedDate.date;
   const creativeLaunchDate = parseImportDate(row.creative_launch_date);
   const metrics = {};
 
@@ -1690,7 +1723,14 @@ function validatePublicEngagementRow(input, rowNumber, importType = "creative") 
     errors.push("creative_name or video_url/post_url is required.");
   }
 
-  if (!creatorMode && !date) errors.push("date must be a valid date.");
+  if (!creatorMode && !date) {
+    const rawDate = cleanImportText(resolvedDate.rawValue || row.date);
+    errors.push(
+      rawDate
+        ? `${resolvedDate.columnName || "date"} must be a valid date.`
+        : "date must be a valid date.",
+    );
+  }
   if (cleanImportText(row.creative_launch_date) && !creativeLaunchDate) {
     errors.push("creative_launch_date must be a valid date when provided.");
   }
@@ -1814,6 +1854,7 @@ function validatePublicEngagementRow(input, rowNumber, importType = "creative") 
     angle: cleanImportText(row.best_angle || row.angle),
     notes: cleanImportText(row.notes || row.insight || row.creator_notes),
   });
+  record.detectedDateColumn = resolvedDate.columnName || "";
 
   // Preserve the normalized CSV platform instead of allowing the generic CSV
   // source type to collapse a recognized ad platform to "manual".
@@ -1874,12 +1915,85 @@ function parseCsvRows(content) {
   return rows;
 }
 
+export function resolvePerformanceDate(row = {}, headers = []) {
+  const candidates = [];
+
+  headers.forEach((header) => {
+    const canonical = canonicalHeaderKey(header);
+    if (!DATE_HEADER_ALIASES.has(canonical)) return;
+    const key = normalizeHeader(header);
+    candidates.push({ columnName: String(header || "").trim(), key, value: row[key] });
+  });
+
+  [
+    "date",
+    "reporting_date",
+    "report_date",
+    "day",
+    "daily_date",
+    "performance_date",
+    "performance_day",
+    "report_day",
+    "reporting_day",
+    "stat_date",
+    "stats_date",
+    "segments_date",
+    "date_start",
+    "date_stop",
+    "start_date",
+    "end_date",
+    "period_start",
+    "period_start_date",
+    "created_at",
+    "timestamp",
+    "time",
+    "day_date",
+  ].forEach((key) => {
+    if (row[key] !== undefined) candidates.push({ columnName: key, key, value: row[key] });
+  });
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const rawValue = cleanImportText(candidate.value);
+    const unique = `${candidate.key}:${rawValue}`;
+    if (seen.has(unique)) continue;
+    seen.add(unique);
+    if (!rawValue) continue;
+    const date = parseImportDate(rawValue);
+    return {
+      columnName: candidate.columnName,
+      date,
+      rawValue,
+      value: date ? date.toISOString().slice(0, 10) : "",
+      error: date ? "" : "invalid_date",
+    };
+  }
+
+  return { columnName: "", date: null, rawValue: "", value: "", error: "missing_date" };
+}
+
 function parseImportDate(value) {
+  if (value instanceof Date) return validDate(value);
   const text = cleanImportText(value);
   if (!text) return null;
-  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T12:00:00Z` : text;
-  const date = new Date(dateOnly);
-  return Number.isNaN(date.getTime()) ? null : date;
+  const numeric = text.replace(/,/g, "");
+  if (/^\d{10}$/.test(numeric)) return validDate(new Date(Number(numeric) * 1000));
+  if (/^\d{13}$/.test(numeric)) return validDate(new Date(Number(numeric)));
+
+  let match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s].*)?$/);
+  if (match) return utcDate(Number(match[1]), Number(match[2]), Number(match[3]));
+
+  match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (match) return utcDate(Number(match[3]), Number(match[1]), Number(match[2]));
+
+  const normalizedText = text.replace(/,\s*/g, " ").replace(/\s+/g, " ").trim();
+  match = normalizedText.match(/^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})$/);
+  if (match) return utcDate(Number(match[3]), monthNumber(match[1]), Number(match[2]));
+
+  match = normalizedText.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  if (match) return utcDate(Number(match[3]), monthNumber(match[2]), Number(match[1]));
+
+  return validDate(new Date(text));
 }
 
 function parseImportNumber(value, { nullable = false } = {}) {
@@ -1908,12 +2022,15 @@ function normalizeHeader(value) {
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .toLowerCase()
     .replace(/\s+/g, "_")
+    .replace(/[.-]+/g, "_")
     .replace(/[^a-z0-9_]/g, "");
+  const canonical = canonicalHeaderKey(value);
   const aliases = {
     ad_spend: "spend",
     ad: "ad_name",
     ad_title: "ad_name",
     amount_spent: "spend",
+    attributed_revenue: "revenue",
     average_watch_time: "average_watch_time",
     averagewatchtime: "average_watch_time",
     avg_view_duration: "average_watch_time",
@@ -1931,7 +2048,12 @@ function normalizeHeader(value) {
     creative_id: "creative_id",
     creativeid: "creative_id",
     creative_title: "creative_name",
+    daily_date: "date",
+    date_start: "date",
+    date_stop: "date",
     day: "date",
+    day_date: "date",
+    end_date: "date",
     performance_date: "date",
     reporting_date: "date",
     launch_date: "creative_launch_date",
@@ -1941,8 +2063,10 @@ function normalizeHeader(value) {
     external_creative_id: "creative_id",
     handle: "creator_handle",
     impression_count: "impressions",
+    imps: "impressions",
     influencer_handle: "creator_handle",
     link_clicks: "clicks",
+    media_spend: "spend",
     order_count: "orders",
     outbound_clicks: "clicks",
     post_url: "video_url",
@@ -1953,14 +2077,28 @@ function normalizeHeader(value) {
     product_title: "product_name",
     promoter_handle: "creator_handle",
     purchase_count: "conversions",
+    purchases_count: "conversions",
     purchase_value: "revenue",
     purchases: "conversions",
+    report_date: "date",
+    report_day: "date",
+    reporting_day: "date",
     quartile_25: "video_25_percent_watched",
     quartile_50: "video_50_percent_watched",
     quartile_75: "video_75_percent_watched",
     revenue_usd: "revenue",
     sales: "revenue",
+    segments_date: "date",
     source_platform: "platform",
+    start_date: "date",
+    stat_date: "date",
+    stats_date: "date",
+    taps: "clicks",
+    thruplays: "video_views",
+    timestamp: "date",
+    time: "date",
+    total_conversions: "conversions",
+    total_sales: "revenue",
     asset_filename: "video_filename",
     creative_filename: "video_filename",
     file_name: "video_filename",
@@ -1978,6 +2116,7 @@ function normalizeHeader(value) {
     "100_percent_watched": "video_100_percent_watched",
   };
 
+  if (DATE_HEADER_ALIASES.has(canonical)) return "date";
   return aliases[normalized] || normalized;
 }
 
@@ -1998,6 +2137,13 @@ function firstPlayableVideoUrl(...values) {
 }
 
 function normalizeObjectKey(value) {
+  const original = String(value || "").trim();
+  const objectAliases = {
+    createdAt: "createdAt",
+    reportingDate: "reportingDate",
+    updatedAt: "updatedAt",
+  };
+  if (objectAliases[original]) return objectAliases[original];
   const header = normalizeHeader(value);
   const camel = header.replace(/_([a-z0-9])/g, (_, char) => char.toUpperCase());
   const aliases = {
@@ -2044,7 +2190,7 @@ function buildPublicEngagementImportKey(record, prefix = "public-engagement") {
         record.campaignName,
         record.productHandle || record.productLabel,
         record.angle,
-        record.date?.slice(0, 10),
+        (record.reportingDate || record.date)?.slice(0, 10),
       ]
         .join("|")
         .toLowerCase(),
@@ -2075,6 +2221,99 @@ function nullableNumber(value) {
 function parseDbDate(value) {
   const date = parseImportDate(value);
   return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function canonicalHeaderKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function detectPerformanceDateColumn(headers = []) {
+  for (const header of headers) {
+    if (DATE_HEADER_ALIASES.has(canonicalHeaderKey(header))) {
+      return { name: String(header || "").trim() };
+    }
+  }
+  return null;
+}
+
+function summarizeImportDates(rows = [], detectedDateColumn = null) {
+  const dates = rows
+    .filter((row) => row.status !== "error")
+    .map((row) => parseDbDate(row.record?.reportingDate || row.record?.date))
+    .filter(Boolean)
+    .map((date) => date.toISOString().slice(0, 10))
+    .sort();
+  const distinct = [...new Set(dates)];
+  return {
+    allRowsOneDate: rows.length > 1 && distinct.length === 1,
+    detectedDateColumn: detectedDateColumn?.name || "",
+    distinctDateCount: distinct.length,
+    firstDate: distinct[0] || "",
+    invalidDateRows: rows
+      .filter((row) => (row.errors || []).some((error) => /valid date/i.test(error)))
+      .map((row) => row.rowNumber),
+    lastDate: distinct.at(-1) || "",
+  };
+}
+
+function distinctReportingDateCount(records = []) {
+  return new Set(
+    records
+      .map((record) => parseDbDate(record.reportingDate || record.date))
+      .filter(Boolean)
+      .map((date) => date.toISOString().slice(0, 10)),
+  ).size;
+}
+
+function hasReportingDateValue(value) {
+  return Boolean(parseDbDate(value));
+}
+
+function validDate(date) {
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function utcDate(year, month, day) {
+  if (!year || !month || !day) return null;
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function monthNumber(value) {
+  const months = {
+    apr: 4,
+    april: 4,
+    aug: 8,
+    august: 8,
+    dec: 12,
+    december: 12,
+    feb: 2,
+    february: 2,
+    jan: 1,
+    january: 1,
+    jul: 7,
+    july: 7,
+    jun: 6,
+    june: 6,
+    mar: 3,
+    march: 3,
+    may: 5,
+    nov: 11,
+    november: 11,
+    oct: 10,
+    october: 10,
+    sep: 9,
+    sept: 9,
+    september: 9,
+  };
+  return months[String(value || "").toLowerCase()] || 0;
 }
 
 function hasImportedPerformanceFields(record = {}) {

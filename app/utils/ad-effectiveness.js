@@ -53,11 +53,14 @@ export function partitionDashboardPerformanceRecords(records = []) {
 }
 
 export function buildDashboardEffectivenessRecords(performanceData = {}) {
-  const storedRecords = (performanceData.records || []).filter(
-    (record) => !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType),
-  );
   const dailyRecords = (performanceData.dailyRecords || []).filter(
     (record) => !(record.sourcePlatform === "google" && record.source === "demo" && record.isDemo === true),
+  );
+  const dailyStorageIds = new Set(dailyRecords.map((record) => record.storageRecordId).filter(Boolean));
+  const storedRecords = (performanceData.records || []).filter(
+    (record) =>
+      !["saved_creative", "video_analysis", "demo_performance"].includes(record.sourceRecordType) &&
+      !dailyStorageIds.has(record.storageRecordId),
   );
   return [...storedRecords, ...dailyRecords];
 }

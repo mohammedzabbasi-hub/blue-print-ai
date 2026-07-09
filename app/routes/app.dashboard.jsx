@@ -330,6 +330,17 @@ function buildCommandCenterData({
   });
 
   return {
+    distinctReportingDateCount:
+      performanceData.distinctReportingDateCount ||
+      new Set(
+        effectivenessRecords
+          .filter(hasReportingDate)
+          .map((record) => record.reportingDate || record.date)
+          .filter(Boolean)
+          .map((date) => new Date(date))
+          .filter((date) => !Number.isNaN(date.getTime()))
+          .map((date) => date.toISOString().slice(0, 10)),
+      ).size,
     hasDemoPerformanceData: Boolean(performanceData.hasDemoPerformanceData),
     hasImportedPerformanceData: Boolean(performanceData.hasImportedPerformanceData),
     hasMeasuredPerformanceData: Boolean(performanceData.hasMeasuredPerformanceData),

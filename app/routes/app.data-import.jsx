@@ -761,6 +761,7 @@ function CreativeUploadPreview({
   const rows = actionData?.rows || [];
   const previewRows = rows.slice(0, 50);
   const summary = actionData?.summary || {};
+  const dateSummary = actionData?.dateSummary || {};
   const isCreatorImport = importType === "creator";
   const importBlocked = Number(summary.ready || 0) === 0;
 
@@ -819,6 +820,12 @@ function CreativeUploadPreview({
       <Messages messages={actionData?.errors || []} tone="error" />
       <Messages messages={actionData?.fileWarnings || []} tone="warning" />
       <Messages messages={actionData?.topErrors || []} tone="error" />
+      {dateSummary.allRowsOneDate && (
+        <Messages
+          messages={["All valid rows resolve to one reporting date. Trend charts need at least two distinct dates."]}
+          tone="warning"
+        />
+      )}
 
       {isCreatorImport ? (
         <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -838,6 +845,17 @@ function CreativeUploadPreview({
           <Metric label="Missing videos" value={summary.missingVideos || 0} />
           <Metric label="Files matched" value={summary.uploadedFilesMatched || 0} />
           <Metric label="Files unused" value={summary.uploadedFilesUnused || 0} />
+          <Metric label="Date column" value={dateSummary.detectedDateColumn || actionData?.detectedDateColumn || "Not detected"} />
+          <Metric label="Distinct dates" value={dateSummary.distinctDateCount || 0} />
+          <Metric
+            label="Date range"
+            value={
+              dateSummary.firstDate && dateSummary.lastDate
+                ? `${dateSummary.firstDate} to ${dateSummary.lastDate}`
+                : "Not detected"
+            }
+          />
+          <Metric label="Invalid dates" value={(dateSummary.invalidDateRows || []).length} />
         </div>
       )}
 
