@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
 import EmptyWorkspaceState from "../components/EmptyWorkspaceState";
-import ProductContextEvidence from "../components/ProductContextEvidence";
 import {
   buildRevenueBlueprint,
   findRevenueBlueprint,
@@ -164,15 +163,17 @@ export default function RevenueBlueprintRoute() {
 
         <p className="text-muted-foreground mt-3 text-sm sm:text-[15px]">
           A shop-specific planning estimate saved to {shop}. Shopify catalog
-          data and imported CSV/ad performance context are labeled separately;
-          demo assumptions are explicit and missing metrics stay unavailable.
+          data and imported CSV/ad performance context can inform the plan when
+          available; blueprints are directional and not guaranteed revenue
+          forecasts.
         </p>
       </div>
 
-      <ProductContextEvidence
+      <BlueprintReadinessNote
+        hasContext={hasContext}
+        performanceRecords={performanceRecords}
         product={activeProduct}
         productContext={productContext}
-        title="Product context available for generation"
       />
 
       {actionData?.error && (
@@ -199,9 +200,11 @@ export default function RevenueBlueprintRoute() {
       {newEmptyAccount && (
         <EmptyWorkspaceState
           title="No blueprint yet"
-          description="No product context is available. Add a Shopify product, import creative data with a product name, or enter product context in Settings."
-          primaryText="Import Product Data"
+          description="Generate your first blueprint after saving a review or importing performance data."
+          primaryText="Import Performance Data"
           primaryLink="/app/data-import"
+          secondaryText="Open AI Review Studio"
+          secondaryLink="/app/video-analysis"
         />
       )}
 
@@ -211,8 +214,8 @@ export default function RevenueBlueprintRoute() {
             No saved blueprints yet
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Generate the first shop-scoped planning estimate from current
-            product context and saved app activity.
+            Generate your first blueprint after saving a review or importing
+            performance data.
           </p>
           <BlueprintGenerator
             campaigns={campaigns}
@@ -235,14 +238,13 @@ export default function RevenueBlueprintRoute() {
             {blueprint.diagnosis || "Your blueprint is ready."}
           </p>
 
-          <div className="mt-5">
-            <ProductContextEvidence
-              compact
-              product={productEvidenceFromBlueprint(blueprint, products)}
-              productContext={productContext}
-              title="AI used this context"
-            />
-          </div>
+          <BlueprintReadinessNote
+            compact
+            hasContext={hasContext}
+            performanceRecords={performanceRecords}
+            product={activeProduct}
+            productContext={productContext}
+          />
 
           <BlueprintGenerator
             campaigns={campaigns}
@@ -261,7 +263,7 @@ export default function RevenueBlueprintRoute() {
                 <p className="mt-2 text-sm text-slate-400">
                   {performanceRecords.length} imported engagement/performance records are available for planning guidance.{" "}
                   {hasRevenueBackedRecords
-                    ? "Revenue, orders, or spend are included, so revenue-backed confidence can be used where available."
+                    ? "Revenue, orders, or spend are included and can inform directional planning where available."
                     : "Only public engagement is imported right now, so this blueprint avoids revenue-backed assumptions until revenue, orders, or spend are added."}
                 </p>
               </div>
@@ -296,7 +298,7 @@ export default function RevenueBlueprintRoute() {
                     </p>
                     <p className="mt-3 text-sm text-slate-300">{item.recommendation}</p>
                     <p className="mt-3 text-xs leading-5 text-slate-500">
-                      Imported revenue is historical merchant-provided context. BluePrintAI does not convert it into a guaranteed or predicted revenue increase.
+                      Imported revenue is historical merchant-provided context. BluePrintAI uses it for directional planning, not as a guarantee of future revenue.
                     </p>
                   </div>
                 ))}
@@ -329,7 +331,8 @@ export default function RevenueBlueprintRoute() {
         </h2>
         {blueprints.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">
-            No blueprint records have been saved for this shop yet.
+            Generate your first blueprint after saving a review or importing
+            performance data.
           </p>
         ) : (
           <div className="mt-5 grid gap-3">
@@ -347,6 +350,47 @@ export default function RevenueBlueprintRoute() {
         )}
       </section>
     </div>
+  );
+}
+
+function BlueprintReadinessNote({
+  compact = false,
+  hasContext,
+  performanceRecords = [],
+  product = null,
+  productContext = {},
+}) {
+  const hasImportedData = performanceRecords.some((record) =>
+    /import|csv|merchant_provided/.test(
+      `${record.importSource || ""} ${record.sourceRecordType || ""} ${record.sourceType || ""}`.toLowerCase(),
+    ),
+  );
+  const productLabel = product?.title
+    ? `${product.title} (${product.source === "imported" ? "imported product context" : product.source === "demo" ? "demo product" : "Shopify product"})`
+    : null;
+  const readiness = hasContext
+    ? "Blueprint readiness"
+    : "Inputs used";
+  const guidance = hasImportedData || productContext.hasShopifyProducts || productContext.hasImportedProductContext
+    ? "BluePrintAI uses your selected product, saved creatives, imported performance data, and connected ad reports when available."
+    : "Add creative performance data or saved reviews to generate a more useful blueprint.";
+
+  return (
+    <section className={`rounded-2xl border border-cyan-400/20 bg-slate-950/45 ${compact ? "mt-5 p-5" : "p-6"}`}>
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-300">
+        {readiness}
+      </p>
+      <p className="mt-2 text-sm leading-6 text-slate-300">
+        {guidance}
+      </p>
+      {productLabel && (
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          Selected product context: {productLabel}. Blueprints are directional
+          planning estimates based on available data, not guaranteed revenue
+          forecasts.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -401,23 +445,4 @@ function BlueprintGenerator({
       </button>
     </Form>
   );
-}
-
-function productEvidenceFromBlueprint(blueprint = {}, products = []) {
-  const context = blueprint.context || {};
-  if (context.productSource) {
-    return {
-      id: context.productId || null,
-      title: context.productName || context.productTitle,
-      productName: context.productName || context.productTitle,
-      source: context.productSource,
-      ...(context.importedPerformance || {}),
-    };
-  }
-  const current = products.find((product) =>
-    product.id === context.productId || product.title === context.productTitle,
-  );
-  return current
-    ? { title: context.productTitle || current.title, source: "none" }
-    : { title: context.productTitle || "Evidence snapshot", source: "none" };
 }

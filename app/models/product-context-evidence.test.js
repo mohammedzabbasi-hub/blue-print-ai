@@ -27,8 +27,24 @@ describe("product context evidence UI", () => {
 
   it("shows evidence before and after Revenue Blueprint generation", async () => {
     const route = await source("routes/app.revenue-blueprint.jsx");
-    assert.match(route, /Product context available for generation/);
-    assert.match(route, /AI used this context/);
+    assert.doesNotMatch(route, /Product context available for generation/);
+    assert.doesNotMatch(route, /AI used this context/);
+    assert.doesNotMatch(route, /ProductContextEvidence/);
+    assert.doesNotMatch(route, /Related creatives\/ads/);
+    assert.doesNotMatch(route, /Best creative\/ad/);
+    assert.doesNotMatch(route, /Imported date range/);
+    assert.doesNotMatch(route, /Not available/);
+    assert.match(route, /Blueprint readiness/);
+    assert.match(route, /Inputs used/);
+    assert.match(route, /BluePrintAI uses your selected product, saved creatives, imported performance data, and connected ad reports when available\./);
+    assert.match(route, /Add creative performance data or saved reviews to generate a more useful blueprint\./);
+    assert.match(route, /Generate your first blueprint after saving a review or importing performance data\./);
+    assert.match(route, /Open AI Review Studio/);
+    assert.match(route, /Saved blueprints/);
+    assert.match(route, /blueprints\.map/);
+    assert.match(route, /directional\s+planning estimates based on available data, not guaranteed revenue\s+forecasts/);
+    assert.doesNotMatch(route, /guaranteed revenue growth/i);
+    assert.doesNotMatch(route, /guaranteed or predicted revenue increase/i);
   });
 
   it("keeps canonical product source labels after retiring the advisor page", async () => {
