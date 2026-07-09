@@ -114,6 +114,50 @@ export async function getPrivateMediaObject({ shop, namespace, storedFileName })
   });
 }
 
+export async function deletePrivateMediaObjects(shop, objects = []) {
+  const safeShop = sanitizePathPart(shop);
+  const targets = objects
+    .filter((object) => object?.storedFileName)
+    .map((object) => ({
+      namespace: sanitizePathPart(object.namespace || "uploads"),
+      storedFileName: sanitizeStoredFileName(object.storedFileName || ""),
+    }))
+    .filter((object, index, records) =>
+      object.storedFileName &&
+      records.findIndex(
+        (candidate) =>
+          candidate.namespace === object.namespace &&
+          candidate.storedFileName === object.storedFileName,
+      ) === index,
+    );
+
+  if (!targets.length) return { deletedFiles: 0, targets: [] };
+
+  if (storageDriver() === "s3") {
+    const config = objectStorageConfig();
+    await objectStorageClient(config).send(
+      new DeleteObjectsCommand({
+        Bucket: config.bucket,
+        Delete: {
+          Objects: targets.map(({ namespace, storedFileName }) => ({
+            Key: `${safeShop}/${namespace}/${storedFileName}`,
+          })),
+          Quiet: true,
+        },
+      }),
+    );
+
+    return { deletedFiles: targets.length, targets };
+  }
+
+  const paths = targets.map(({ namespace, storedFileName }) =>
+    path.join(localMediaRoot(), safeShop, namespace, storedFileName),
+  );
+  await Promise.all(paths.map((target) => rm(target, { force: true })));
+
+  return { deletedFiles: paths.length, targets };
+}
+
 function createStorageBackend({ storageClient } = {}) {
   const driver = storageDriver();
   if (driver === "local") {

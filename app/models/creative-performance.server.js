@@ -457,13 +457,26 @@ function performanceRecordDedupeKey(record = {}) {
     record.sourceRecordType === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE ||
     record.sourceType === CREATIVE_UPLOAD_IMPORT_SOURCE_TYPE
   ) {
-    return (
-      record.sourceCreativeId ||
-      record.sourceRecordId ||
-      record.mediaFingerprint ||
-      record.importKey ||
-      record.id
-    );
+    if (record.mediaFingerprint) {
+      return `creative-upload:fingerprint:${String(record.mediaFingerprint).toLowerCase()}`;
+    }
+
+    const strongMediaKey =
+      record.videoUrl || record.assetUrl || record.sourceUrl || record.videoFilename || record.originalFilename;
+    if (strongMediaKey) {
+      return `creative-upload:media:${String(strongMediaKey).toLowerCase()}`;
+    }
+
+    if (record.sourceCreativeId || record.sourceRecordId) {
+      return record.sourceCreativeId || record.sourceRecordId;
+    }
+
+    const weakNameKey = record.creativeTitle || record.adName;
+    if (weakNameKey) {
+      return `creative-upload:name:${record.sourcePlatform || record.platform || ""}:${String(weakNameKey).toLowerCase()}`;
+    }
+
+    return record.importKey || record.id;
   }
 
   return (
@@ -1384,6 +1397,7 @@ function creativeRecordToPerformance(record = {}, index = 0) {
   return normalizeCreativePerformance({
     ...performance,
     id: record.id || `saved-${index}`,
+    sourceType: performance.sourceType || record.sourceType || "",
     sourceRecordId: record.id || "",
     sourceRecordType: "saved_creative",
     storageRecordId: record.id || "",

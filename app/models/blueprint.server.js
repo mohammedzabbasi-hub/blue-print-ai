@@ -1,6 +1,7 @@
 import db from "../db.server.js";
 import crypto from "node:crypto";
 import {
+  deletePrivateMediaObjects,
   deleteUploadedWorkspaceFiles,
   getPrivateMediaObject,
 } from "../utils/upload-storage.server.js";
@@ -613,72 +614,59 @@ export async function deleteSavedCreative(shop, creativeId) {
     return null;
   }
 
-  const existingMediaKeys = savedCreativeMediaKeys(existing.payload);
-  const sourceDuplicateRecords = existing.sourceId
-    ? await db.savedCreative.findMany({
-        where: {
-          shop,
-          sourceId: existing.sourceId,
-          sourceType: existing.sourceType,
-        },
-        select: { id: true, payloadJson: true, sourceId: true, sourceType: true },
-      })
-    : [];
-  const mediaDuplicateRecords = existingMediaKeys.size
-    ? await db.savedCreative.findMany({
-        where: { shop },
-        select: { id: true, payloadJson: true, sourceId: true, sourceType: true },
-      })
-    : [];
-  const duplicateRecords = [existing, ...sourceDuplicateRecords, ...mediaDuplicateRecords].filter(
-    (record, index, records) =>
-      records.findIndex((candidate) => candidate.id === record.id) === index,
-  );
-  const duplicateIds = duplicateRecords
-    .filter((record) => {
-      if (record.id === existing.id) return true;
-      if (
-        existing.sourceId &&
-        record.sourceId === existing.sourceId &&
-        record.sourceType === existing.sourceType
-      ) {
-        return true;
-      }
-
-      const recordPayload =
-        record.payload || parsePayload(record.payloadJson);
-      const recordMediaKeys = savedCreativeMediaKeys(recordPayload);
-
-      return [...recordMediaKeys].some((key) => existingMediaKeys.has(key));
-    })
-    .map(({ id }) => id);
-  const sourceReferences = [
-    existing.id,
-    existing.sourceId,
-    ...duplicateRecords.map((record) => record.sourceId),
-    ...duplicateIds,
-  ].filter(Boolean);
-  const linkedPerformance = sourceReferences.length
-    ? await db.creativePerformance.findFirst({
-        where: { shop, sourceRecordId: { in: sourceReferences } },
-      })
-    : null;
-
-  if (linkedPerformance) {
-    await deleteCreativePerformanceGroup(shop, linkedPerformance);
-  }
+  const deletionGroup = await resolveCreativeDeletionGroup(shop, {
+    savedCreative: existing,
+  });
+  const duplicateIds = deletionGroup.savedCreativeIds;
+  const mediaFiles = deletionGroup.mediaObjects;
 
   // Saved reviews/uploads may have been written more than once with the same
   // source or media identity. Remove the whole shop-local identity group so a
   // duplicate card cannot make a successful delete appear to have failed.
   await db.$transaction([
     db.adCampaignCreative.deleteMany({
-      where: { shop, savedCreativeId: { in: duplicateIds } },
+      where: {
+        shop,
+        OR: [
+          { savedCreativeId: { in: duplicateIds } },
+          ...(deletionGroup.performanceRecordIds.length
+            ? [
+                {
+                  creativePerformanceId: {
+                    in: deletionGroup.performanceRecordIds,
+                  },
+                },
+              ]
+            : []),
+        ],
+      },
     }),
     db.savedCreative.deleteMany({
       where: { shop, id: { in: duplicateIds } },
     }),
+    ...(deletionGroup.videoAnalysisIds.length
+      ? [
+          db.videoAnalysis.updateMany({
+            where: { shop, id: { in: deletionGroup.videoAnalysisIds } },
+            data: { savedToLibrary: false },
+          }),
+        ]
+      : []),
+    ...(deletionGroup.performanceRecordIds.length
+      ? [
+          db.creatorAttribution.deleteMany({
+            where: {
+              shop,
+              creativePerformanceId: { in: deletionGroup.performanceRecordIds },
+            },
+          }),
+          db.creativePerformance.deleteMany({
+            where: { shop, id: { in: deletionGroup.performanceRecordIds } },
+          }),
+        ]
+      : []),
   ]);
+  const mediaCleanup = await deleteUnreferencedPrivateMediaObjects(shop, mediaFiles);
 
   await createActivityLogRecord(shop, {
     type: "creative_deleted",
@@ -689,7 +677,10 @@ export async function deleteSavedCreative(shop, creativeId) {
       productId: existing.productId,
       productTitle: existing.productTitle,
       title: existing.title,
-      mediaFilesDeleted: false,
+      mediaFilesDeleted: mediaCleanup.deletedFiles > 0,
+      performanceRecordIds: deletionGroup.performanceRecordIds,
+      savedCreativeIds: deletionGroup.savedCreativeIds,
+      videoAnalysisIds: deletionGroup.videoAnalysisIds,
     },
   });
 
@@ -706,6 +697,10 @@ export async function deleteCreativePerformanceRecord(shop, performanceId) {
   if (!existing) return null;
 
   const deleted = await deleteCreativePerformanceGroup(shop, existing);
+  const mediaCleanup = await deleteUnreferencedPrivateMediaObjects(
+    shop,
+    deleted.mediaObjects,
+  );
 
   await createActivityLogRecord(shop, {
     type: "creative_deleted",
@@ -714,9 +709,11 @@ export async function deleteCreativePerformanceRecord(shop, performanceId) {
     payload: {
       creativeId: existing.creativeId,
       externalRecordsDeleted: false,
+      mediaFilesDeleted: mediaCleanup.deletedFiles > 0,
       performanceRecordIds: deleted.performanceRecordIds,
       savedCreativeIds: deleted.savedCreativeIds,
       sourcePlatform: existing.platform,
+      videoAnalysisIds: deleted.videoAnalysisIds,
     },
   });
 
@@ -724,34 +721,10 @@ export async function deleteCreativePerformanceRecord(shop, performanceId) {
 }
 
 async function deleteCreativePerformanceGroup(shop, existing) {
-  const identityWhere = existing.creativeId
-    ? {
-        shop,
-        creativeId: existing.creativeId,
-        ...(existing.platform ? { platform: existing.platform } : {}),
-      }
-    : { shop, id: existing.id };
-  const performanceRecords = await db.creativePerformance.findMany({
-    where: identityWhere,
-    select: { id: true, sourceRecordId: true },
+  const deletionGroup = await resolveCreativeDeletionGroup(shop, {
+    performance: existing,
   });
-  const performanceRecordIds = performanceRecords.map((record) => record.id);
-  const sourceRecordIds = performanceRecords
-    .map((record) => record.sourceRecordId)
-    .filter(Boolean);
-  const savedCreatives = sourceRecordIds.length
-    ? await db.savedCreative.findMany({
-        where: {
-          shop,
-          OR: [
-            { id: { in: sourceRecordIds } },
-            { sourceId: { in: sourceRecordIds } },
-          ],
-        },
-        select: { id: true },
-      })
-    : [];
-  const savedCreativeIds = savedCreatives.map((record) => record.id);
+  const { performanceRecordIds, savedCreativeIds, videoAnalysisIds } = deletionGroup;
 
   await db.$transaction([
     db.adCampaignCreative.deleteMany({
@@ -778,9 +751,17 @@ async function deleteCreativePerformanceGroup(shop, existing) {
           }),
         ]
       : []),
+    ...(videoAnalysisIds.length
+      ? [
+          db.videoAnalysis.updateMany({
+            where: { shop, id: { in: videoAnalysisIds } },
+            data: { savedToLibrary: false },
+          }),
+        ]
+      : []),
   ]);
 
-  return { performanceRecordIds, savedCreativeIds };
+  return deletionGroup;
 }
 
 export async function deleteVideoAnalysisRecord(shop, analysisId) {
@@ -794,9 +775,67 @@ export async function deleteVideoAnalysisRecord(shop, analysisId) {
     return null;
   }
 
+  const deletionGroup = await resolveCreativeDeletionGroup(shop, {
+    videoAnalysis: {
+      ...existing,
+      payload: parsePayload(existing.payloadJson),
+    },
+  });
+  const videoAnalysisIds = [
+    ...new Set([existing.id, ...deletionGroup.videoAnalysisIds].filter(Boolean)),
+  ];
+  const mediaFiles = deletionGroup.mediaObjects;
+
   await db.videoAnalysis.delete({
     where: { id: existing.id },
   });
+  if (deletionGroup.savedCreativeIds.length || deletionGroup.performanceRecordIds.length) {
+    await db.$transaction([
+      db.adCampaignCreative.deleteMany({
+        where: {
+          shop,
+          OR: [
+            ...(deletionGroup.savedCreativeIds.length
+              ? [{ savedCreativeId: { in: deletionGroup.savedCreativeIds } }]
+              : []),
+            ...(deletionGroup.performanceRecordIds.length
+              ? [
+                  {
+                    creativePerformanceId: {
+                      in: deletionGroup.performanceRecordIds,
+                    },
+                  },
+                ]
+              : []),
+          ],
+        },
+      }),
+      db.creatorAttribution.deleteMany({
+        where: {
+          shop,
+          creativePerformanceId: { in: deletionGroup.performanceRecordIds },
+        },
+      }),
+      db.savedCreative.deleteMany({
+        where: { shop, id: { in: deletionGroup.savedCreativeIds } },
+      }),
+      db.creativePerformance.deleteMany({
+        where: { shop, id: { in: deletionGroup.performanceRecordIds } },
+      }),
+      ...(videoAnalysisIds.filter((id) => id !== existing.id).length
+        ? [
+            db.videoAnalysis.updateMany({
+              where: {
+                shop,
+                id: { in: videoAnalysisIds.filter((id) => id !== existing.id) },
+              },
+              data: { savedToLibrary: false },
+            }),
+          ]
+        : []),
+    ]);
+  }
+  const mediaCleanup = await deleteUnreferencedPrivateMediaObjects(shop, mediaFiles);
 
   await createActivityLogRecord(shop, {
     type: "creative_deleted",
@@ -808,7 +847,9 @@ export async function deleteVideoAnalysisRecord(shop, analysisId) {
       analysisId: existing.id,
       productId: existing.productId,
       productTitle: existing.productTitle,
-      mediaFilesDeleted: false,
+      mediaFilesDeleted: mediaCleanup.deletedFiles > 0,
+      performanceRecordIds: deletionGroup.performanceRecordIds,
+      savedCreativeIds: deletionGroup.savedCreativeIds,
     },
   });
 
@@ -816,6 +857,240 @@ export async function deleteVideoAnalysisRecord(shop, analysisId) {
     ...existing,
     payload: parsePayload(existing.payloadJson),
   };
+}
+
+async function resolveCreativeDeletionGroup(
+  shop,
+  { performance = null, savedCreative = null, videoAnalysis = null } = {},
+) {
+  const allPerformances = await db.creativePerformance.findMany({ where: { shop } });
+  const allSavedCreatives = await db.savedCreative.findMany({ where: { shop } });
+  const allVideoAnalyses = await db.videoAnalysis.findMany({ where: { shop } });
+  const seeds = [
+    performance ? performanceDeletionIdentity(performance) : null,
+    savedCreative ? savedCreativeDeletionIdentity(savedCreative) : null,
+    videoAnalysis ? videoAnalysisDeletionIdentity(videoAnalysis) : null,
+  ].filter(Boolean);
+  const finalTokens = new Set(seeds.flatMap((identity) => identity.tokens));
+  let matchedPerformances = [];
+  let matchedSavedCreatives = [];
+  let matchedVideoAnalyses = [];
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    const nextPerformances = allPerformances.filter((record) =>
+      identitiesOverlap(finalTokens, performanceDeletionIdentity(record).tokens),
+    );
+    const nextSavedCreatives = allSavedCreatives.filter((record) =>
+      identitiesOverlap(finalTokens, savedCreativeDeletionIdentity(record).tokens),
+    );
+    const nextVideoAnalyses = allVideoAnalyses.filter((record) =>
+      identitiesOverlap(finalTokens, videoAnalysisDeletionIdentity(record).tokens),
+    );
+    const nextTokens = [
+      ...nextPerformances.flatMap((record) => performanceDeletionIdentity(record).tokens),
+      ...nextSavedCreatives.flatMap((record) => savedCreativeDeletionIdentity(record).tokens),
+      ...nextVideoAnalyses.flatMap((record) => videoAnalysisDeletionIdentity(record).tokens),
+    ];
+
+    for (const token of nextTokens) {
+      if (!finalTokens.has(token)) {
+        finalTokens.add(token);
+        changed = true;
+      }
+    }
+
+    changed =
+      changed ||
+      nextPerformances.length !== matchedPerformances.length ||
+      nextSavedCreatives.length !== matchedSavedCreatives.length ||
+      nextVideoAnalyses.length !== matchedVideoAnalyses.length;
+    matchedPerformances = nextPerformances;
+    matchedSavedCreatives = nextSavedCreatives;
+    matchedVideoAnalyses = nextVideoAnalyses;
+  }
+  const mediaObjects = [
+    ...matchedPerformances.flatMap(performanceMediaObjects),
+    ...matchedSavedCreatives.flatMap(savedCreativeMediaObjects),
+    ...matchedVideoAnalyses.flatMap(videoAnalysisMediaObjects),
+  ];
+
+  return {
+    mediaObjects: uniqueMediaObjects(mediaObjects),
+    performanceRecordIds: uniqueIds(matchedPerformances.map(({ id }) => id)),
+    savedCreativeIds: uniqueIds(matchedSavedCreatives.map(({ id }) => id)),
+    videoAnalysisIds: uniqueIds(matchedVideoAnalyses.map(({ id }) => id)),
+  };
+}
+
+function identitiesOverlap(leftTokens, rightTokens) {
+  const right = new Set(rightTokens);
+  return [...leftTokens].some((token) => right.has(token));
+}
+
+function performanceDeletionIdentity(record = {}) {
+  const payload = parsePayload(record.payloadJson) || {};
+  const platform = record.platform || payload.sourcePlatform || payload.platform || "";
+  const tokens = new Set();
+
+  addIdentityToken(tokens, "performance-id", record.id);
+  addIdentityToken(tokens, "source-record", record.sourceRecordId);
+  addIdentityToken(tokens, "creative-id", record.creativeId);
+  addIdentityToken(tokens, "ad-id", record.adId || payload.adId);
+  addIdentityToken(tokens, "import-key", record.importKey);
+  addIdentityToken(tokens, "media-fingerprint", payload.mediaFingerprint);
+  addIdentityToken(tokens, "media-url", record.videoUrl || payload.mediaUrl || payload.video_url);
+  addIdentityToken(tokens, "media-path", payload.mediaPath);
+  addIdentityToken(tokens, "filename", record.originalFilename || payload.originalFilename);
+  addIdentityToken(tokens, "filename", payload.videoFilename);
+  addIdentityToken(tokens, "creative-name", record.adName || payload.creativeName || payload.creativeTitle);
+  addCompoundIdentityToken(tokens, "platform-creative", platform, record.creativeId);
+  addCompoundIdentityToken(tokens, "platform-ad", platform, record.adId || payload.adId);
+  addCompoundIdentityToken(
+    tokens,
+    "platform-filename",
+    platform,
+    record.originalFilename || payload.originalFilename || payload.videoFilename,
+  );
+  addCompoundIdentityToken(
+    tokens,
+    "platform-name",
+    platform,
+    record.adName || payload.creativeName || payload.creativeTitle,
+  );
+
+  return { tokens: [...tokens] };
+}
+
+function savedCreativeDeletionIdentity(record = {}) {
+  const payload = record.payload || parsePayload(record.payloadJson) || {};
+  const tokens = new Set();
+
+  addIdentityToken(tokens, "saved-id", record.id);
+  addIdentityToken(tokens, "source-record", record.id);
+  addIdentityToken(tokens, "source-record", record.sourceId);
+  addIdentityToken(tokens, "review-id", record.sourceType === "video_analysis" ? record.sourceId : "");
+  addIdentityToken(tokens, "media-fingerprint", payload.mediaFingerprint);
+  addIdentityToken(tokens, "media-url", payload.mediaUrl || payload.videoUrl || payload.video_url);
+  addIdentityToken(tokens, "media-path", payload.mediaPath);
+  addIdentityToken(tokens, "filename", payload.originalFilename || payload.fileName || payload.videoFilename);
+  addIdentityToken(tokens, "creative-name", record.title || payload.creativeTitle || payload.displayTitle);
+
+  return { tokens: [...tokens] };
+}
+
+function videoAnalysisDeletionIdentity(record = {}) {
+  const payload = record.payload || parsePayload(record.payloadJson) || {};
+  const result = payload.result || payload;
+  const media = result.media || payload.media || {};
+  const metadata = result.metadata || payload.metadata || {};
+  const display = result.display || {};
+  const tokens = new Set();
+
+  addIdentityToken(tokens, "review-id", record.id);
+  addIdentityToken(tokens, "source-record", record.id);
+  addIdentityToken(tokens, "media-fingerprint", media.fingerprint || metadata.media_fingerprint);
+  addIdentityToken(tokens, "media-url", media.mediaUrl || metadata.media_url);
+  addIdentityToken(tokens, "media-path", media.mediaPath || media.storedFileName || metadata.media_path);
+  addIdentityToken(tokens, "filename", record.fileName || display.originalFilename || media.originalName);
+
+  return { tokens: [...tokens] };
+}
+
+function addIdentityToken(tokens, type, value) {
+  const normalized = normalizeIdentityValue(value);
+  if (normalized && /[a-z0-9]/.test(normalized)) tokens.add(`${type}:${normalized}`);
+}
+
+function addCompoundIdentityToken(tokens, type, namespace, value) {
+  const normalizedValue = normalizeIdentityValue(value);
+  if (!normalizedValue) return;
+
+  addIdentityToken(tokens, type, `${namespace || "unknown"}:${normalizedValue}`);
+}
+
+function normalizeIdentityValue(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function uniqueIds(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function performanceMediaObjects(record = {}) {
+  const payload = parsePayload(record.payloadJson) || {};
+  return mediaObjectsFromCandidates(
+    {
+      mediaPath: payload.mediaPath,
+      mediaUrl: record.videoUrl || payload.mediaUrl || payload.video_url,
+    },
+  );
+}
+
+function savedCreativeMediaObjects(record = {}) {
+  const payload = record.payload || parsePayload(record.payloadJson) || {};
+  return mediaObjectsFromCandidates(payload);
+}
+
+function videoAnalysisMediaObjects(record = {}) {
+  const payload = record.payload || parsePayload(record.payloadJson) || {};
+  const result = payload.result || payload;
+  return mediaObjectsFromCandidates(result.media || payload.media || {}, result.metadata || payload.metadata || {});
+}
+
+function mediaObjectsFromCandidates(...candidates) {
+  return candidates.flatMap((candidate) => {
+    const parsed = parsePrivateMediaUrl(
+      candidate.mediaUrl || candidate.videoUrl || candidate.video_url || "",
+    );
+    const mediaPath =
+      candidate.mediaPath ||
+      candidate.storedFileName ||
+      candidate.media_path ||
+      parsed?.storedFileName ||
+      "";
+    const namespace = parsed?.namespace || candidate.namespace || "creative-library";
+
+    return mediaPath && isPlayableMediaPath(mediaPath)
+      ? [{ namespace, storedFileName: mediaPath }]
+      : [];
+  });
+}
+
+function uniqueMediaObjects(objects = []) {
+  return objects.filter(
+    (object, index, records) =>
+      object.storedFileName &&
+      records.findIndex(
+        (candidate) =>
+          candidate.namespace === object.namespace &&
+          candidate.storedFileName === object.storedFileName,
+      ) === index,
+  );
+}
+
+async function deleteUnreferencedPrivateMediaObjects(shop, mediaObjects = []) {
+  const candidates = uniqueMediaObjects(mediaObjects);
+  if (!candidates.length) return { deletedFiles: 0 };
+
+  const remainingRecords = await Promise.all([
+    db.savedCreative.findMany({ where: { shop }, select: { payloadJson: true } }),
+    db.creativePerformance.findMany({
+      where: { shop },
+      select: { payloadJson: true, videoUrl: true },
+    }),
+    db.videoAnalysis.findMany({ where: { shop }, select: { payloadJson: true } }),
+  ]);
+  const haystack = JSON.stringify(remainingRecords).toLowerCase();
+  const unreferenced = candidates.filter(
+    ({ storedFileName }) => !haystack.includes(String(storedFileName).toLowerCase()),
+  );
+
+  return deletePrivateMediaObjects(shop, unreferenced);
 }
 
 export async function listRevenueBlueprints(shop, limit = 5) {
