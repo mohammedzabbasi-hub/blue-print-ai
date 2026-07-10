@@ -36,7 +36,8 @@ test("Gemini provider receives system instructions and shop context through the 
   assert.equal(result.content, "Imported revenue is $1,200.");
   assert.match(request.url, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-test:generateContent/);
   assert.equal(request.method, "POST");
-  assert.equal(request.body.generationConfig.temperature, 0.2);
+  assert.equal(request.body.generationConfig.temperature, 0.1);
+  assert.equal(request.body.generationConfig.topP, 0.2);
   assert.match(request.body.systemInstruction.parts[0].text, /Do not invent metrics/);
   assert.match(request.body.contents[0].parts[0].text, /1200/);
 });
@@ -75,7 +76,8 @@ test("Llama provider uses server-side env vars and OpenAI-compatible chat endpoi
   assert.equal(request.method, "POST");
   assert.equal(request.headers.Authorization, "Bearer secret-llama-key");
   assert.equal(request.body.model, "llama-test");
-  assert.equal(request.body.temperature, 0.3);
+  assert.equal(request.body.temperature, 0.1);
+  assert.equal(request.body.top_p, 0.2);
   assert.equal(request.body.max_tokens, 700);
 });
 

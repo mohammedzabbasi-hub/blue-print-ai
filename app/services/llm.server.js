@@ -75,7 +75,8 @@ export async function completeAssistantChat({ messages, signal }, { env = proces
         max_tokens: 700,
         messages,
         model: config.model,
-        temperature: 0.3,
+        temperature: 0.1,
+        top_p: 0.2,
       }),
       headers: {
         Authorization: `Bearer ${firstPresent(env.LLAMA_API_KEY, env.LLAMA_API_TOKEN, env.LLM_API_KEY)}`,
@@ -137,7 +138,8 @@ async function completeGeminiChat({ messages, signal }, { config, env, fetchImpl
         contents,
         generationConfig: {
           maxOutputTokens: 700,
-          temperature: 0.2,
+          temperature: 0.1,
+          topP: 0.2,
         },
         systemInstruction: systemInstruction
           ? { parts: [{ text: systemInstruction }] }

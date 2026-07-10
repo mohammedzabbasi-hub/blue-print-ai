@@ -1,5 +1,10 @@
 import { buildProductContext, productContextLabel } from "./product-context.js";
 import { completeAssistantChat } from "../services/llm.server.js";
+import {
+  buildDeterministicEvidenceResponse,
+  buildEvidenceAssistantMessages,
+  isGroundedEvidenceExplanation,
+} from "../services/assistant-answer.server.js";
 
 const ACTIONS = {
   briefs: { label: "Generate Brief", href: "/app/ad-briefs", type: "primary" },
@@ -124,6 +129,51 @@ export async function buildAssistantResponse(context, question = "What should I 
   };
   const intent = classifyAssistantIntent(question, enrichedContext);
   const deterministic = buildAdvisorResponse(enrichedContext, question);
+  const securityGuarded = buildGuardedAssistantResponse(
+    enrichedContext,
+    question,
+    deterministic,
+    { securityOnly: true },
+  );
+  if (securityGuarded) return securityGuarded;
+  const evidencePacket = options.evidencePacket || context.evidencePacket || null;
+  const evidenceResponse = evidencePacket
+    ? buildDeterministicEvidenceResponse(evidencePacket)
+    : null;
+  if (evidenceResponse) {
+    if (evidencePacket.facts?.answerMode === "deterministic_missing" || evidencePacket.missingData?.length) {
+      return evidenceResponse;
+    }
+    const completeChat = options.completeChat || completeAssistantChat;
+    const provider = await completeChat({
+      messages: buildEvidenceAssistantMessages(evidencePacket),
+    });
+    if (!provider.ok) {
+      return {
+        ...evidenceResponse,
+        meta: {
+          ...evidenceResponse.meta,
+          provider: provider.provider,
+          providerFallback: true,
+          providerReason: provider.reason,
+        },
+      };
+    }
+    const explanation = isGroundedEvidenceExplanation(provider.content, evidencePacket)
+      ? String(provider.content).replace(/\s+/g, " ").trim()
+      : "";
+    return {
+      ...evidenceResponse,
+      explanation,
+      answer: [evidenceResponse.answer, explanation].filter(Boolean).join(" "),
+      meta: {
+        ...evidenceResponse.meta,
+        provider: provider.provider,
+        providerExplanationUsed: Boolean(explanation),
+        providerFallback: false,
+      },
+    };
+  }
   const guarded = buildGuardedAssistantResponse(enrichedContext, question, deterministic);
   if (guarded) return guarded;
   const messages = buildAssistantMessages(enrichedContext, question, intent);
@@ -396,6 +446,7 @@ export function buildAssistantMessages(context, question, intent) {
       role: "system",
       content: [
         "You are BluePrintAI Assistant. Answer only from the provided shop context and general ecommerce reasoning. If the requested store data is unavailable, say what is missing and where the merchant can import or connect it. Do not invent metrics. Do not claim guaranteed results. Do not change, publish, launch, delete, or modify anything externally.",
+        "You must answer using only the provided evidence packet or store context. If the user asks about a specific creative, creator, or campaign, answer only about that entity. Do not substitute top performers or unrelated campaigns. If the entity is not found, say it was not found and explain what data is available. Do not invent metrics.",
         "Answer merchants with concise, practical, review-safe guidance and cite the relevant BluePrintAI data source in plain language.",
         "Google Ads access is read-only reporting. Never claim you can create, edit, pause, launch, delete, spend on, or mutate ads, campaigns, Shopify resources, Google Ads, or external platforms.",
         "Advice is advisory only. The user must review and perform external actions themselves.",
@@ -415,7 +466,7 @@ export function buildAssistantMessages(context, question, intent) {
   ];
 }
 
-function buildGuardedAssistantResponse(context, question, deterministic) {
+function buildGuardedAssistantResponse(context, question, deterministic, { securityOnly = false } = {}) {
   const q = String(question || "").toLowerCase();
   if (/(?:show|reveal|give|send|print|display|what is|what's).*(?:api\s*key|oauth|access\s*token|refresh\s*token|developer\s*token|client\s*secret|encrypted\s*secret|session\s*token|hmac|credential)/i.test(q)) {
     return guardedResponse(
@@ -437,6 +488,7 @@ function buildGuardedAssistantResponse(context, question, deterministic) {
       "external_action_refusal",
     );
   }
+  if (securityOnly) return null;
 
   const sections = context.storeIntelligenceContext?.sections;
   if (!sections) return null;

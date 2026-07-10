@@ -11,11 +11,16 @@ export default function AssistantWidget() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
+  const activeRequestId = useRef("");
   const handledResponse = useRef("");
   const inputRef = useRef(null);
   const scrollRef = useRef(null);
   const pending = fetcher.state !== "idle";
-  const contextLabel = fetcher.data?.meta?.contextLabel || "Using shop context";
+  const contextLabel = fetcher.data?.meta?.usingShopContext
+    ? fetcher.data.meta.contextLabel || "Using shop context"
+    : fetcher.data
+      ? "Limited context available"
+      : "Ask about your workspace";
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -23,6 +28,7 @@ export default function AssistantWidget() {
 
   useEffect(() => {
     if (!fetcher.data || pending) return;
+    if (fetcher.data.clientRequestId && fetcher.data.clientRequestId !== activeRequestId.current) return;
     const key = fetcher.data.requestId || fetcher.data.error;
     if (!key || handledResponse.current === key) return;
     handledResponse.current = key;
@@ -38,10 +44,14 @@ export default function AssistantWidget() {
   function ask(value = question) {
     const nextQuestion = String(value).trim();
     if (!nextQuestion || pending) return;
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", recommendation: nextQuestion }]);
+    const clientRequestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    activeRequestId.current = clientRequestId;
+    handledResponse.current = fetcher.data?.requestId || fetcher.data?.error || "";
+    setMessages((current) => [...current, { id: `user-${clientRequestId}`, role: "user", recommendation: nextQuestion }]);
     setQuestion("");
     fetcher.submit(
       {
+        clientRequestId,
         pathname: location.pathname,
         question: nextQuestion,
         search: location.search,
@@ -78,7 +88,7 @@ export default function AssistantWidget() {
             </div>
             <form onSubmit={(event) => { event.preventDefault(); ask(); }}>
               <label className="sr-only" htmlFor="bp-assistant-question">Ask BluePrintAI Assistant</label>
-              <textarea ref={inputRef} id="bp-assistant-question" rows={1} maxLength={1200} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); ask(); } }} placeholder="Ask what to fix, test, scale, or generate next..." />
+              <textarea ref={inputRef} id="bp-assistant-question" rows={1} maxLength={1200} value={question} disabled={pending} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); ask(); } }} placeholder="Ask what to fix, test, scale, or generate next..." />
               <button type="submit" disabled={pending || !question.trim()} aria-label="Send question to BluePrintAI Assistant"><Send size={17} /></button>
             </form>
             <p>Advisory only. Advice uses available store evidence and does not change, publish, launch, or delete anything externally.</p>
@@ -102,6 +112,8 @@ function AssistantMessage({ message }) {
       <div>
         <strong>{message.recommendation}</strong>
         {message.why && <p>{message.why}</p>}
+        {message.explanation && <p>{message.explanation}</p>}
+        {message.sourceNote && <p className="bp-assistant-source">{message.sourceNote}</p>}
         {message.risks?.length > 0 && <p className="bp-assistant-risks">Missing evidence: {message.risks.join(" ")}</p>}
         {message.nextAction && <p><b>Next:</b> {message.nextAction}</p>}
       </div>

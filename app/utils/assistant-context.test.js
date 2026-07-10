@@ -19,3 +19,13 @@ test("assistant client code does not reference Llama secrets", async () => {
   assert.doesNotMatch(source, /LLAMA_API_KEY|LLAMA_API_TOKEN|LLM_API_KEY|process\.env/);
   assert.match(source, /pathname: location\.pathname/);
 });
+
+test("assistant client binds responses to the latest request and only labels real evidence as shop context", async () => {
+  const source = await readFile(new URL("../components/AssistantWidget.jsx", import.meta.url), "utf8");
+
+  assert.match(source, /clientRequestId/);
+  assert.match(source, /fetcher\.data\.clientRequestId !== activeRequestId\.current/);
+  assert.match(source, /meta\?\.usingShopContext/);
+  assert.match(source, /disabled=\{pending\}/);
+  assert.doesNotMatch(source, /contextLabel = fetcher\.data\?\.meta\?\.contextLabel \|\| "Using shop context"/);
+});

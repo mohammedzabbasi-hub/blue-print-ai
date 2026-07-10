@@ -9,6 +9,9 @@ import {
   compactStoreContextForLLM,
   loadStoreIntelligenceData,
 } from "../services/store-intelligence-context.server";
+import { parseAssistantQuestion } from "../services/assistant-query-understanding.server";
+import { resolveStoreEntities } from "../services/store-entity-resolver.server";
+import { buildAssistantEvidencePacket } from "../services/assistant-facts.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const meta = () => [{ title: "BluePrintAI" }];
@@ -23,6 +26,7 @@ export const action = async ({ request }) => {
   try {
     const formData = await request.formData();
     const question = String(formData.get("question") || "").trim().slice(0, 1200);
+    const clientRequestId = String(formData.get("clientRequestId") || "").trim().slice(0, 100);
     const pathname = sanitizeAppPath(formData.get("pathname"));
     const search = String(formData.get("search") || "").slice(0, 1000);
     const searchParams = new URLSearchParams(search);
@@ -40,13 +44,28 @@ export const action = async ({ request }) => {
     const selectedCreative = selectedCreativeId
       ? context.rankings.creatives.find((creative) => String(creative.id) === String(selectedCreativeId))
       : null;
+    const parsedQuestion = parseAssistantQuestion(question);
+    const resolvedEntities = await resolveStoreEntities({
+      shop: context.shop,
+      parsedQuestion,
+      data: context.storeData,
+    });
+    const evidencePacket = buildAssistantEvidencePacket({
+      shop: context.shop,
+      question,
+      parsedQuestion,
+      resolvedEntities,
+    });
+    logAssistantDebug({ question, parsedQuestion, resolvedEntities, evidencePacket });
     return Response.json({
       ...await buildAssistantResponse(context, question, {
+        evidencePacket,
         pathname,
         selectedCreativeId,
         selectedCreativeName: selectedCreative?.name || "",
         storeIntelligenceContext: context.storeIntelligenceContext,
       }),
+      clientRequestId,
       requestId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     });
   } catch (error) {
@@ -89,8 +108,27 @@ async function loadAdvisorContext(request, { question, routeId, selectedProductI
       profile: data.profile,
     }),
     shop: session.shop,
+    storeData: data,
     storeIntelligenceContext: compactStoreContextForLLM(storeContext, question),
   };
+}
+
+function logAssistantDebug({ question, parsedQuestion, resolvedEntities, evidencePacket }) {
+  if (process.env.NODE_ENV !== "development") return;
+  console.info("Assistant evidence", {
+    question: safeDebugText(question),
+    intent: parsedQuestion.intent,
+    resolvedEntities: resolvedEntities.entityMatches.map((entity) => safeDebugText(entity.name)),
+    sourceCounts: evidencePacket.sourceSummary,
+  });
+}
+
+function safeDebugText(value) {
+  return String(value || "")
+    .replace(/https?:\/\/\S+/gi, "[URL omitted]")
+    .replace(/\bBearer\s+\S+/gi, "[credential omitted]")
+    .replace(/\b(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|developer[_ -]?token|session|hmac|oauth)\s*[:=]\s*\S+/gi, "$1=[credential omitted]")
+    .slice(0, 300);
 }
 
 function sanitizeAppPath(value) {
