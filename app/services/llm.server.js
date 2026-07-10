@@ -25,7 +25,39 @@ export function getLlamaConfig(env = process.env) {
   };
 }
 
+export function getGeminiConfig(env = process.env) {
+  const provider = String(env.LLM_PROVIDER || "").trim().toLowerCase();
+  const apiKey = firstPresent(env.GEMINI_API_KEY, env.GOOGLE_AI_API_KEY);
+  const model = String(env.GEMINI_MODEL || env.GOOGLE_AI_MODEL || "gemini-2.5-flash").trim();
+  const baseUrl = normalizeBaseUrl(
+    firstPresent(
+      env.GEMINI_API_BASE_URL,
+      env.GOOGLE_AI_API_BASE_URL,
+      "https://generativelanguage.googleapis.com/v1beta",
+    ),
+  );
+  const selected = !provider || provider === "gemini" || provider === "google" || provider === "google_ai";
+
+  return {
+    available: selected && Boolean(apiKey && baseUrl && model),
+    baseUrl,
+    model,
+    provider: "gemini",
+    selected,
+    missing: {
+      apiKey: !apiKey,
+      baseUrl: !baseUrl,
+      model: !model,
+      provider: !selected,
+    },
+  };
+}
+
 export async function completeAssistantChat({ messages, signal }, { env = process.env, fetchImpl = fetch } = {}) {
+  const geminiConfig = getGeminiConfig(env);
+  if (geminiConfig.available) {
+    return completeGeminiChat({ messages, signal }, { config: geminiConfig, env, fetchImpl });
+  }
   const config = getLlamaConfig(env);
   if (!config.available) {
     return {
@@ -80,6 +112,65 @@ export async function completeAssistantChat({ messages, signal }, { env = proces
     console.error("Assistant Llama provider unavailable", {
       message: error?.name === "AbortError" ? "request_aborted" : error?.message,
       provider: "llama",
+    });
+    return providerFailure();
+  }
+}
+
+async function completeGeminiChat({ messages, signal }, { config, env, fetchImpl }) {
+  const systemInstruction = messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content)
+    .join("\n");
+  const contents = messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: String(message.content || "") }],
+    }));
+  const apiKey = firstPresent(env.GEMINI_API_KEY, env.GOOGLE_AI_API_KEY);
+  const url = `${config.baseUrl}/models/${encodeURIComponent(config.model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  try {
+    const response = await fetchImpl(url, {
+      body: JSON.stringify({
+        contents,
+        generationConfig: {
+          maxOutputTokens: 700,
+          temperature: 0.2,
+        },
+        systemInstruction: systemInstruction
+          ? { parts: [{ text: systemInstruction }] }
+          : undefined,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      signal,
+    });
+    const payload = await safeJson(response);
+    if (!response.ok) {
+      console.error("Assistant Gemini provider request failed", {
+        provider: "gemini",
+        status: response.status,
+      });
+      return providerFailure();
+    }
+    const content = (payload?.candidates?.[0]?.content?.parts || [])
+      .map((part) => String(part?.text || ""))
+      .join("\n")
+      .trim();
+    if (!content) {
+      console.error("Assistant Gemini provider returned an empty response", {
+        provider: "gemini",
+        status: response.status,
+      });
+      return providerFailure();
+    }
+    return { content, ok: true, provider: "gemini" };
+  } catch (error) {
+    console.error("Assistant Gemini provider unavailable", {
+      message: error?.name === "AbortError" ? "request_aborted" : error?.message,
+      provider: "gemini",
     });
     return providerFailure();
   }

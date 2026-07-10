@@ -538,8 +538,8 @@ export default function DataImportRoute() {
                   <p className="font-black">
                     {selectedVideos.length} {selectedVideos.length === 1 ? "file" : "files"} selected
                   </p>
-                  <ul className="mt-2 space-y-1 text-xs font-semibold text-emerald-100/80">
-                    {selectedVideos.slice(0, 5).map((file) => (
+                  <ul className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-2 text-xs font-semibold text-emerald-100/80">
+                    {selectedVideos.map((file) => (
                       <li
                         className="flex items-center justify-between gap-3"
                         key={selectedVideoFileKey(file)}
@@ -555,9 +555,6 @@ export default function DataImportRoute() {
                         </button>
                       </li>
                     ))}
-                    {selectedVideos.length > 5 && (
-                      <li>+ {selectedVideos.length - 5} more</li>
-                    )}
                   </ul>
                 </div>
               )}

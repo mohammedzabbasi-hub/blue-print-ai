@@ -3,8 +3,53 @@ import test from "node:test";
 
 import {
   completeAssistantChat,
+  getGeminiConfig,
   getLlamaConfig,
 } from "./llm.server.js";
+
+test("Gemini provider receives system instructions and shop context through the Google generateContent endpoint", async () => {
+  let request;
+  const result = await completeAssistantChat(
+    {
+      messages: [
+        { role: "system", content: "Do not invent metrics." },
+        { role: "user", content: "{\"performance\":{\"revenue\":1200}}" },
+      ],
+    },
+    {
+      env: {
+        GEMINI_API_KEY: "server-only-key",
+        GEMINI_MODEL: "gemini-test",
+        LLM_PROVIDER: "gemini",
+      },
+      fetchImpl: async (url, options) => {
+        request = { body: JSON.parse(options.body), method: options.method, url };
+        return Response.json({
+          candidates: [{ content: { parts: [{ text: "Imported revenue is $1,200." }] } }],
+        });
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.provider, "gemini");
+  assert.equal(result.content, "Imported revenue is $1,200.");
+  assert.match(request.url, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-test:generateContent/);
+  assert.equal(request.method, "POST");
+  assert.equal(request.body.generationConfig.temperature, 0.2);
+  assert.match(request.body.systemInstruction.parts[0].text, /Do not invent metrics/);
+  assert.match(request.body.contents[0].parts[0].text, /1200/);
+});
+
+test("Gemini config does not expose the API key", () => {
+  const config = getGeminiConfig({
+    GEMINI_API_KEY: "server-only-key",
+    LLM_PROVIDER: "gemini",
+  });
+  assert.equal(config.available, true);
+  assert.equal(Object.hasOwn(config, "apiKey"), false);
+  assert.doesNotMatch(JSON.stringify(config), /server-only-key/);
+});
 
 test("Llama provider uses server-side env vars and OpenAI-compatible chat endpoint", async () => {
   let request;

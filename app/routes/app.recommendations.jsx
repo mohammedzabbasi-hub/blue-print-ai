@@ -1,18 +1,14 @@
 import { redirect } from "react-router";
-import {
-  getWorkspaceProfile,
-  listRevenueBlueprints,
-  listSavedBriefs,
-  listSavedCreatives,
-  listVideoAnalyses,
-} from "../models/blueprint.server";
-import { listCreativePerformance } from "../models/creative-performance.server";
-import { listCampaigns } from "../models/campaign.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import {
   buildAdvisorContext,
   buildAssistantResponse,
 } from "../models/advisor.server";
+import {
+  buildStoreIntelligenceContext,
+  compactStoreContextForLLM,
+  loadStoreIntelligenceData,
+} from "../services/store-intelligence-context.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const meta = () => [{ title: "BluePrintAI" }];
@@ -29,12 +25,18 @@ export const action = async ({ request }) => {
     const question = String(formData.get("question") || "").trim().slice(0, 1200);
     const pathname = sanitizeAppPath(formData.get("pathname"));
     const search = String(formData.get("search") || "").slice(0, 1000);
-    const selectedCreativeId = new URLSearchParams(search).get("creativeId") || "";
+    const searchParams = new URLSearchParams(search);
+    const selectedCreativeId = searchParams.get("creativeId") || "";
+    const selectedProductId = searchParams.get("productId") || "";
     if (!question) {
       return Response.json({ error: "Ask BluePrintAI a question first." }, { status: 400 });
     }
 
-    const context = await loadAdvisorContext(request);
+    const context = await loadAdvisorContext(request, {
+      question,
+      routeId: pathname,
+      selectedProductId,
+    });
     const selectedCreative = selectedCreativeId
       ? context.rankings.creatives.find((creative) => String(creative.id) === String(selectedCreativeId))
       : null;
@@ -43,6 +45,7 @@ export const action = async ({ request }) => {
         pathname,
         selectedCreativeId,
         selectedCreativeName: selectedCreative?.name || "",
+        storeIntelligenceContext: context.storeIntelligenceContext,
       }),
       requestId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     });
@@ -59,31 +62,34 @@ export const action = async ({ request }) => {
   }
 };
 
-async function loadAdvisorContext(request) {
+async function loadAdvisorContext(request, { question, routeId, selectedProductId }) {
   const { merchantData, session } = await loadShopifyRouteContext(request);
-  const [analyses, creatives, blueprints, briefs, profile, performance, campaigns] =
-    await Promise.all([
-      listVideoAnalyses(session.shop, 100),
-      listSavedCreatives(session.shop, 100),
-      listRevenueBlueprints(session.shop, 100),
-      listSavedBriefs(session.shop, 100),
-      getWorkspaceProfile(session.shop),
-      listCreativePerformance({ merchantData, shop: session.shop }),
-      listCampaigns(session.shop),
-    ]);
+  const data = await loadStoreIntelligenceData({
+    merchantData,
+    shop: session.shop,
+  });
+  const storeContext = await buildStoreIntelligenceContext({
+    data,
+    merchantData,
+    question,
+    routeId,
+    selectedProductId,
+    shop: session.shop,
+  });
 
   return {
     ...buildAdvisorContext({
-      analyses,
-      blueprints,
-      briefs,
-      campaigns,
-      creatives,
+      analyses: data.analyses,
+      blueprints: data.blueprints,
+      briefs: data.briefs,
+      campaigns: data.campaigns,
+      creatives: data.creatives,
       merchantData,
-      performance,
-      profile,
+      performance: data.performance,
+      profile: data.profile,
     }),
     shop: session.shop,
+    storeIntelligenceContext: compactStoreContextForLLM(storeContext, question),
   };
 }
 

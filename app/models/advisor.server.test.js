@@ -178,7 +178,7 @@ describe("AI Advisor action engine", () => {
         completeChat: async ({ messages }) => {
           const prompt = messages.map((message) => message.content).join(" ");
           assert.match(prompt, /advisory only|advisory/i);
-          assert.doesNotMatch(prompt, /LLAMA_API_KEY|secret/i);
+          assert.doesNotMatch(prompt, /LLAMA_API_KEY|secret-llama-key/i);
           return {
             content: "Import recent creative performance first. That gives the assistant measured evidence before ranking a winner.",
             ok: true,

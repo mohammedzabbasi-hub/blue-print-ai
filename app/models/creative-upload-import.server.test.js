@@ -74,8 +74,10 @@ describe("creative upload performance import", () => {
     assert.match(routeSource, /Choose video files/);
     assert.match(routeSource, /Add more video files/);
     assert.match(routeSource, /Clear selected files/);
-    assert.match(routeSource, /selectedVideos\.slice\(0, 5\)/);
-    assert.match(routeSource, /\+ \{selectedVideos\.length - 5\} more/);
+    assert.match(routeSource, /max-h-44[\s\S]*overflow-y-auto/);
+    assert.match(routeSource, /selectedVideos\.map\(\(file\) =>/);
+    assert.doesNotMatch(routeSource, /selectedVideos\.slice\(0, 5\)/);
+    assert.doesNotMatch(routeSource, /\+ \{selectedVideos\.length - 5\} more/);
     assert.match(routeSource, /setSelectedVideos\(\[\]\)/);
     assert.match(routeSource, /buildCreativeImportFormData/);
     assert.match(routeSource, /submit\(formData,/);

@@ -15,6 +15,7 @@ export default function AssistantWidget() {
   const inputRef = useRef(null);
   const scrollRef = useRef(null);
   const pending = fetcher.state !== "idle";
+  const contextLabel = fetcher.data?.meta?.contextLabel || "Using shop context";
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -57,7 +58,7 @@ export default function AssistantWidget() {
             <span className="bp-assistant-avatar"><Sparkles size={18} /></span>
             <div>
               <h2 id="bp-assistant-title">BluePrintAI Assistant</h2>
-              <p><span /> Evidence-grounded guidance</p>
+              <p><span /> {contextLabel}</p>
             </div>
             <button type="button" onClick={() => setOpen(false)} aria-label="Close BluePrintAI Assistant"><X size={19} /></button>
           </header>

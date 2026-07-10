@@ -119,9 +119,13 @@ export async function buildAssistantResponse(context, question = "What should I 
     pathname: options.pathname || context.pathname || "/app/dashboard",
     selectedCreativeId: options.selectedCreativeId || "",
     selectedCreativeName: options.selectedCreativeName || "",
+    storeIntelligenceContext:
+      options.storeIntelligenceContext || context.storeIntelligenceContext || null,
   };
   const intent = classifyAssistantIntent(question, enrichedContext);
   const deterministic = buildAdvisorResponse(enrichedContext, question);
+  const guarded = buildGuardedAssistantResponse(enrichedContext, question, deterministic);
+  if (guarded) return guarded;
   const messages = buildAssistantMessages(enrichedContext, question, intent);
   const completeChat = options.completeChat || completeAssistantChat;
   const provider = await completeChat({ messages });
@@ -135,6 +139,7 @@ export async function buildAssistantResponse(context, question = "What should I 
       ]),
       meta: {
         ...deterministic.meta,
+        contextLabel: contextLabel(enrichedContext),
         provider: provider.provider,
         providerFallback: true,
         providerReason: provider.reason,
@@ -150,6 +155,7 @@ export async function buildAssistantResponse(context, question = "What should I 
     why: parsed.why,
     meta: {
       ...deterministic.meta,
+      contextLabel: contextLabel(enrichedContext),
       deterministic: false,
       provider: provider.provider,
       providerFallback: false,
@@ -366,7 +372,7 @@ export function classifyAssistantIntent(question = "", context = {}) {
   return "general_strategy";
 }
 
-function buildAssistantMessages(context, question, intent) {
+export function buildAssistantMessages(context, question, intent) {
   const creative = intent === "specific_creative_advice"
     ? findMentionedCreative(context.rankings?.creatives || [], `${question} ${context.selectedCreativeName || ""} ${context.selectedCreativeId || ""}`)
     : null;
@@ -382,16 +388,19 @@ function buildAssistantMessages(context, question, intent) {
     productContext: productContextLabel(context.productContext),
     selectedCampaign: campaign ? summarizeRankedRow(campaign) : null,
     selectedCreative: creative ? summarizeRankedRow(creative) : null,
+    storeIntelligence: context.storeIntelligenceContext || null,
   };
 
   return [
     {
       role: "system",
       content: [
-        "You are the BluePrintAI embedded Shopify assistant.",
-        "Answer merchants with concise, practical, review-safe guidance.",
+        "You are BluePrintAI Assistant. Answer only from the provided shop context and general ecommerce reasoning. If the requested store data is unavailable, say what is missing and where the merchant can import or connect it. Do not invent metrics. Do not claim guaranteed results. Do not change, publish, launch, delete, or modify anything externally.",
+        "Answer merchants with concise, practical, review-safe guidance and cite the relevant BluePrintAI data source in plain language.",
         "Google Ads access is read-only reporting. Never claim you can create, edit, pause, launch, delete, spend on, or mutate ads, campaigns, Shopify resources, Google Ads, or external platforms.",
         "Advice is advisory only. The user must review and perform external actions themselves.",
+        "Never reveal or request OAuth tokens, API keys, refresh tokens, developer tokens, encrypted secrets, session data, HMAC values, or private credentials.",
+        "Never state a shop-specific number unless that exact metric is present in storeIntelligence. Clearly distinguish measured, imported, synced, saved-review, workspace, and demo evidence.",
         "If the question is generic page help, answer about the page generally and do not mention individual creative filenames.",
         "Use selectedCreative or selectedCampaign only when present. Do not infer a first creative as selected.",
       ].join(" "),
@@ -404,6 +413,123 @@ function buildAssistantMessages(context, question, intent) {
       }),
     },
   ];
+}
+
+function buildGuardedAssistantResponse(context, question, deterministic) {
+  const q = String(question || "").toLowerCase();
+  if (/(?:show|reveal|give|send|print|display|what is|what's).*(?:api\s*key|oauth|access\s*token|refresh\s*token|developer\s*token|client\s*secret|encrypted\s*secret|session\s*token|hmac|credential)/i.test(q)) {
+    return guardedResponse(
+      deterministic,
+      "I cannot reveal credentials, tokens, API keys, secrets, HMAC values, or raw session data.",
+      "BluePrintAI keeps private connection material server-side and excludes it from Assistant context.",
+      "Use the relevant provider or server configuration controls to rotate or reconnect credentials safely.",
+      context,
+      "credential_refusal",
+    );
+  }
+  if (/(?:\blaunch|\bpublish|\bpause|\bdelete|\bedit|\bchange|\bmodify|\bcreate)\b.*(?:\bad|campaign|shopify|google|tiktok|meta|external)/i.test(q)) {
+    return guardedResponse(
+      deterministic,
+      "I can advise, but I cannot launch, edit, pause, publish, delete, or otherwise change ads or external systems.",
+      "The Assistant is advisory and all connected advertising access is reporting-only.",
+      "Ask me to compare the available evidence or outline the steps for you to review and perform yourself.",
+      context,
+      "external_action_refusal",
+    );
+  }
+
+  const sections = context.storeIntelligenceContext?.sections;
+  if (!sections) return null;
+  let missing = null;
+  if (/daily|trend|over time|date range/.test(q) && !sections.performance?.dailyTrend?.length) {
+    missing = [
+      "I do not have enough imported daily performance data for that yet.",
+      "No dated daily reporting points are available in the current shop context.",
+      "Import creative performance CSV rows in Data Import or sync selected Google Ads campaigns to unlock daily trends.",
+    ];
+  } else if (/\b(revenue|roas|spend|orders?|sales|ctr|cvr|cpc|cpm|cpa)\b/.test(q)) {
+    const requestedMetrics = [...q.matchAll(/\b(revenue|roas|spend|orders?|sales|ctr|cvr|cpc|cpm|cpa)\b/g)]
+      .map((match) => ({ orders: "orders", order: "orders", sales: "revenue" })[match[1]] || match[1]);
+    const unavailable = requestedMetrics.filter((metric) =>
+      sections.performance?.totals?.[metric] === null ||
+      sections.performance?.totals?.[metric] === undefined,
+    );
+    if (unavailable.length) missing = [
+      `I do not have enough imported performance data to report ${[...new Set(unavailable)].join(", ")} for this shop.`,
+      "Those metrics are absent from the current imported or synced performance totals, so I will not estimate them.",
+      "Import those fields in Data Import or sync reporting rows from a connected source.",
+    ];
+  } else if (/creator|influencer/.test(q) && !sections.creators?.available) {
+    missing = [
+      "I do not have creator performance data for this shop yet.",
+      "No creator profile or attributed performance rows are available.",
+      "Import creator names or handles with clicks, orders, revenue, and spend in Data Import.",
+    ];
+  } else if (/campaign/.test(q) && !sections.campaigns?.available) {
+    missing = [
+      "I do not have campaign records for this shop yet.",
+      "No local campaigns with assigned creative evidence are available.",
+      "Create a local campaign or import campaign-named performance rows, then ask again.",
+    ];
+  } else if (/google\s*ads/.test(q) && sections.googleAds?.connectionState !== "connected") {
+    const state = sections.googleAds?.connectionState;
+    missing = [
+      "Google Ads reporting data is not fully available for this shop.",
+      state === "needs_account_selection"
+        ? "The connection needs an account selection before reporting can sync."
+        : state === "setup_required"
+          ? "Google Ads server setup is incomplete."
+          : "Google Ads is not connected.",
+      "Open Connections to finish setup, select an account and campaigns, and sync read-only reporting.",
+    ];
+  } else if (/product|catalog|vendor/.test(q) && !sections.products?.available) {
+    missing = [
+      "I do not have product context for this shop yet.",
+      "No Shopify catalog product, imported product name, or workspace product is available.",
+      "Add a Shopify product, import product-named performance rows, or set the main product in Settings.",
+    ];
+  } else if (/blueprint|saved plan|revenue plan/.test(q) && !sections.revenueBlueprint?.available) {
+    missing = [
+      "I do not have a saved Revenue Blueprint for this shop yet.",
+      "No saved blueprint record is available in the current shop context.",
+      "Open Revenue Blueprint and save a directional plan after adding product or performance context.",
+    ];
+  } else if (/creative|video|review|hook|cta/.test(q) &&
+    !sections.creativeLibrary?.available &&
+    !sections.savedReviews?.available &&
+    !sections.performance?.available) {
+    missing = [
+      "I do not have creative or saved review evidence for this shop yet.",
+      "Creative Library, AI Review Studio, and imported creative performance are empty.",
+      "Upload a video in AI Review Studio or import creative performance rows in Data Import.",
+    ];
+  }
+  return missing
+    ? guardedResponse(deterministic, ...missing, context, "missing_store_data")
+    : null;
+}
+
+function guardedResponse(deterministic, recommendation, why, nextAction, context, guardrail) {
+  return {
+    ...deterministic,
+    answer: `${recommendation} ${why}`,
+    recommendation,
+    why,
+    nextAction,
+    risks: [],
+    meta: {
+      ...deterministic.meta,
+      contextLabel: contextLabel(context),
+      deterministic: true,
+      guardrail,
+      provider: "guardrail",
+      providerFallback: false,
+    },
+  };
+}
+
+function contextLabel(context) {
+  return context.storeIntelligenceContext?.contextStatus?.label || "Limited context available";
 }
 
 function formatProviderContent(content) {
