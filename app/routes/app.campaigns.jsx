@@ -14,6 +14,7 @@ import { createCampaign, deleteCampaign, listCampaigns } from "../models/campaig
 import { CAMPAIGN_GOALS, CAMPAIGN_PLATFORMS, CAMPAIGN_STATUSES } from "../models/campaign-options";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => [{ title: "Campaign Manager | BluePrintAI" }];
 
@@ -33,7 +34,7 @@ export const action = async ({ request }) => {
     const campaign = await createCampaign(session.shop, Object.fromEntries(formData));
     return redirect(withEmbeddedRouteParams(`/app/campaigns/${campaign.id}?created=1`, new URL(request.url).search));
   } catch (error) {
-    return { error: error.message || "Could not save campaign." };
+    return { error: merchantErrorMessage(error, "Could not save campaign. Try again.") };
   }
 };
 

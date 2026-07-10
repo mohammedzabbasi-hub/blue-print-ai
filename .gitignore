@@ -1,5 +1,9 @@
 node_modules
 
+# Python bytecode and local analyzer caches
+__pycache__/
+*.py[cod]
+
 # macOS
 .DS_Store
 

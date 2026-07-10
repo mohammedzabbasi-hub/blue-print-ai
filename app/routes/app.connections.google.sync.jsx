@@ -14,6 +14,7 @@ import {
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { decryptToken } from "../utils/token-encryption.server";
 import { getGoogleAdsSyncScope } from "../models/google-ads-campaign.server";
+import { googleAdsMerchantError } from "../utils/merchant-errors";
 
 export const action = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
@@ -96,7 +97,7 @@ export const action = async ({ request }) => {
     return redirect(
       withEmbeddedRouteParams(
         `/app/connections?error=${encodeURIComponent(
-          error.message || "Google Ads sync failed.",
+          googleAdsMerchantError(error, "Google Ads sync failed. Try again shortly."),
         )}`,
         search,
       ),

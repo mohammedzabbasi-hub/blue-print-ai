@@ -80,9 +80,7 @@ export const loader = async ({ request }) => {
         performanceData: [],
         campaigns: [],
       }),
-      error:
-        error.message ||
-        "Could not load saved Command Center records for this shop.",
+      error: "Could not load saved Command Center records for this shop. Try again shortly.",
       shop: session.shop,
     };
   }

@@ -47,6 +47,7 @@ import {
   productContextLabel,
 } from "../models/product-context";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => {
   return [{ title: "Settings | BluePrintAI" }];
@@ -167,7 +168,7 @@ export const action = async ({ request }) => {
         profileSuccess: "Workspace profile saved.",
       };
     } catch (error) {
-      return { profileError: error.message || "Could not save workspace profile." };
+      return { profileError: merchantErrorMessage(error, "Could not save workspace profile. Try again.") };
     }
   }
 
@@ -221,7 +222,7 @@ export const action = async ({ request }) => {
       success: "Video analysis preferences saved.",
     };
   } catch (error) {
-    return { error: error.message || "Could not save settings." };
+    return { error: merchantErrorMessage(error, "Could not save settings. Try again.") };
   }
 };
 

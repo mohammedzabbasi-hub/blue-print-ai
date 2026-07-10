@@ -29,6 +29,8 @@ import { persistUploadedVideoFile } from "../utils/upload-storage.server";
 import { assertUploadRequestSize } from "../utils/upload-storage.server";
 import { assignCampaignRecords, listCampaigns } from "../models/campaign.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { merchantErrorMessage } from "../utils/merchant-errors";
+import { normalizeExternalVideoUrl } from "../utils/media-urls";
 
 export const meta = () => {
   return [{ title: "Creative Library | BluePrintAI" }];
@@ -79,7 +81,7 @@ export const action = async ({ request }) => {
       });
       return { success: "Creative campaign updated." };
     } catch (error) {
-      return { error: error.message || "Could not assign campaign." };
+      return { error: merchantErrorMessage(error, "Could not assign campaign. Try again.") };
     }
   }
 
@@ -89,20 +91,6 @@ export const action = async ({ request }) => {
       formData.get("recordId") || formData.get("creativeId") || "",
     ).trim();
     const recordType = String(formData.get("recordType") || "saved_creative").trim();
-    const deleteDebugContext = {
-      deleteRequestId,
-      displayId: String(formData.get("displayId") || ""),
-      mediaFingerprint: String(formData.get("mediaFingerprint") || ""),
-      mediaUrl: String(formData.get("mediaUrl") || ""),
-      recordId,
-      recordType,
-      reviewId: String(formData.get("reviewId") || ""),
-      shop: session.shop,
-      sourceId: String(formData.get("sourceId") || ""),
-    };
-
-    console.info("[creative-library-delete] server action received", deleteDebugContext);
-
     if (!recordId) {
       return { error: "Choose a creative record to delete.", ok: false };
     }
@@ -123,22 +111,12 @@ export const action = async ({ request }) => {
           : await deleteSavedCreative(session.shop, recordId);
 
       if (!deleted) {
-        console.info("[creative-library-delete] server deletion result", {
-          ...deleteDebugContext,
-          deleted: false,
-          reason: "not_found_for_shop",
-        });
         return {
           deleteRequestId,
           error: "Creative was not found for this Shopify workspace.",
           ok: false,
         };
       }
-
-      console.info("[creative-library-delete] server deletion result", {
-        ...deleteDebugContext,
-        deleted: true,
-      });
 
       return {
         deleteRequestId,
@@ -152,14 +130,9 @@ export const action = async ({ request }) => {
         success: "Creative deleted.",
       };
     } catch (error) {
-      console.info("[creative-library-delete] server deletion result", {
-        ...deleteDebugContext,
-        deleted: false,
-        error: error.message || "Could not remove this creative.",
-      });
       return {
         deleteRequestId,
-        error: error.message || "Could not remove this creative.",
+        error: merchantErrorMessage(error, "Could not remove this creative. Try again."),
         ok: false,
       };
     }
@@ -170,7 +143,11 @@ export const action = async ({ request }) => {
   }
 
   const videoFile = formData.get("video_file");
-  const videoUrl = String(formData.get("video_url") || "").trim();
+  const submittedVideoUrl = String(formData.get("video_url") || "").trim();
+  const videoUrl = normalizeExternalVideoUrl(submittedVideoUrl);
+  if (submittedVideoUrl && !videoUrl) {
+    return { error: "Enter a direct HTTPS URL ending in MP4, MOV, M4V, or WebM." };
+  }
   if (!videoUrl && (!videoFile || !videoFile.name || !videoFile.size)) {
     return { error: "Choose a video file or enter a video URL before saving." };
   }
@@ -250,7 +227,7 @@ export const action = async ({ request }) => {
         : "Saved to Creative Library already.",
     };
   } catch (error) {
-    return { error: error.message || "Could not save this creative." };
+    return { error: merchantErrorMessage(error, "Could not save this creative. Try again.") };
   }
 };
 
@@ -588,11 +565,6 @@ export default function CreativeLibraryRoute() {
 
       setDeletedCreativeTokens((current) => {
         const next = [...new Set([...current, ...tokens])];
-        logCreativeDeleteEvent("UI removes/hides the creative", {
-          creative: creativeDeleteDebugDetails(creative),
-          tokens,
-        });
-
         return next;
       });
       setDeleteNotice("Creative deleted.");
@@ -639,11 +611,6 @@ export default function CreativeLibraryRoute() {
     if (deleteFetcher.state !== "idle" || !pendingDeleteRequestId) return;
 
     const response = deleteFetcher.data;
-    logCreativeDeleteEvent("client receives fetcher.data", {
-      pendingDeleteRequestId,
-      response,
-    });
-
     if (!response || response.deleteRequestId !== pendingDeleteRequestId) {
       return;
     }
@@ -669,13 +636,9 @@ export default function CreativeLibraryRoute() {
     pendingDeleteTarget,
   ]);
 
-  function openDeleteConfirmation(creative, source = "card") {
+  function openDeleteConfirmation(creative) {
     if (deletePending) return;
 
-    logCreativeDeleteEvent("card Delete is clicked", {
-      source,
-      creative: creativeDeleteDebugDetails(creative),
-    });
     setDeleteError("");
     setDeleteTarget(creative);
   }
@@ -708,10 +671,6 @@ export default function CreativeLibraryRoute() {
     formData.set("mediaUrl", String(primaryCreativeMediaUrl(deleteTarget) || ""));
     formData.set("mediaFingerprint", String(deleteTarget.mediaFingerprint || ""));
 
-    logCreativeDeleteEvent("Confirm delete is clicked", {
-      creative: creativeDeleteDebugDetails(deleteTarget),
-      formData: Object.fromEntries(formData.entries()),
-    });
     setPendingDeleteTarget(deleteTarget);
     setPendingDeleteRequestId(deleteRequestId);
     setDeleteError("");
@@ -1118,7 +1077,7 @@ export default function CreativeLibraryRoute() {
                 key={creative.id}
                 creative={creative}
                 campaigns={campaigns}
-                onDelete={() => openDeleteConfirmation(creative, "card")}
+                onDelete={() => openDeleteConfirmation(creative)}
                 onViewDetails={() => setSelectedCreativeId(creative.id)}
               />
             ))}
@@ -1130,7 +1089,7 @@ export default function CreativeLibraryRoute() {
         <CreativeDetailsModal
           creative={selectedCreative}
           onClose={closeCreativeDetails}
-          onDelete={() => openDeleteConfirmation(selectedCreative, "detail-modal")}
+          onDelete={() => openDeleteConfirmation(selectedCreative)}
         />
       )}
       {deleteTarget && (
@@ -1529,24 +1488,6 @@ function creativeMatchesDeletedTokens(creative, deletedTokens = []) {
   const tokens = getCreativeDeleteTokens(creative);
 
   return tokens.some((token) => deletedTokens.includes(token));
-}
-
-function creativeDeleteDebugDetails(creative = {}) {
-  return {
-    fingerprint: creative.mediaFingerprint || "",
-    id: creative.id || "",
-    mediaUrl: primaryCreativeMediaUrl(creative),
-    recordId: creative.recordId || "",
-    recordType: creative.recordType || "",
-    reviewId: creative.reviewId || "",
-    sourceId: creative.sourceCreativeId || creative.deletionKey || "",
-  };
-}
-
-function logCreativeDeleteEvent(event, details = {}) {
-  if (typeof console === "undefined") return;
-
-  console.debug("[creative-library-delete]", { event, ...details });
 }
 
 function CreativeDetailValue({ label, value }) {

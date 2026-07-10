@@ -342,9 +342,9 @@ model GoogleAdsCampaign {
   campaignStatus         String?
   advertisingChannelType String?
   selected               Boolean              @default(false)
-  lastSeenAt             DateTime              @default(now())
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
+  lastSeenAt             DateTime             @default(now())
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
   connection             AdPlatformConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@unique([shop, customerId, campaignId])

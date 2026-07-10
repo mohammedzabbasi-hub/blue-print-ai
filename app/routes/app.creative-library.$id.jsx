@@ -2,6 +2,7 @@ import { redirect } from "react-router";
 import { deleteSavedCreative } from "../models/blueprint.server";
 import { assignCampaignRecords } from "../models/campaign.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => {
   return [{ title: "Creative Library | BluePrintAI" }];
@@ -30,7 +31,7 @@ export const action = async ({ params, request }) => {
       );
       return { success: "Creative campaign updated." };
     } catch (error) {
-      return { error: error.message || "Could not assign this creative." };
+      return { error: merchantErrorMessage(error, "Could not assign this creative. Try again.") };
     }
   }
 
@@ -50,7 +51,7 @@ export const action = async ({ params, request }) => {
     query.delete("creativeId");
     return redirect(`/app/creative-library?${query.toString()}`);
   } catch (error) {
-    return { error: error.message || "Could not remove this creative." };
+    return { error: merchantErrorMessage(error, "Could not remove this creative. Try again.") };
   }
 };
 

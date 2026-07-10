@@ -21,7 +21,7 @@ export async function loader({ request }) {
   const authorization = buildGoogleOAuthUrl({ redirectUri, state });
 
   if (!authorization.ok) {
-    throw new Response(authorization.message, { status: 503 });
+    throw new Response("Google Ads connection is temporarily unavailable. Return to Connections and try again later.", { status: 503 });
   }
 
   return redirect(authorization.url, {

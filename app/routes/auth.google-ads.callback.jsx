@@ -10,6 +10,7 @@ import {
   getGoogleAdsRedirectUri,
   validateGoogleAdsOAuthState,
 } from "../utils/google-ads-oauth-state.server";
+import { googleAdsMerchantError } from "../utils/merchant-errors";
 
 function configuredFallbackCustomer() {
   const customerId = process.env.GOOGLE_ADS_DEFAULT_CUSTOMER_ID?.replace(/\D/g, "");
@@ -116,7 +117,7 @@ export async function loader({ request }) {
     return redirectOrRecover(
       stateData,
       {
-        error: error.message || "Google Ads could not be connected.",
+        error: googleAdsMerchantError(error, "Google Ads could not be connected. Return to Connections and try again."),
       },
       clearCookieHeader,
       400,

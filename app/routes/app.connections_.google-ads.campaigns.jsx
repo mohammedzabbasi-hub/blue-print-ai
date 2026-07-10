@@ -10,6 +10,7 @@ import { loadShopifyRouteContext } from "../models/route-context.server";
 import { fetchGoogleAdsCampaigns, refreshGoogleAdsAccessToken } from "../services/google-ads.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { decryptToken } from "../utils/token-encryption.server";
+import { googleAdsMerchantError } from "../utils/merchant-errors";
 
 export const meta = () => [{ title: "Manage Google Ads campaigns | BluePrintAI" }];
 
@@ -57,7 +58,7 @@ export const action = async ({ request }) => {
     }
     return { error: "Unknown campaign selection action." };
   } catch (error) {
-    return { error: error.message || "Could not update Google Ads campaign selection." };
+    return { error: googleAdsMerchantError(error, "Could not update the Google Ads campaign selection. Try again.") };
   }
 };
 

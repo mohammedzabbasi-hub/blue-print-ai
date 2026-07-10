@@ -24,6 +24,7 @@ import {
 } from "../models/workspace-profile-options";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => {
   return [{ title: "Workspace Setup | BluePrintAI" }];
@@ -160,7 +161,7 @@ export const action = async ({ request }) => {
     throw redirect(embeddedNext);
   } catch (error) {
     if (error instanceof Response) throw error;
-    return { error: error.message || "Could not save onboarding." };
+    return { error: merchantErrorMessage(error, "Could not save onboarding. Try again.") };
   }
 };
 

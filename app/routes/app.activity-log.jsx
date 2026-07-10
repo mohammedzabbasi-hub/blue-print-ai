@@ -10,6 +10,7 @@ import {
   listActivityLogs,
 } from "../models/blueprint.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => {
   return [{ title: "Activity Log | BluePrintAI" }];
@@ -53,7 +54,7 @@ export const action = async ({ request }) => {
     await clearActivityLogs(session.shop);
     return { success: "Activity log cleared." };
   } catch (error) {
-    return { error: error.message || "Could not clear activity log." };
+    return { error: merchantErrorMessage(error, "Could not clear activity log. Try again.") };
   }
 };
 

@@ -86,7 +86,7 @@ test("non-2xx and malformed responses return safe failures without results", asy
   assert.deepEqual(failed, {
     available: false,
     reason: "service_error",
-    message: "Analyzer service returned HTTP 503.",
+    message: "Video analysis could not be completed right now. Try again shortly.",
   });
 
   const malformed = await analyzeUploadedVideoFile(videoFile(), {
@@ -109,7 +109,7 @@ test("network failures return no analysis", async () => {
   assert.deepEqual(result, {
     available: false,
     reason: "network_error",
-    message: "Analyzer service is temporarily unavailable.",
+    message: "Video analysis is temporarily unavailable. Try again shortly.",
   });
 });
 
@@ -125,5 +125,21 @@ test("timeout aborts the analyzer request and returns no results", async () => {
   });
   assert.equal(result.available, false);
   assert.equal(result.reason, "timeout");
+  assert.equal(
+    result.message,
+    "Video analysis took too long. Try a shorter video or retry later.",
+  );
   assert.equal("analysis" in result, false);
+});
+
+test("runtime details remain server-side in the Review Studio loader", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../routes/app.video-analysis.jsx", import.meta.url), "utf8"),
+  );
+
+  assert.match(source, /analyzerRuntime: \{ configured: getAnalyzerRuntimeStatus\(\)\.configured \}/);
+  assert.doesNotMatch(source, /analyzerRuntime: getAnalyzerRuntimeStatus\(\)/);
+  assert.doesNotMatch(source, /Needs production analyzer service configured/);
+  assert.doesNotMatch(source, /Upload saved, analysis unavailable/);
+  assert.match(source, /deletePrivateMediaObjects/);
 });

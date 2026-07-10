@@ -34,6 +34,56 @@ if (process.env.NODE_ENV === "production") {
   ) {
     throw new Error("SHOPIFY_APP_URL must be the real deployed HTTPS origin, not a placeholder or development URL.");
   }
+
+  const forbiddenProductionFlags = [
+    "ENABLE_DEVELOPER_TOOLS",
+    "SHOPIFY_BILLING_BYPASS",
+  ].filter((name) => String(process.env[name] || "").toLowerCase() === "true");
+  if (forbiddenProductionFlags.length) {
+    throw new Error(
+      `Development-only flags must be disabled in production: ${forbiddenProductionFlags.join(", ")}.`,
+    );
+  }
+
+  if (String(process.env.ANALYZER_ENABLED || "").toLowerCase() === "true") {
+    const analyzerUrl = String(process.env.ANALYZER_SERVICE_URL || "").trim();
+    if (!analyzerUrl || !String(process.env.ANALYZER_API_KEY || "").trim()) {
+      throw new Error("ANALYZER_SERVICE_URL and ANALYZER_API_KEY are required when production analysis is enabled.");
+    }
+    try {
+      if (new URL(analyzerUrl).protocol !== "https:") throw new Error();
+    } catch {
+      throw new Error("Production ANALYZER_SERVICE_URL must be an HTTPS URL.");
+    }
+  }
+
+  const googleRequiredValues = [
+    "GOOGLE_ADS_CLIENT_ID",
+    "GOOGLE_ADS_CLIENT_SECRET",
+    "GOOGLE_ADS_DEVELOPER_TOKEN",
+    "GOOGLE_ADS_REDIRECT_URI",
+  ];
+  const googleConfigured = googleRequiredValues.some((name) =>
+    String(process.env[name] || "").trim(),
+  );
+  if (googleConfigured) {
+    const missingGoogleValues = googleRequiredValues.filter(
+      (name) => !String(process.env[name] || "").trim(),
+    );
+    const encryptionConfigured = String(
+      process.env.GOOGLE_ADS_ENCRYPTION_SECRET ||
+        process.env.AD_PLATFORM_TOKEN_ENCRYPTION_KEY ||
+        "",
+    ).trim();
+    if (!encryptionConfigured) missingGoogleValues.push("GOOGLE_ADS_ENCRYPTION_SECRET");
+    if (missingGoogleValues.length) {
+      throw new Error(`Google Ads production configuration is incomplete: ${missingGoogleValues.join(", ")}.`);
+    }
+    const expectedRedirect = `${parsedAppUrl.origin}/auth/google-ads/callback`;
+    if (String(process.env.GOOGLE_ADS_REDIRECT_URI).trim() !== expectedRedirect) {
+      throw new Error(`GOOGLE_ADS_REDIRECT_URI must exactly match ${expectedRedirect}.`);
+    }
+  }
 }
 if (process.env.NODE_ENV === "production") {
   if (process.env.FILE_STORAGE_DRIVER !== "s3") {

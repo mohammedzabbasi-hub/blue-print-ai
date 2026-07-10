@@ -40,6 +40,7 @@ import {
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import { getConnectionsNotice } from "../utils/connections-notice";
 import { decryptToken } from "../utils/token-encryption.server";
+import { googleAdsMerchantError } from "../utils/merchant-errors";
 
 const PLATFORMS = [
   {
@@ -89,7 +90,7 @@ export const loader = async ({ request }) => {
       status: connection.status,
       metadata: parseMetadata(connection.metadataJson),
     })),
-    googleConfiguration,
+    googleConfiguration: { ok: googleConfiguration.ok },
     googleCampaigns,
     googleLiveRowCount,
     shop: session.shop,
@@ -131,7 +132,10 @@ export const action = async ({ request }) => {
       };
     } catch (error) {
       return {
-        campaignError: error.message || "Could not update Google Ads campaign selection.",
+        campaignError: googleAdsMerchantError(
+          error,
+          "Could not update the Google Ads campaign selection. Try again.",
+        ),
         campaignPanelOpen: true,
       };
     }
@@ -174,13 +178,12 @@ export const action = async ({ request }) => {
     await disconnectPlatform(session.shop, platform);
     return { success: `${platformLabel(platform)} disconnected.${warning}` };
   } catch (error) {
-    return { error: error.message || "Could not disconnect this platform." };
+    return { error: googleAdsMerchantError(error, "Could not disconnect this platform. Try again.") };
   }
 };
 
 export function ErrorBoundary() {
-  const error = useRouteError();
-  const message = error?.data || error?.message || "Connections could not load.";
+  useRouteError();
 
   return (
     <div className="space-y-5">
@@ -192,7 +195,7 @@ export function ErrorBoundary() {
           Return to Connections
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-          {String(message)}
+          Connections could not load right now. Return to the page and try again.
         </p>
         <a className="bp-primary-cta mt-5" href="/app/connections" target="_top" rel="noreferrer">
           Return to Connections
@@ -218,7 +221,9 @@ export default function ConnectionsRoute() {
     query,
   });
   const warning = query.get("warning");
-  const error = query.get("error") || actionData?.error;
+  const error = query.get("error")
+    ? googleAdsMerchantError(query.get("error"), "Google Ads could not complete that request. Try again.")
+    : actionData?.error;
   const connectionMap = new Map(
     connections.map((connection) => [connection.platform, connection]),
   );
@@ -347,7 +352,7 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
 
         {visibleConnection?.lastSyncError && (
           <p className="mt-3 text-xs leading-5 text-amber-200">
-            Last sync: {visibleConnection.lastSyncError}
+            Last sync: {googleAdsMerchantError(visibleConnection.lastSyncError, "Google Ads could not complete the last sync. Try again.")}
           </p>
         )}
 
@@ -359,7 +364,7 @@ function PlatformCard({ connection, googleCampaigns, googleConfiguration, google
 
         {platform.id === "google" && !googleConfiguration.ok && (
           <p className="mt-3 text-xs leading-5 text-amber-200">
-            Setup required. Missing server configuration: {googleConfiguration.missing.join(", ")}.
+            Google Ads connection is temporarily unavailable. Manual CSV import remains available.
           </p>
         )}
 

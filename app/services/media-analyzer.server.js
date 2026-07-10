@@ -19,7 +19,6 @@ export function getAnalyzerRuntimeStatus(env = process.env) {
 
   return {
     configured: true,
-    message: "Analyzer runtime configured.",
     serviceUrl,
     timeoutMs: analyzerTimeoutMs(env),
   };
@@ -51,21 +50,21 @@ export async function analyzeUploadedVideoFile(
     });
 
     if (!response.ok) {
-      return failure("service_error", `Analyzer service returned HTTP ${response.status}.`);
+      return failure("service_error", "Video analysis could not be completed right now. Try again shortly.");
     }
 
     let payload;
     try {
       payload = await response.json();
     } catch {
-      return failure("malformed_response", "Analyzer service returned an invalid response.");
+      return failure("malformed_response", "Video analysis could not be completed right now. Try again shortly.");
     }
 
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      return failure("malformed_response", "Analyzer service returned an invalid response.");
+      return failure("malformed_response", "Video analysis could not be completed right now. Try again shortly.");
     }
     if (payload.error || payload.fallback === true) {
-      return failure("service_error", "Analyzer service could not analyze this video.");
+      return failure("service_error", "Video analysis could not be completed right now. Try again shortly.");
     }
 
     // The legacy FastAPI endpoint returns analyzer evidence inside `result`,
@@ -79,9 +78,9 @@ export async function analyzeUploadedVideoFile(
     return { available: true, ...analyzerPayload };
   } catch (error) {
     if (error?.name === "AbortError" || controller.signal.aborted) {
-      return failure("timeout", `Analyzer request timed out after ${runtime.timeoutMs} ms.`);
+      return failure("timeout", "Video analysis took too long. Try a shorter video or retry later.");
     }
-    return failure("network_error", "Analyzer service is temporarily unavailable.");
+    return failure("network_error", "Video analysis is temporarily unavailable. Try again shortly.");
   } finally {
     clearTimeout(timeout);
   }
@@ -97,7 +96,7 @@ function unavailableStatus(reason) {
   return {
     configured: false,
     reason,
-    message: "Analyzer unavailable in this environment.",
+    message: "Video analysis is temporarily unavailable.",
   };
 }
 

@@ -8,7 +8,7 @@ describe("Creative Library delete UI", () => {
   it("opens confirmation first, then submits one matched delete request with clear UI", async () => {
     const source = await readFile(routePath, "utf8");
 
-    assert.match(source, /onDelete=\{\(\) => openDeleteConfirmation\(creative, "card"\)\}/);
+    assert.match(source, /onDelete=\{\(\) => openDeleteConfirmation\(creative\)\}/);
     assert.match(source, /function CreativeDeleteConfirmationModal/);
     assert.match(source, /type="button"[\s\S]*>\s*Delete\s*<\/button>/);
     assert.match(source, /formData\.set\("intent", "deleteCreative"\)/);
@@ -18,7 +18,7 @@ describe("Creative Library delete UI", () => {
     assert.match(source, /Deleting\.\.\./);
     assert.match(source, /role="alert"/);
     assert.match(source, /Creative deleted\./);
-    assert.match(source, /<CreativeDetailsModal[\s\S]*onDelete=\{\(\) => openDeleteConfirmation\(selectedCreative, "detail-modal"\)\}/);
+    assert.match(source, /<CreativeDetailsModal[\s\S]*onDelete=\{\(\) => openDeleteConfirmation\(selectedCreative\)\}/);
     assert.match(source, /String\(selectedCreativeId\) === String\(creative\.id\)/);
   });
 
@@ -42,14 +42,11 @@ describe("Creative Library delete UI", () => {
     assert.match(source, /creativeMatchesDeletedTokens\(creative, deletedCreativeTokens\)/);
   });
 
-  it("logs each step of the temporary delete debug flow", async () => {
+  it("does not expose the temporary delete debug flow", async () => {
     const source = await readFile(routePath, "utf8");
 
-    assert.match(source, /card Delete is clicked/);
-    assert.match(source, /Confirm delete is clicked/);
-    assert.match(source, /server action received/);
-    assert.match(source, /server deletion result/);
-    assert.match(source, /client receives fetcher\.data/);
-    assert.match(source, /UI removes\/hides the creative/);
+    assert.doesNotMatch(source, /creative-library-delete/);
+    assert.doesNotMatch(source, /deleteDebugContext/);
+    assert.doesNotMatch(source, /console\.(?:debug|info)/);
   });
 });

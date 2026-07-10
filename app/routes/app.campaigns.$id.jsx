@@ -6,6 +6,7 @@ import { CAMPAIGN_GOALS, CAMPAIGN_PLATFORMS, CAMPAIGN_STATUSES } from "../models
 import { listSavedCreatives } from "../models/blueprint.server";
 import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 
 export const meta = ({ data }) => [{ title: `${data?.campaign?.name || "Campaign"} | BluePrintAI` }];
@@ -49,7 +50,7 @@ export const action = async ({ request, params }) => {
     await updateCampaign(session.shop, params.id, Object.fromEntries(formData));
     return { success: "Campaign settings updated." };
   } catch (error) {
-    return { error: error.message || "Could not update campaign." };
+    return { error: merchantErrorMessage(error, "Could not update campaign. Try again.") };
   }
 };
 

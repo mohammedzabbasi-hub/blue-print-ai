@@ -19,7 +19,7 @@ export function loader({ request }) {
 }
 
 export const meta = () => {
-  return [{ title: "BluePrintAI | TikTok Shop Creative Intelligence" }];
+  return [{ title: "BluePrintAI | Creative Intelligence for Shopify" }];
 };
 
 const workflowSteps = [

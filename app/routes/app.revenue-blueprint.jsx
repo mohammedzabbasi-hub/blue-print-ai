@@ -13,6 +13,7 @@ import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { listCampaigns } from "../models/campaign.server";
 import { buildProductContext } from "../models/product-context";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => {
   return [{ title: "Revenue Blueprint | BluePrintAI" }];
@@ -124,7 +125,7 @@ export const action = async ({ request }) => {
       scopeLabel: blueprint.scope.label,
     };
   } catch (error) {
-    return { error: error.message || "Could not generate this blueprint." };
+    return { error: merchantErrorMessage(error, "Could not generate this blueprint. Try again.") };
   }
 };
 

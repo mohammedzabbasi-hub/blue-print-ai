@@ -125,7 +125,7 @@ Required server-side variables:
 
 - `GOOGLE_ADS_CLIENT_ID`
 - `GOOGLE_ADS_CLIENT_SECRET`
-- `GOOGLE_ADS_DEVELOPER_TOKEN` (OAuth connection can be saved without it, but sync returns `Google Ads developer token not configured`)
+- `GOOGLE_ADS_DEVELOPER_TOKEN` (OAuth connection can be saved without it, but reporting sync remains unavailable until configuration is complete)
 - `GOOGLE_ADS_REDIRECT_URI`
 - `GOOGLE_ADS_ENCRYPTION_SECRET` (or the shared `AD_PLATFORM_TOKEN_ENCRYPTION_KEY`)
 - `AD_PLATFORM_TOKEN_ENCRYPTION_KEY` (32 random bytes encoded as base64 or 64-character hex)

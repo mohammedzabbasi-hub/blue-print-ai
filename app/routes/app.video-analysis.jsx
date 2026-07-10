@@ -26,7 +26,10 @@ import {
   saveRevenueBlueprintRecord,
 } from "../models/blueprint.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
-import { persistUploadedVideoFile } from "../utils/upload-storage.server";
+import {
+  deletePrivateMediaObjects,
+  persistUploadedVideoFile,
+} from "../utils/upload-storage.server";
 import { assertUploadRequestSize } from "../utils/upload-storage.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
 import db from "../db.server";
@@ -35,6 +38,7 @@ import {
   normalizeRetentionAnalysis,
   transcriptEvidence,
 } from "../utils/video-analysis-evidence";
+import { merchantErrorMessage } from "../utils/merchant-errors";
 
 export const meta = () => {
   return [{ title: "AI Review Studio | BluePrintAI" }];
@@ -89,7 +93,7 @@ export const loader = async ({ request }) => {
         if (creative.sourceId) result[creative.sourceId] = creative.id;
         return result;
       }, {}),
-    analyzerRuntime: getAnalyzerRuntimeStatus(),
+    analyzerRuntime: { configured: getAnalyzerRuntimeStatus().configured },
     productError: merchantData.errors?.[0] || "",
     products: merchantData.products,
     selectedProductId: profile.selectedProductId || merchantData.products[0]?.id || "",
@@ -104,63 +108,89 @@ export const action = async ({ request }) => {
 
   try {
     if (intent === "analyze") {
-      const profile = await getWorkspaceProfile(session.shop);
-      const videoFile = formData.get("file");
-      const storedVideo = await persistUploadedVideoFile(videoFile, {
-        namespace: "video-analysis",
-        shop: session.shop,
-      });
-
-      if (!storedVideo) {
-        return { error: "Choose a valid video file before analyzing." };
-      }
-
-      const fileName = storedVideo?.originalName || "Uploaded creative";
-      const fileType = storedVideo?.fileType || "";
-      const fileSize = Number(storedVideo?.fileSize || 0);
-      const product =
-        resolveProductContext(
-          merchantData.products,
-          profile,
-          String(formData.get("productId") || ""),
-        ) || {
-          id: "uploaded-video-product",
-          title: "Uploaded Video",
-        };
-      const analyzer = await analyzeUploadedVideoFile(videoFile);
-      if (!analyzer.available) {
+      const analyzerRuntime = getAnalyzerRuntimeStatus();
+      if (!analyzerRuntime.configured) {
         return {
           analyzerUnavailable: true,
-          analyzerMessage: analyzer.message,
-          success: "Upload saved, analysis unavailable.",
+          analyzerMessage: analyzerRuntime.message,
         };
       }
-      const analysis = buildVideoAnalysisPayload({
-        analyzer,
-        fileName,
-        fileSize,
-        fileType,
-        storedVideo,
-        product,
-      });
-      const current = await saveCurrentVideoAnalysisRecord({
-        shop: session.shop,
-        product,
-        fileName,
-        brief: analysis.result.display.summary,
-        analysis,
-      });
 
-      return {
-        result: {
-          ...analysis,
-          activeAnalysisId: current.id,
-          savedAnalysisId: null,
-          productId: product.id,
-          productTitle: product.title,
-        },
-        success: `Current analysis ready: ${analysis.result.display.displayTitle}`,
-      };
+      const profile = await getWorkspaceProfile(session.shop);
+      const videoFile = formData.get("file");
+      let storedVideo = null;
+      let uploadPersisted = false;
+
+      try {
+        storedVideo = await persistUploadedVideoFile(videoFile, {
+          namespace: "video-analysis",
+          shop: session.shop,
+        });
+
+        if (!storedVideo) {
+          return { error: "Choose a valid video file before analyzing." };
+        }
+
+        const fileName = storedVideo.originalName || "Uploaded creative";
+        const fileType = storedVideo.fileType || "";
+        const fileSize = Number(storedVideo.fileSize || 0);
+        const product =
+          resolveProductContext(
+            merchantData.products,
+            profile,
+            String(formData.get("productId") || ""),
+          ) || {
+            id: "uploaded-video-product",
+            title: "Uploaded Video",
+          };
+        const analyzer = await analyzeUploadedVideoFile(videoFile);
+        if (!analyzer.available) {
+          return {
+            analyzerUnavailable: true,
+            analyzerMessage: analyzer.message,
+          };
+        }
+        const analysis = buildVideoAnalysisPayload({
+          analyzer,
+          fileName,
+          fileSize,
+          fileType,
+          storedVideo,
+          product,
+        });
+        const current = await saveCurrentVideoAnalysisRecord({
+          shop: session.shop,
+          product,
+          fileName,
+          brief: analysis.result.display.summary,
+          analysis,
+        });
+        uploadPersisted = true;
+
+        return {
+          result: {
+            ...analysis,
+            activeAnalysisId: current.id,
+            savedAnalysisId: null,
+            productId: product.id,
+            productTitle: product.title,
+          },
+          success: `Current analysis ready: ${analysis.result.display.displayTitle}`,
+        };
+      } finally {
+        if (storedVideo && !uploadPersisted) {
+          try {
+            await deletePrivateMediaObjects(session.shop, [{
+              namespace: "video-analysis",
+              storedFileName: storedVideo.storedFileName,
+            }]);
+          } catch {
+            console.error("Unpersisted video-analysis upload cleanup failed", {
+              shop: session.shop,
+            });
+          }
+        }
+      }
     }
 
     if (intent === "clearCurrentAnalysis") {
@@ -322,7 +352,12 @@ export const action = async ({ request }) => {
 
     return { error: "Unknown video analysis action." };
   } catch (error) {
-    return { error: error.message || "Could not complete this video analysis action." };
+    return {
+      error: merchantErrorMessage(
+        error,
+        "Could not complete this video analysis action. Try again.",
+      ),
+    };
   }
 };
 
@@ -1366,9 +1401,8 @@ export default function VideoAnalysisRoute() {
 
         {!analyzerRuntime.configured && (
           <div className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100" role="status">
-            <strong>Analyzer unavailable in this environment.</strong>{" "}
-            Needs production analyzer service configured. Uploads can still be
-            saved, but no analysis scores or recommendations will be generated.
+            <strong>Video analysis is temporarily unavailable.</strong>{" "}
+            No analysis is generated or saved in this state. You can still add videos through Data Import or Creative Library.
           </div>
         )}
         {analyzerRuntime.configured && (
@@ -1458,16 +1492,10 @@ export default function VideoAnalysisRoute() {
 
             <button
               type="submit"
-              disabled={loading || !file}
+              disabled={loading || !file || !analyzerRuntime.configured}
               className="bp-primary-cta mt-6"
             >
-              {loading
-                ? !analyzerRuntime.configured
-                  ? "Saving upload..."
-                  : "Analyzing..."
-                : analyzerRuntime.configured
-                  ? "Analyze Video"
-                  : "Save Upload"}
+              {loading ? "Analyzing..." : analyzerRuntime.configured ? "Analyze Video" : "Analyzer unavailable"}
             </button>
             <p className="mt-3 text-xs font-semibold text-slate-500">
               Analysis results remain current drafts until you explicitly save
@@ -1483,10 +1511,10 @@ export default function VideoAnalysisRoute() {
 
           {analyzerUnavailable && (
             <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-100" role="status">
-              <p className="font-semibold">Upload saved, analysis unavailable</p>
+              <p className="font-semibold">Analysis unavailable</p>
               <p className="mt-2 text-sm leading-6">
-                {analyzerMessage || "Analyzer unavailable in this environment. Needs production analyzer service configured."}
-                {" "}No analysis scores or recommendations were generated or saved.
+                {analyzerMessage || "Video analysis is temporarily unavailable."}
+                {" "}No video or analysis was saved. Use Data Import or Creative Library to save the video without analysis.
               </p>
             </div>
           )}
