@@ -19,10 +19,11 @@ describe("product context evidence UI", () => {
     assert.doesNotMatch(component, /JSON\.stringify/);
   });
 
-  it("shows evidence before and after Ad Brief generation", async () => {
+  it("keeps the Creative Briefs library free of pre-generation metric grids", async () => {
     const route = await source("routes/app.ad-briefs.jsx");
-    assert.match(route, /Product context available for generation/);
-    assert.match(route, /AI used this context/);
+    assert.doesNotMatch(route, /ProductContextEvidence/);
+    assert.doesNotMatch(route, /Product context available for generation/);
+    assert.match(route, /Evidence used for this brief/);
   });
 
   it("shows evidence before and after Revenue Blueprint generation", async () => {

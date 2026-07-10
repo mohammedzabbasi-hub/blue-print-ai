@@ -21,7 +21,7 @@ const welcomeFeatures = [
   },
   {
     eyebrow: "Create",
-    title: "Ad Briefs",
+    title: "Creative Briefs",
     description:
       "Translate proven patterns and product context into focused briefs your team and creators can act on.",
   },
@@ -59,7 +59,7 @@ export default function LandingRoute() {
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
             BluePrintAI turns your Shopify product context, creative work, and
             performance signals into actionable intelligence—from first insight
-            to the next ad brief and revenue blueprint.
+              to the next creative brief and revenue blueprint.
           </p>
           <p className="mt-3 text-sm text-slate-400">
             Your workspace is securely connected to {formatShopName(shop)}.

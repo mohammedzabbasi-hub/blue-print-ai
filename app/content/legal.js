@@ -26,7 +26,7 @@ export const legalPages = {
       },
       {
         title: "App Description",
-        body: "BluePrintAI is a Shopify embedded app that helps merchants organize creative records, analyze uploaded videos, generate ad briefs, create planning recommendations, and build revenue-planning blueprints from available store and workspace context.",
+        body: "BluePrintAI is a Shopify embedded app that helps merchants organize creative records, analyze uploaded videos, generate creative briefs, create planning recommendations, and build revenue-planning blueprints from available store and workspace context.",
       },
       {
         title: "AI Wrapper Disclosure",
@@ -139,7 +139,7 @@ export const legalPages = {
       },
       {
         title: "AI-Generated Outputs",
-        body: "We may store generated summaries, creative analysis, recommendations, ad briefs, revenue blueprints, scores, suggested scripts, and other outputs so they can be displayed, saved, audited, supported, and improved.",
+        body: "We may store generated summaries, creative analysis, recommendations, creative briefs, revenue blueprints, scores, suggested scripts, and other outputs so they can be displayed, saved, audited, supported, and improved.",
       },
       {
         title: "Payment And Billing Data",
@@ -372,7 +372,7 @@ export const legalPages = {
       },
       {
         title: "Business Planning Outputs",
-        body: "Business recommendations, ad briefs, revenue suggestions, creative analysis, planning scores, and similar outputs are informational only and do not guarantee performance, revenue, ROAS, sales, approvals, or outcomes.",
+        body: "Business recommendations, creative briefs, revenue suggestions, creative analysis, planning scores, and similar outputs are informational only and do not guarantee performance, revenue, ROAS, sales, approvals, or outcomes.",
       },
     ],
   },

@@ -554,7 +554,7 @@ export default function SettingsRoute() {
             <div className="mt-6 space-y-4 text-sm leading-6 text-slate-200">
               <p>
                 This deletes saved creatives, imported creative performance
-                rows, generated ad briefs, revenue blueprints, video analysis
+                rows, generated creative briefs, revenue blueprints, video analysis
                 reviews, workspace requests, activity history, and demo or test
                 records scoped to {shop}.
               </p>
@@ -805,7 +805,7 @@ function SettingsCatalogSetup({
       {mode === "primary_product" && products.length === 0 && (
         <span className="mt-2.5 block rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3.5 py-2.5 text-xs leading-5 text-amber-50/90">
           Shopify products could not be loaded or this store has no products
-          yet. Imported product names still support Ad Briefs and Revenue
+          yet. Imported product names still support Creative Briefs and Revenue
           Blueprint; use manual context to choose a specific profile product.
         </span>
       )}

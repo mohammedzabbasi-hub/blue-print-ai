@@ -123,7 +123,7 @@ describe("shared product context", () => {
     assert.equal(context.availableProducts.length, 2);
   });
 
-  it("unlocks Ad Briefs with imported product context", () => {
+  it("unlocks Creative Briefs with imported product context", () => {
     const context = buildProductContext({ performanceRecords: [importedRecord] });
     const product = resolveProductContext(context.availableProducts, {});
     const brief = buildBrief(product);

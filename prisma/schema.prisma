@@ -34,17 +34,29 @@ model Session {
 }
 
 model SavedBrief {
-  id           String   @id @default(cuid())
-  shop         String
-  productId    String
-  productTitle String
-  angle        String
-  payloadJson  String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  shop                  String
+  title                 String?
+  status                String   @default("DRAFT")
+  productId             String
+  productTitle          String
+  sourceCreativeId      String?
+  sourceVideoAnalysisId String?
+  campaignObjective     String?
+  targetAudience        String?
+  platform              String?
+  creativeFormat        String?
+  tone                  String?
+  merchantNotes         String?
+  angle                 String
+  payloadJson           String
+  idempotencyKey        String?  @unique
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([shop, createdAt])
   @@index([shop, productId])
+  @@index([shop, updatedAt])
 }
 
 model VideoAnalysis {
@@ -330,9 +342,9 @@ model GoogleAdsCampaign {
   campaignStatus         String?
   advertisingChannelType String?
   selected               Boolean              @default(false)
-  lastSeenAt             DateTime              @default(now())
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
+  lastSeenAt             DateTime             @default(now())
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
   connection             AdPlatformConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@unique([shop, customerId, campaignId])

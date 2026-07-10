@@ -35,7 +35,7 @@ const workflowSteps = [
   },
   {
     icon: ClipboardList,
-    label: "Generate next ad brief",
+    label: "Generate next creative brief",
     body: "Turn the analysis into a practical brief for your next creative test.",
   },
 ];
@@ -110,7 +110,7 @@ export default function LandingRoute() {
             <p className="mt-8 w-full max-w-xs text-base leading-7 text-slate-400 sm:max-w-3xl sm:text-xl sm:leading-9">
               BluePrintAI helps merchants analyze uploaded creative, organize
               manually imported shop data, spot useful hooks and creator styles,
-              and turn those signals into the next ad brief.
+              and turn those signals into the next creative brief.
             </p>
 
             <div className="mt-10 flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row">
@@ -211,7 +211,7 @@ export default function LandingRoute() {
                 "Get practical recommendations for your next direction based on the shop and creative data you provide.",
               ],
               [
-                "Ad brief generation",
+                "Creative brief generation",
                 "Turn uploaded creative notes and saved app signals into clear next-step briefs your team can use immediately.",
               ],
             ].map(([title, body]) => (

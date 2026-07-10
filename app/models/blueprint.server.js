@@ -91,10 +91,7 @@ export async function listSavedBriefs(shop, limit = 8) {
   });
 
   return records
-    .map((record) => ({
-      ...record,
-      payload: parsePayload(record.payloadJson),
-    }))
+    .map(normalizeCreativeBriefRecord)
     .filter((record) => !isSeededDemoRecord(record));
 }
 
@@ -107,10 +104,7 @@ export async function findSavedBrief(shop, briefId) {
 
   if (!record) return null;
 
-  const parsed = {
-    ...record,
-    payload: parsePayload(record.payloadJson),
-  };
+  const parsed = normalizeCreativeBriefRecord(record);
 
   return isSeededDemoRecord(parsed) ? null : parsed;
 }
@@ -190,6 +184,190 @@ export async function saveBriefRecord(shop, product, brief) {
     payload: parsePayload(saved.payloadJson),
     wasCreated: true,
   };
+}
+
+export function createCreativeBriefPreview(shop, input = {}, context = {}) {
+  const product = context.product || {};
+  const creative = context.creative || null;
+  const analysis = context.analysis || null;
+  const objective = cleanBriefText(input.campaignObjective) || "Conversions";
+  const audience = cleanBriefText(input.targetAudience) || "Customers most likely to benefit from this product";
+  const platform = cleanBriefText(input.platform) || "TikTok";
+  const format = cleanBriefText(input.creativeFormat) || "Product demo";
+  const tone = cleanBriefText(input.tone) || "Authentic";
+  const sellingPoint = cleanBriefText(input.productSellingPoint) || product.description || product.productType || "the product's clearest practical benefit";
+  const offer = cleanBriefText(input.offer);
+  const duration = cleanBriefText(input.desiredVideoLength) || defaultBriefDuration(platform);
+  const title = cleanBriefText(input.title) || `${product.title || "Product"} · ${objective} ${format}`;
+  const creativePayload = creative?.payload || {};
+  const analysisPayload = analysis?.payload || {};
+  const analysisResult = analysisPayload.result?.analysis || analysisPayload.analysis || {};
+  const sourceHook = cleanBriefText(
+    creative?.hook || creativePayload.hook || analysisResult.hook || analysisResult.hook_analysis,
+  );
+  const productBenefit = cleanBriefText(sellingPoint);
+  const hook = sourceHook || `What if ${product.title || "this product"} made ${productBenefit.toLowerCase()} easier to see in the first few seconds?`;
+  const proofPoints = uniqueBriefValues([
+    productBenefit,
+    cleanBriefText(product.vendor) ? `Made by ${cleanBriefText(product.vendor)}` : "",
+    cleanBriefText(creative?.angle || creativePayload.angle),
+    cleanBriefText(analysisResult.summary || analysisPayload.result?.display?.summary),
+  ]).slice(0, 4);
+  const evidence = buildCreativeBriefEvidence({ analysis, creative, product });
+  const missingDataNotes = [];
+  if (!evidence.performanceMetrics?.length) {
+    missingDataNotes.push("No connected performance data was available. This brief was generated from product context and creative-analysis inputs.");
+  }
+  if (!analysis) missingDataNotes.push("No saved video analysis was selected.");
+
+  const preview = {
+    version: 2,
+    title,
+    status: "DRAFT",
+    setup: {
+      productId: String(product.id || ""),
+      productTitle: cleanBriefText(product.title) || "Product",
+      sourceCreativeId: creative?.id || null,
+      sourceCreativeTitle: creative ? creative.title || creative.creativeTitle || creativePayload.title || "Selected creative" : null,
+      sourceVideoAnalysisId: analysis?.id || null,
+      sourceVideoAnalysisTitle: analysis ? analysis.brief || analysis.fileName || analysisPayload.result?.display?.displayTitle || "Saved video analysis" : null,
+      campaignObjective: objective,
+      targetAudience: audience,
+      platform,
+      creativeFormat: format,
+      tone,
+      merchantNotes: cleanBriefText(input.merchantNotes),
+      productSellingPoint: cleanBriefText(input.productSellingPoint),
+      offer,
+      desiredVideoLength: duration,
+      restrictions: cleanBriefText(input.restrictions),
+    },
+    content: {
+      mainConcept: `${format} that demonstrates ${productBenefit.toLowerCase()} for ${audience.toLowerCase()}.`,
+      coreAngle: cleanBriefText(input.productSellingPoint) || cleanBriefText(creative?.angle || creativePayload.angle) || `Make the product benefit concrete through a quick, believable demonstration.`,
+      hook,
+      problem: `The audience needs ${productBenefit.toLowerCase()}, but may not immediately understand why ${product.title || "the product"} is relevant.`,
+      solution: `Show ${product.title || "the product"} in use and connect one visible product moment directly to the audience need.`,
+      productBenefit,
+      proofPoints: proofPoints.length ? proofPoints : ["Use only claims supported by the product page or merchant-provided context."],
+      sceneSequence: [
+        `0–2s · Opening shot: Start on the result or problem while delivering the hook: “${hook}”`,
+        `3–6s · Product reveal: Show ${product.title || "the product"} clearly and name the primary benefit.`,
+        `7–12s · Demonstration: Capture one close, easy-to-follow use moment and one proof point.`,
+        `13–${duration.replace(/[^0-9–-]/g, "") || "15"}s · Resolution: Reinforce the outcome${offer ? ` and introduce ${offer}` : ""}.`,
+        `Final frame · CTA: Keep the product visible and use a direct action.`
+      ],
+      visualDirection: `${tone} lighting and pacing. Open with a tight result-led shot, move to a clean product-in-use close-up, and reserve the final frame for the product and CTA.`,
+      onScreenText: [hook, productBenefit, offer, "Shop now"].filter(Boolean),
+      voiceoverGuidance: `Use ${tone.toLowerCase()}, specific language. Speak to one audience problem, one product benefit, and one next action. Avoid unsupported guarantees.`,
+      cta: offer ? `Shop ${product.title || "now"} and ${offer}.` : `Shop ${product.title || "now"} to see the product details.`,
+      recommendedDuration: duration,
+      platformGuidance: platformBriefGuidance(platform),
+      testingVariations: [
+        "Hook test: lead with the customer problem versus the desired result.",
+        "Proof test: product demonstration versus creator explanation.",
+        `CTA test: direct “Shop now” versus ${offer ? `offer-led “${offer}”` : "benefit-led product discovery"}.`,
+      ],
+    },
+    evidence,
+    assumptions: [
+      `The selected audience is appropriate for the ${objective.toLowerCase()} objective.`,
+      `The merchant will verify product claims, offer terms, and platform compliance before publishing.`,
+    ],
+    missingDataNotes,
+    generatedAt: new Date().toISOString(),
+  };
+
+  return { ...preview, previewToken: creativeBriefPreviewToken(shop, preview) };
+}
+
+export function creativeBriefPreviewToken(shop, preview = {}) {
+  return crypto
+    .createHash("sha256")
+    .update(`creative_brief_preview:${shop}:${stableStringify(stripVolatileFields(preview))}`)
+    .digest("hex");
+}
+
+export async function saveCreativeBriefPreview(shop, preview, previewToken) {
+  const normalized = normalizeCreativeBriefPayload(preview);
+  const expectedToken = creativeBriefPreviewToken(shop, normalized);
+  if (!previewToken || previewToken !== expectedToken) {
+    throw new Error("This preview changed before it could be saved. Generate it again and retry.");
+  }
+  const idempotencyKey = `creative-brief:${shop}:${previewToken}`;
+  const existing = await db.savedBrief.findUnique({ where: { idempotencyKey } });
+  if (existing) return { ...normalizeCreativeBriefRecord(existing), wasCreated: false };
+
+  try {
+    const saved = await db.savedBrief.create({ data: creativeBriefData(shop, normalized, idempotencyKey) });
+    await createActivityLogRecord(shop, {
+      type: "creative_brief",
+      title: "Creative brief saved",
+      description: saved.title || saved.productTitle,
+      relatedType: "SavedBrief",
+      relatedId: saved.id,
+    });
+    return { ...normalizeCreativeBriefRecord(saved), wasCreated: true };
+  } catch (error) {
+    if (error?.code !== "P2002") throw error;
+    const raced = await db.savedBrief.findUnique({ where: { idempotencyKey } });
+    if (!raced || raced.shop !== shop) throw error;
+    return { ...normalizeCreativeBriefRecord(raced), wasCreated: false };
+  }
+}
+
+export async function updateCreativeBrief(shop, briefId, updates = {}) {
+  const existing = await db.savedBrief.findFirst({ where: { id: briefId, shop } });
+  if (!existing) return null;
+  const current = normalizeCreativeBriefRecord(existing);
+  const payload = normalizeCreativeBriefPayload({
+    ...current.payload,
+    title: cleanBriefText(updates.title) || current.title,
+    status: updates.status === "READY" ? "READY" : "DRAFT",
+    setup: {
+      ...current.payload.setup,
+      campaignObjective: cleanBriefText(updates.campaignObjective) || current.campaignObjective,
+      targetAudience: cleanBriefText(updates.targetAudience) || current.targetAudience,
+      platform: cleanBriefText(updates.platform) || current.platform,
+      creativeFormat: cleanBriefText(updates.creativeFormat) || current.creativeFormat,
+      tone: cleanBriefText(updates.tone) || current.tone,
+      merchantNotes: cleanBriefText(updates.merchantNotes),
+    },
+    content: { ...current.payload.content, ...(updates.content || {}) },
+  });
+  const saved = await db.savedBrief.update({
+    where: { id: existing.id },
+    data: creativeBriefData(shop, payload, existing.idempotencyKey),
+  });
+  await createActivityLogRecord(shop, { type: "creative_brief", title: "Creative brief updated", description: saved.title || saved.productTitle, relatedType: "SavedBrief", relatedId: saved.id });
+  return normalizeCreativeBriefRecord(saved);
+}
+
+export async function duplicateCreativeBrief(shop, briefId, duplicateKey) {
+  const existing = await db.savedBrief.findFirst({ where: { id: briefId, shop } });
+  if (!existing) return null;
+  const idempotencyKey = `creative-brief-copy:${shop}:${briefId}:${cleanBriefText(duplicateKey) || "default"}`;
+  const prior = await db.savedBrief.findUnique({ where: { idempotencyKey } });
+  if (prior) return { ...normalizeCreativeBriefRecord(prior), wasCreated: false };
+  const source = normalizeCreativeBriefRecord(existing);
+  const payload = normalizeCreativeBriefPayload({ ...source.payload, title: `${source.title} — Copy`, status: "DRAFT", generatedAt: new Date().toISOString() });
+  try {
+    const saved = await db.savedBrief.create({ data: creativeBriefData(shop, payload, idempotencyKey) });
+    await createActivityLogRecord(shop, { type: "creative_brief", title: "Creative brief duplicated", description: saved.title, relatedType: "SavedBrief", relatedId: saved.id });
+    return { ...normalizeCreativeBriefRecord(saved), wasCreated: true };
+  } catch (error) {
+    if (error?.code !== "P2002") throw error;
+    const raced = await db.savedBrief.findUnique({ where: { idempotencyKey } });
+    if (!raced || raced.shop !== shop) throw error;
+    return { ...normalizeCreativeBriefRecord(raced), wasCreated: false };
+  }
+}
+
+export async function deleteCreativeBrief(shop, briefId) {
+  const result = await db.savedBrief.deleteMany({ where: { id: briefId, shop } });
+  if (!result.count) return false;
+  await createActivityLogRecord(shop, { type: "creative_brief", title: "Creative brief deleted", relatedType: "SavedBrief", relatedId: briefId });
+  return true;
 }
 
 export async function listVideoAnalyses(shop, limit = 8) {
@@ -2818,6 +2996,229 @@ function demoRecommendedCreatorType(product = {}) {
 
 function clampScore(score) {
   return Math.max(1, Math.min(10, score));
+}
+
+function normalizeCreativeBriefRecord(record = {}) {
+  const legacy = parsePayload(record.payloadJson) || record.payload || {};
+  const payload = normalizeCreativeBriefPayload({
+    ...legacy,
+    title: record.title || legacy.title || legacy.brief_title || `${record.angle || legacy.angle || "Creative brief"} · ${record.productTitle || legacy.productTitle || "Product"}`,
+    status: record.status || legacy.status || "DRAFT",
+    setup: {
+      productId: record.productId || legacy.productId,
+      productTitle: record.productTitle || legacy.productTitle,
+      sourceCreativeId: record.sourceCreativeId || legacy.context?.creativeId,
+      sourceCreativeTitle: legacy.setup?.sourceCreativeTitle || legacy.context?.creativeTitle,
+      sourceVideoAnalysisId: record.sourceVideoAnalysisId || legacy.context?.videoAnalysisId,
+      campaignObjective: record.campaignObjective || legacy.campaignObjective || legacy.objective,
+      targetAudience: record.targetAudience || legacy.targetAudience || legacy.audience,
+      platform: record.platform || legacy.platform,
+      creativeFormat: record.creativeFormat || legacy.creativeFormat || legacy.format,
+      tone: record.tone || legacy.tone,
+      merchantNotes: record.merchantNotes || legacy.merchantNotes,
+      ...(legacy.setup || {}),
+    },
+    content: legacy.content || legacyContentFromBrief(legacy),
+    evidence: legacy.evidence || legacyEvidenceFromBrief(record, legacy),
+  });
+  return {
+    ...record,
+    title: payload.title,
+    status: payload.status,
+    sourceCreativeId: payload.setup.sourceCreativeId,
+    sourceVideoAnalysisId: payload.setup.sourceVideoAnalysisId,
+    campaignObjective: payload.setup.campaignObjective,
+    targetAudience: payload.setup.targetAudience,
+    platform: payload.setup.platform,
+    creativeFormat: payload.setup.creativeFormat,
+    tone: payload.setup.tone,
+    merchantNotes: payload.setup.merchantNotes,
+    payload,
+  };
+}
+
+function normalizeCreativeBriefPayload(value = {}) {
+  const setup = value.setup && typeof value.setup === "object" ? value.setup : {};
+  const content = value.content && typeof value.content === "object" ? value.content : {};
+  const evidence = value.evidence && typeof value.evidence === "object" ? value.evidence : {};
+  return {
+    version: 2,
+    title: cleanBriefText(value.title) || "Untitled Creative Brief",
+    status: value.status === "READY" ? "READY" : "DRAFT",
+    setup: {
+      productId: cleanBriefText(setup.productId),
+      productTitle: cleanBriefText(setup.productTitle) || "Product",
+      sourceCreativeId: cleanBriefText(setup.sourceCreativeId) || null,
+      sourceCreativeTitle: cleanBriefText(setup.sourceCreativeTitle) || null,
+      sourceVideoAnalysisId: cleanBriefText(setup.sourceVideoAnalysisId) || null,
+      sourceVideoAnalysisTitle: cleanBriefText(setup.sourceVideoAnalysisTitle) || null,
+      campaignObjective: cleanBriefText(setup.campaignObjective) || "Conversions",
+      targetAudience: cleanBriefText(setup.targetAudience) || "Not specified",
+      platform: cleanBriefText(setup.platform) || "Other",
+      creativeFormat: cleanBriefText(setup.creativeFormat) || "Product demo",
+      tone: cleanBriefText(setup.tone) || "Authentic",
+      merchantNotes: cleanBriefText(setup.merchantNotes),
+      productSellingPoint: cleanBriefText(setup.productSellingPoint),
+      offer: cleanBriefText(setup.offer),
+      desiredVideoLength: cleanBriefText(setup.desiredVideoLength),
+      restrictions: cleanBriefText(setup.restrictions),
+    },
+    content: {
+      mainConcept: cleanBriefText(content.mainConcept),
+      coreAngle: cleanBriefText(content.coreAngle),
+      hook: cleanBriefText(content.hook),
+      problem: cleanBriefText(content.problem),
+      solution: cleanBriefText(content.solution),
+      productBenefit: cleanBriefText(content.productBenefit),
+      proofPoints: normalizeBriefList(content.proofPoints),
+      sceneSequence: normalizeBriefList(content.sceneSequence),
+      visualDirection: cleanBriefText(content.visualDirection),
+      onScreenText: normalizeBriefList(content.onScreenText),
+      voiceoverGuidance: cleanBriefText(content.voiceoverGuidance),
+      cta: cleanBriefText(content.cta),
+      recommendedDuration: cleanBriefText(content.recommendedDuration),
+      platformGuidance: cleanBriefText(content.platformGuidance),
+      testingVariations: normalizeBriefList(content.testingVariations),
+    },
+    evidence: {
+      product: evidence.product && typeof evidence.product === "object" ? evidence.product : null,
+      creative: evidence.creative && typeof evidence.creative === "object" ? evidence.creative : null,
+      videoAnalysis: evidence.videoAnalysis && typeof evidence.videoAnalysis === "object" ? evidence.videoAnalysis : null,
+      performanceMetrics: Array.isArray(evidence.performanceMetrics) ? evidence.performanceMetrics.filter((item) => item && item.value !== null && item.value !== undefined && item.value !== "") : [],
+      connectedDataSource: cleanBriefText(evidence.connectedDataSource) || null,
+      importedDateRange: evidence.importedDateRange || null,
+    },
+    assumptions: normalizeBriefList(value.assumptions),
+    missingDataNotes: normalizeBriefList(value.missingDataNotes),
+    generatedAt: value.generatedAt || new Date().toISOString(),
+  };
+}
+
+function creativeBriefData(shop, payload, idempotencyKey) {
+  return {
+    shop,
+    title: payload.title,
+    status: payload.status,
+    productId: payload.setup.productId,
+    productTitle: payload.setup.productTitle,
+    sourceCreativeId: payload.setup.sourceCreativeId,
+    sourceVideoAnalysisId: payload.setup.sourceVideoAnalysisId,
+    campaignObjective: payload.setup.campaignObjective,
+    targetAudience: payload.setup.targetAudience,
+    platform: payload.setup.platform,
+    creativeFormat: payload.setup.creativeFormat,
+    tone: payload.setup.tone,
+    merchantNotes: payload.setup.merchantNotes,
+    angle: payload.content.coreAngle || "Creative brief",
+    payloadJson: JSON.stringify(payload),
+    idempotencyKey,
+  };
+}
+
+function legacyContentFromBrief(brief = {}) {
+  return {
+    mainConcept: brief.creatorDirection || brief.description || brief.summary || "",
+    coreAngle: brief.angle || "",
+    hook: brief.hooks?.[0] || brief.hook || "",
+    productBenefit: brief.captions?.[0] || "",
+    proofPoints: brief.captions || [],
+    sceneSequence: brief.script || brief.shotList || [],
+    visualDirection: brief.visualConcepts?.[0] || brief.visual_style || "",
+    onScreenText: brief.captions || [],
+    cta: brief.ctas?.[0] || brief.cta || "",
+    recommendedDuration: brief.duration || "",
+    testingVariations: brief.hooks?.slice(1) || [],
+  };
+}
+
+function legacyEvidenceFromBrief(record = {}, brief = {}) {
+  const imported = brief.context?.importedPerformance || {};
+  const performanceMetrics = briefMetricItems(imported);
+  return {
+    product: {
+      id: record.productId || brief.productId || null,
+      title: record.productTitle || brief.productTitle || brief.context?.productName || "Product",
+      description: null,
+      source: brief.context?.productSource || "legacy",
+    },
+    creative: brief.context?.creativeId ? { id: brief.context.creativeId, title: brief.context.creativeTitle || "Source creative", hook: brief.context.creativeAnalysis || null, score: brief.context.creativeScore || null } : null,
+    videoAnalysis: null,
+    performanceMetrics,
+    connectedDataSource: performanceMetrics.length ? brief.context?.productSourceLabel || "Imported performance data" : null,
+    importedDateRange: imported.dateRange || null,
+  };
+}
+
+function buildCreativeBriefEvidence({ analysis, creative, product }) {
+  const creativePayload = creative?.payload || {};
+  const analysisPayload = analysis?.payload || {};
+  const analysisResult = analysisPayload.result?.analysis || analysisPayload.analysis || {};
+  const productMetrics = briefMetricItems(product);
+  const creativeMetrics = briefMetricItems({ ...creativePayload, ...creative });
+  return {
+    product: {
+      id: product.id || null,
+      title: product.title || "Product",
+      description: cleanBriefText(product.description) || null,
+      source: product.source || "shopify",
+    },
+    creative: creative ? {
+      id: creative.id,
+      title: creative.title || creative.creativeTitle || creativePayload.title || "Selected creative",
+      hook: cleanBriefText(creative.hook || creativePayload.hook) || null,
+      campaignName: cleanBriefText(creative.campaignName || creativePayload.campaignName) || null,
+    } : null,
+    videoAnalysis: analysis ? {
+      id: analysis.id,
+      title: analysis.brief || analysis.fileName || analysisPayload.result?.display?.displayTitle || "Saved video analysis",
+      hookAnalysis: cleanBriefText(analysisResult.hook || analysisResult.hook_analysis) || null,
+      creativeScore: analysisResult.creative_score ?? analysisResult.hook_score ?? null,
+      summary: cleanBriefText(analysisResult.summary || analysisPayload.result?.display?.summary) || null,
+    } : null,
+    performanceMetrics: [...productMetrics, ...creativeMetrics].filter((item, index, items) => items.findIndex((candidate) => candidate.label === item.label) === index),
+    connectedDataSource: product.sourceLabel || (creative ? creative.sourcePlatform || creative.platform : null) || null,
+    importedDateRange: product.dateRange || null,
+  };
+}
+
+function briefMetricItems(source = {}) {
+  const definitions = [
+    ["Impressions", "impressions"], ["Clicks", "clicks"], ["Spend", "spend"],
+    ["Orders", "orders"], ["Revenue", "revenue"], ["CTR", "ctr"],
+    ["CVR", "cvr"], ["CPA", "cpa"], ["ROAS", "roas"],
+  ];
+  return definitions.flatMap(([label, key]) => {
+    const value = source?.[key];
+    return value === null || value === undefined || value === "" ? [] : [{ label, value }];
+  });
+}
+
+function cleanBriefText(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 6000) : "";
+}
+
+function normalizeBriefList(value) {
+  return (Array.isArray(value) ? value : value ? String(value).split(/\n+/) : [])
+    .map(cleanBriefText)
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
+function uniqueBriefValues(values) {
+  return [...new Set(values.map(cleanBriefText).filter(Boolean))];
+}
+
+function defaultBriefDuration(platform) {
+  return /google/i.test(platform) ? "15 seconds" : /youtube/i.test(platform) ? "20 seconds" : "15 seconds";
+}
+
+function platformBriefGuidance(platform) {
+  if (/tiktok/i.test(platform)) return "Use a native 9:16 frame, put the result or tension in the first two seconds, and keep captions inside safe zones.";
+  if (/instagram/i.test(platform)) return "Use a 9:16 frame, a visually polished first frame, concise on-screen text, and a clear final CTA card.";
+  if (/youtube/i.test(platform)) return "Use a 9:16 frame for Shorts, establish the promise immediately, and keep the narrative understandable with sound off.";
+  if (/meta/i.test(platform)) return "Create 9:16 and 4:5 crops, keep the primary claim readable, and make the CTA clear before the final frame.";
+  if (/google/i.test(platform)) return "Keep product branding visible, avoid unsupported claims, and prepare concise variants for placement-specific aspect ratios.";
+  return "Adapt the opening frame, aspect ratio, text-safe area, and CTA to the selected placement before publishing.";
 }
 
 function parsePayload(value) {
