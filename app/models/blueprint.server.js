@@ -22,6 +22,13 @@ import {
 const SHOPIFY_PRODUCT_PAGE_SIZE = 100;
 const MAX_SHOPIFY_PRODUCTS = 1000;
 
+export const VIDEO_ANALYSIS_STATUS = Object.freeze({
+  ACTIVE_DRAFT: "ACTIVE_DRAFT",
+  DISCARDED: "DISCARDED",
+  SAVED_REVIEW: "SAVED_REVIEW",
+  SAVED_TO_LIBRARY: "SAVED_TO_LIBRARY",
+});
+
 const PRODUCT_QUERY = `#graphql
   query BluePrintAIProducts($cursor: String) {
     shop {
@@ -187,7 +194,7 @@ export async function saveBriefRecord(shop, product, brief) {
 
 export async function listVideoAnalyses(shop, limit = 8) {
   const records = await db.videoAnalysis.findMany({
-    where: { shop },
+    where: { shop, status: VIDEO_ANALYSIS_STATUS.SAVED_REVIEW },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -198,6 +205,100 @@ export async function listVideoAnalyses(shop, limit = 8) {
       payload: parsePayload(record.payloadJson),
     }))
     .filter((record) => !isSeededDemoRecord(record));
+}
+
+export async function getCurrentVideoAnalysis(shop) {
+  const record = await db.videoAnalysis.findFirst({
+    where: { shop, status: VIDEO_ANALYSIS_STATUS.ACTIVE_DRAFT },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return record
+    ? {
+        ...record,
+        payload: parsePayload(record.payloadJson),
+      }
+    : null;
+}
+
+export async function saveCurrentVideoAnalysisRecord({
+  shop,
+  product,
+  fileName,
+  brief,
+  analysis,
+}) {
+  const existingDrafts = await db.videoAnalysis.findMany({
+    where: { shop, status: VIDEO_ANALYSIS_STATUS.ACTIVE_DRAFT },
+  });
+  const mediaObjects = existingDrafts.flatMap((record) =>
+    videoAnalysisMediaObjects(record),
+  );
+  const [, saved] = await db.$transaction([
+    db.videoAnalysis.deleteMany({
+      where: { shop, status: VIDEO_ANALYSIS_STATUS.ACTIVE_DRAFT },
+    }),
+    db.videoAnalysis.create({
+      data: {
+        shop,
+        productId: product.id,
+        productTitle: product.title,
+        fileName,
+        brief,
+        payloadJson: JSON.stringify(analysis),
+        status: VIDEO_ANALYSIS_STATUS.ACTIVE_DRAFT,
+        savedToLibrary: false,
+      },
+    }),
+  ]);
+
+  await deleteUnreferencedPrivateMediaObjects(shop, mediaObjects);
+  await createActivityLogRecord(shop, {
+    type: "video_analysis_ready",
+    title: "Current analysis ready",
+    description: `${product.title} · ${fileName || "Uploaded video"}`,
+    relatedType: "VideoAnalysis",
+    relatedId: saved.id,
+  });
+
+  return {
+    ...saved,
+    payload: parsePayload(saved.payloadJson),
+    replacedAnalysisIds: existingDrafts.map((record) => record.id),
+  };
+}
+
+export async function clearCurrentVideoAnalysis(shop, analysisId = "") {
+  const drafts = await db.videoAnalysis.findMany({
+    where: {
+      shop,
+      status: VIDEO_ANALYSIS_STATUS.ACTIVE_DRAFT,
+      ...(analysisId ? { id: analysisId } : {}),
+    },
+  });
+
+  if (!drafts.length) return { cleared: false, deletedFiles: 0 };
+
+  const mediaObjects = drafts.flatMap((record) => videoAnalysisMediaObjects(record));
+  await db.videoAnalysis.deleteMany({
+    where: { shop, id: { in: drafts.map((record) => record.id) } },
+  });
+  const mediaCleanup = await deleteUnreferencedPrivateMediaObjects(shop, mediaObjects);
+
+  await createActivityLogRecord(shop, {
+    type: "video_analysis_cleared",
+    title: "Current analysis removed",
+    description: drafts[0].fileName || drafts[0].productTitle || "Current analysis",
+    payload: {
+      analysisIds: drafts.map((record) => record.id),
+      mediaFilesDeleted: mediaCleanup.deletedFiles > 0,
+    },
+  });
+
+  return {
+    cleared: true,
+    deletedFiles: mediaCleanup.deletedFiles,
+  };
 }
 
 export async function saveVideoAnalysisRecord({
@@ -212,6 +313,7 @@ export async function saveVideoAnalysisRecord({
   brief,
   analysis,
   savedToLibrary = false,
+  sourceAnalysisId = null,
 }) {
   const creativeTitle =
     displayTitle ||
@@ -232,9 +334,32 @@ export async function saveVideoAnalysisRecord({
     brief,
     analysis,
   });
-  const existing = await findRecordByPersistenceKey("videoAnalysis", shop, persistenceKey);
+  let existing = sourceAnalysisId
+    ? await db.videoAnalysis.findFirst({
+        where: {
+          shop,
+          sourceAnalysisId,
+          status: VIDEO_ANALYSIS_STATUS.SAVED_REVIEW,
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : null;
+  if (!existing) {
+    existing = await findRecordByPersistenceKey(
+      "videoAnalysis",
+      shop,
+      persistenceKey,
+      { status: VIDEO_ANALYSIS_STATUS.SAVED_REVIEW },
+    );
+  }
 
   if (existing) {
+    if (sourceAnalysisId && !existing.sourceAnalysisId) {
+      existing = await db.videoAnalysis.update({
+        where: { id: existing.id },
+        data: { sourceAnalysisId },
+      });
+    }
     if (savedToLibrary) {
       const existingPayload = parsePayload(existing.payloadJson);
       const previewMedia = await resolveReviewPreviewMediaForCreative({
@@ -281,6 +406,8 @@ export async function saveVideoAnalysisRecord({
       fileName,
       brief: creativeSummary,
       payloadJson: JSON.stringify(withPersistenceMetadata(analysis, persistenceKey)),
+      status: VIDEO_ANALYSIS_STATUS.SAVED_REVIEW,
+      sourceAnalysisId,
       savedToLibrary,
     },
   });
@@ -323,6 +450,58 @@ export async function saveVideoAnalysisRecord({
     payload: parsePayload(saved.payloadJson),
     wasCreated: true,
   };
+}
+
+export async function saveCurrentVideoAnalysisAsReview(shop, analysisId) {
+  const current = await db.videoAnalysis.findFirst({
+    where: {
+      id: analysisId,
+      shop,
+      status: VIDEO_ANALYSIS_STATUS.ACTIVE_DRAFT,
+    },
+  });
+
+  if (!current) {
+    throw new Error("The current analysis is no longer available. Analyze the video again.");
+  }
+
+  const payload = parsePayload(current.payloadJson) || {};
+  const result = payload.result || payload;
+  const display = result.display || {};
+  const metadata = result.metadata || {};
+  const media = result.media || {};
+  const saved = await saveVideoAnalysisRecord({
+    shop,
+    product: { id: current.productId, title: current.productTitle },
+    fileName: current.fileName || payload.filename || "Uploaded creative",
+    fileType: metadata.file_type || "",
+    fileSize: Number(metadata.file_size || 0),
+    mediaUrl: media.mediaUrl || metadata.media_url || "",
+    displayTitle: display.displayTitle || display.generatedTitle || current.fileName || "Video review",
+    summary: display.summary || current.brief || "Creative analysis",
+    brief: current.brief || display.summary || "Creative analysis",
+    analysis: payload,
+    savedToLibrary: false,
+    sourceAnalysisId: current.id,
+  });
+  const linkedCreatives = await db.savedCreative.updateMany({
+    where: {
+      shop,
+      sourceType: "video_analysis",
+      sourceId: current.id,
+    },
+    data: { sourceId: saved.id },
+  });
+
+  if (linkedCreatives.count > 0) {
+    await db.videoAnalysis.update({
+      where: { id: saved.id },
+      data: { savedToLibrary: true },
+    });
+    saved.savedToLibrary = true;
+  }
+
+  return saved;
 }
 
 export const REVIEW_PREVIEW_UNAVAILABLE_MESSAGE =
@@ -2651,10 +2830,16 @@ function parsePayload(value) {
   }
 }
 
-async function findRecordByPersistenceKey(modelName, shop, persistenceKey) {
+async function findRecordByPersistenceKey(
+  modelName,
+  shop,
+  persistenceKey,
+  additionalWhere = {},
+) {
   return db[modelName].findFirst({
     where: {
       shop,
+      ...additionalWhere,
       payloadJson: {
         contains: `"persistenceKey":"${persistenceKey}"`,
       },

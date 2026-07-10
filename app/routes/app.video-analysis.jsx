@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useLoaderData, useLocation } from "react-router";
 import {
   CartesianGrid,
@@ -12,18 +12,19 @@ import {
 import { analyzeUploadedVideoFile, getAnalyzerRuntimeStatus } from "../services/media-analyzer.server";
 import {
   buildRevenueBlueprint,
+  clearCurrentVideoAnalysis,
+  getCurrentVideoAnalysis,
   getWorkspaceProfile,
-  getWorkspaceSettingsMap,
   listVideoAnalyses,
   listSavedCreatives,
   REVIEW_PREVIEW_UNAVAILABLE_MESSAGE,
   resolveReviewPreviewMediaForCreative,
   resolveProductContext,
   saveCreativeRecord,
+  saveCurrentVideoAnalysisAsReview,
+  saveCurrentVideoAnalysisRecord,
   saveRevenueBlueprintRecord,
-  saveVideoAnalysisRecord,
 } from "../models/blueprint.server";
-import { listCreativePerformance } from "../models/creative-performance.server";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { persistUploadedVideoFile } from "../utils/upload-storage.server";
 import { assertUploadRequestSize } from "../utils/upload-storage.server";
@@ -41,18 +42,47 @@ export const meta = () => {
 
 export const loader = async ({ request }) => {
   const { merchantData, session } = await loadShopifyRouteContext(request);
-  const [analyses, savedCreatives, settings, profile, performance] = await Promise.all([
+  const [analyses, currentRecord, savedCreatives, profile] = await Promise.all([
     listVideoAnalyses(session.shop, 6),
+    getCurrentVideoAnalysis(session.shop),
     listSavedCreatives(session.shop, 100),
-    getWorkspaceSettingsMap(session.shop, {
-      auto_save_analyzed_videos: "true",
-    }),
     getWorkspaceProfile(session.shop),
-    listCreativePerformance({ merchantData, shop: session.shop }),
   ]);
+  const savedCurrentReview = currentRecord
+    ? analyses.find((record) => record.sourceAnalysisId === currentRecord.id)
+    : null;
+  const currentSourceIds = [currentRecord?.id, savedCurrentReview?.id].filter(Boolean);
+  const currentLibraryCreative = savedCreatives.find(
+    (creative) =>
+      creative.sourceType === "video_analysis" &&
+      currentSourceIds.includes(creative.sourceId),
+  );
+  let currentMediaAvailable = true;
+
+  if (currentRecord) {
+    try {
+      await resolveReviewPreviewMediaForCreative({
+        shop: session.shop,
+        reviewId: currentRecord.id,
+      });
+    } catch {
+      currentMediaAvailable = false;
+    }
+  }
 
   return {
     analyses,
+    currentAnalysis: currentRecord
+      ? {
+          ...currentRecord.payload,
+          activeAnalysisId: currentRecord.id,
+          savedAnalysisId: savedCurrentReview?.id || null,
+          productId: currentRecord.productId,
+          productTitle: currentRecord.productTitle,
+        }
+      : null,
+    currentLibraryCreativeId: currentLibraryCreative?.id || "",
+    currentMediaAvailable,
     libraryCreativeIds: savedCreatives
       .filter((creative) => creative.sourceType === "video_analysis")
       .reduce((result, creative) => {
@@ -60,9 +90,6 @@ export const loader = async ({ request }) => {
         return result;
       }, {}),
     analyzerRuntime: getAnalyzerRuntimeStatus(),
-    autoSaveAnalyzedVideos: settings.auto_save_analyzed_videos === "true",
-    hasDemoPerformanceData: performance.hasDemoPerformanceData,
-    hasMeasuredPerformanceData: performance.hasMeasuredPerformanceData,
     productError: merchantData.errors?.[0] || "",
     products: merchantData.products,
     selectedProductId: profile.selectedProductId || merchantData.products[0]?.id || "",
@@ -77,12 +104,7 @@ export const action = async ({ request }) => {
 
   try {
     if (intent === "analyze") {
-      const settings = await getWorkspaceSettingsMap(session.shop, {
-        auto_save_analyzed_videos: "true",
-      });
       const profile = await getWorkspaceProfile(session.shop);
-      const autoSaveAnalyzedVideos =
-        settings.auto_save_analyzed_videos === "true";
       const videoFile = formData.get("file");
       const storedVideo = await persistUploadedVideoFile(videoFile, {
         namespace: "video-analysis",
@@ -121,34 +143,37 @@ export const action = async ({ request }) => {
         storedVideo,
         product,
       });
-      const saved = autoSaveAnalyzedVideos
-        ? await saveVideoAnalysisRecord({
-            shop: session.shop,
-            product,
-            fileName,
-            fileType,
-            fileSize,
-            mediaUrl: storedVideo?.mediaUrl || "",
-            displayTitle: analysis.result.display.displayTitle,
-            summary: analysis.result.display.summary,
-            brief: analysis.result.display.summary,
-            analysis,
-            savedToLibrary: true,
-          })
-        : null;
+      const current = await saveCurrentVideoAnalysisRecord({
+        shop: session.shop,
+        product,
+        fileName,
+        brief: analysis.result.display.summary,
+        analysis,
+      });
 
       return {
         result: {
           ...analysis,
-          savedAnalysisId: saved?.id || null,
+          activeAnalysisId: current.id,
+          savedAnalysisId: null,
           productId: product.id,
           productTitle: product.title,
         },
-        success: autoSaveAnalyzedVideos
-          ? saved.wasCreated
-            ? `Analysis saved as: ${analysis.result.display.displayTitle}`
-            : `Analysis already saved as: ${analysis.result.display.displayTitle}`
-          : `Analysis ready as: ${analysis.result.display.displayTitle}. Save manually when ready.`,
+        success: `Current analysis ready: ${analysis.result.display.displayTitle}`,
+      };
+    }
+
+    if (intent === "clearCurrentAnalysis") {
+      const cleared = await clearCurrentVideoAnalysis(
+        session.shop,
+        String(formData.get("activeAnalysisId") || ""),
+      );
+
+      return {
+        cleared: cleared.cleared,
+        success: cleared.cleared
+          ? "Current analysis removed. Explicitly saved reviews and Creative Library items were kept."
+          : "There is no current analysis to remove.",
       };
     }
 
@@ -191,34 +216,17 @@ export const action = async ({ request }) => {
       { displayTitle: fileName, originalFilename: fileName, summary: analysis.summary || "Not available" };
     const displayTitle = display.displayTitle || display.generatedTitle || fileName;
     const summary = display.summary || analysis.summary || "Not available";
-    const saveableAnalysis = {
-      filename: fileName,
-      result: {
-        ...(analysisPayload.result || payload.result || {}),
-        display,
-      },
-    };
-
     if (intent === "saveAnalysis") {
-      const saved = await saveVideoAnalysisRecord({
-        shop: session.shop,
-        product,
-        fileName,
-        fileType: metadata.file_type || "",
-        fileSize: Number(metadata.file_size || 0),
-        mediaUrl,
-        displayTitle,
-        summary,
-        brief: summary,
-        analysis: saveableAnalysis,
-        savedToLibrary: false,
-      });
+      const saved = await saveCurrentVideoAnalysisAsReview(
+        session.shop,
+        String(analysisPayload.activeAnalysisId || ""),
+      );
 
       return {
         savedAnalysisId: saved.id,
         success: saved.wasCreated
-          ? `Analysis saved as: ${displayTitle}`
-          : `Analysis already saved as: ${displayTitle}`,
+          ? `Review saved as: ${displayTitle}`
+          : `Review already saved as: ${displayTitle}`,
       };
     }
 
@@ -241,6 +249,7 @@ export const action = async ({ request }) => {
         sourceType: "video_analysis",
         sourceId:
           analysisPayload.savedAnalysisId ||
+          analysisPayload.activeAnalysisId ||
           (previewMedia.mediaFingerprint ? `upload:${previewMedia.mediaFingerprint}` : null),
         productId: product.id,
         productTitle: product.title,
@@ -268,9 +277,11 @@ export const action = async ({ request }) => {
         },
       });
 
-      if (analysisPayload.savedAnalysisId) {
+      const analysisRecordId =
+        analysisPayload.savedAnalysisId || analysisPayload.activeAnalysisId;
+      if (analysisRecordId) {
         await db.videoAnalysis.updateMany({
-          where: { id: analysisPayload.savedAnalysisId, shop: session.shop },
+          where: { id: analysisRecordId, shop: session.shop },
           data: { savedToLibrary: true },
         });
       }
@@ -904,15 +915,24 @@ function RetentionDropOffAnalyzer({ retentionAnalysis }) {
   );
 }
 
-function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
+function VideoAdBreakdown({
+  initialLibraryCreativeId = "",
+  mediaAvailable = true,
+  onRemoved,
+  result,
+  file,
+}) {
   const location = useLocation();
   const analysisSaveFetcher = useFetcher();
   const saveFetcher = useFetcher();
   const blueprintFetcher = useFetcher();
+  const clearFetcher = useFetcher();
   const [currentResult, setCurrentResult] = useState(result);
   const [actionMessage, setActionMessage] = useState("");
   const [actionTone, setActionTone] = useState("success");
-  const [libraryCreativeId, setLibraryCreativeId] = useState("");
+  const [libraryCreativeId, setLibraryCreativeId] = useState(
+    initialLibraryCreativeId,
+  );
   const payload = currentResult?.result || {};
   const analysis = payload?.analysis || {};
   const metadata = payload?.metadata || {};
@@ -940,8 +960,8 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
 
   useEffect(() => {
     setCurrentResult(result);
-    setLibraryCreativeId("");
-  }, [result]);
+    setLibraryCreativeId(initialLibraryCreativeId);
+  }, [initialLibraryCreativeId, result]);
 
   useEffect(() => {
     const data = analysisSaveFetcher.data;
@@ -986,6 +1006,20 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
     }
   }, [blueprintFetcher.data]);
 
+  useEffect(() => {
+    const data = clearFetcher.data;
+    if (!data) return;
+    if (data.error) {
+      setActionTone("error");
+      setActionMessage(data.error);
+    } else if (data.cleared) {
+      onRemoved?.(data.success);
+    } else if (data.success) {
+      setActionTone("success");
+      setActionMessage(data.success);
+    }
+  }, [clearFetcher.data, onRemoved]);
+
   function submitPersistedAction(intent, fetcher) {
     setActionMessage("");
     fetcher.submit(
@@ -1028,14 +1062,14 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.25em] text-sky-400">
-            Creative Intelligence Report
+            Current analysis
           </p>
           <h2 className="mt-2 text-3xl font-black text-white">
             Video Ad Breakdown
           </h2>
           <p className="mt-2 text-slate-400">
-            Fields returned by the configured analyzer. Missing fields remain
-            explicitly unavailable.
+            This analysis will stay here until you save it or remove it. Missing
+            analyzer fields remain explicitly unavailable.
           </p>
         </div>
 
@@ -1050,10 +1084,10 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
             className="rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {analysisSaveFetcher.state !== "idle"
-              ? "Saving analysis..."
-              : currentResult?.savedAnalysisId || autoSaveAnalyzedVideos
-                ? "Analysis saved"
-                : "Save Analysis"}
+              ? "Saving review..."
+              : currentResult?.savedAnalysisId
+                ? "Review saved"
+                : "Save Review"}
           </button>
 
           {libraryCreativeId ? (
@@ -1090,8 +1124,35 @@ function VideoAdBreakdown({ autoSaveAnalyzedVideos, result, file }) {
           >
             Download Report
           </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              clearFetcher.submit(
+                {
+                  intent: "clearCurrentAnalysis",
+                  activeAnalysisId: currentResult?.activeAnalysisId || "",
+                },
+                { method: "post" },
+              )
+            }
+            disabled={clearFetcher.state !== "idle"}
+            className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 font-semibold text-red-100 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {clearFetcher.state !== "idle"
+              ? "Removing..."
+              : "Remove current analysis"}
+          </button>
         </div>
       </div>
+
+      {!mediaAvailable && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100" role="status">
+          The uploaded video preview is no longer available. You can still read
+          this analysis, remove it, or upload a new video. Saving to Creative
+          Library requires a playable preview.
+        </div>
+      )}
 
       <p className="text-xs font-semibold leading-5 text-slate-500">
         {isEstimated
@@ -1210,7 +1271,9 @@ export default function VideoAnalysisRoute() {
   const {
     analyses,
     analyzerRuntime,
-    autoSaveAnalyzedVideos,
+    currentAnalysis,
+    currentLibraryCreativeId,
+    currentMediaAvailable,
     productError,
     products,
     selectedProductId,
@@ -1219,8 +1282,10 @@ export default function VideoAnalysisRoute() {
   const analyzeFetcher = useFetcher();
   const [file, setFile] = useState(null);
   const [warning, setWarning] = useState("");
+  const [clearMessage, setClearMessage] = useState("");
+  const [displayedAnalysis, setDisplayedAnalysis] = useState(currentAnalysis);
   const loading = analyzeFetcher.state !== "idle";
-  const result = analyzeFetcher.data?.result || null;
+  const result = displayedAnalysis;
   const error = analyzeFetcher.data?.error || "";
   const success = analyzeFetcher.data?.success || "";
   const analyzerUnavailable = analyzeFetcher.data?.analyzerUnavailable === true;
@@ -1228,26 +1293,26 @@ export default function VideoAnalysisRoute() {
   const selectedFileMeta = file
     ? [file.type || "video file", formatFileSize(file.size)].filter(Boolean).join(" · ")
     : "MP4, MOV, M4V, or WebM";
-  const savedReviews = analyses.map(buildSavedReview);
-  const currentSavedReview =
-    result?.savedAnalysisId &&
-    !savedReviews.some((review) => review.id === result.savedAnalysisId)
-      ? buildSavedReview({
-          id: result.savedAnalysisId,
-          productId: result.productId,
-          productTitle: result.productTitle,
-          fileName: result.filename,
-          brief: result.result?.display?.summary,
-          payload: result,
-          createdAt: new Date().toISOString(),
-        })
-      : null;
-  const reviewHistory = currentSavedReview
-    ? [currentSavedReview, ...savedReviews]
-    : savedReviews;
+  const reviewHistory = analyses.map(buildSavedReview);
   const [selectedReviewId, setSelectedReviewId] = useState("");
   const selectedReview =
     reviewHistory.find((review) => review.id === selectedReviewId) || null;
+
+  useEffect(() => {
+    setDisplayedAnalysis(currentAnalysis);
+  }, [currentAnalysis]);
+
+  useEffect(() => {
+    if (!analyzeFetcher.data?.result) return;
+    setDisplayedAnalysis(analyzeFetcher.data.result);
+    setClearMessage("");
+  }, [analyzeFetcher.data]);
+
+  const handleCurrentAnalysisRemoved = useCallback((message) => {
+    setDisplayedAnalysis(null);
+    setClearMessage(message || "Current analysis removed.");
+    setFile(null);
+  }, []);
 
   useEffect(() => {
     if (!selectedReview) return undefined;
@@ -1319,6 +1384,12 @@ export default function VideoAnalysisRoute() {
           <p className="mt-2 text-slate-400">
             Choose a TikTok ad, product demo, UGC clip, or creator video.
           </p>
+
+          {result && !result.savedAnalysisId && (
+            <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              Starting a new analysis will replace the current unsaved analysis.
+            </p>
+          )}
 
           <analyzeFetcher.Form method="post" encType="multipart/form-data">
             <input name="intent" type="hidden" value="analyze" />
@@ -1393,17 +1464,14 @@ export default function VideoAnalysisRoute() {
               {loading
                 ? !analyzerRuntime.configured
                   ? "Saving upload..."
-                  : autoSaveAnalyzedVideos
-                  ? "Analyzing and saving..."
                   : "Analyzing..."
                 : analyzerRuntime.configured
                   ? "Analyze Video"
                   : "Save Upload"}
             </button>
             <p className="mt-3 text-xs font-semibold text-slate-500">
-              {autoSaveAnalyzedVideos
-                ? "Auto-save enabled"
-                : "Auto-save disabled - save manually after analysis"}
+              Analysis results remain current drafts until you explicitly save
+              the review or save it to Creative Library.
             </p>
           </analyzeFetcher.Form>
 
@@ -1446,11 +1514,19 @@ export default function VideoAnalysisRoute() {
               {success}
             </div>
           )}
+
+          {clearMessage && (
+            <div className="mt-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-200">
+              {clearMessage}
+            </div>
+          )}
       </div>
 
       {result && (
           <VideoAdBreakdown
-            autoSaveAnalyzedVideos={autoSaveAnalyzedVideos}
+            initialLibraryCreativeId={currentLibraryCreativeId}
+            mediaAvailable={currentMediaAvailable}
+            onRemoved={handleCurrentAnalysisRemoved}
             result={result}
             file={file}
           />
@@ -1466,7 +1542,7 @@ export default function VideoAnalysisRoute() {
                 Saved reviews
               </h2>
               <p className="mt-2 text-sm text-slate-400">
-                Shop-scoped AI Review Studio records saved from analyzed videos.
+                Reviews you explicitly saved.
               </p>
             </div>
           </div>
@@ -1485,7 +1561,8 @@ export default function VideoAnalysisRoute() {
           ) : (
             <div className="mt-5 rounded-xl border border-dashed border-white/15 bg-slate-950/30 p-5">
               <p className="text-sm font-semibold text-slate-200">
-                No saved reviews yet. Analyze a video to create the first shop-scoped review.
+                No saved reviews yet. Save the current analysis when you want it
+                to appear in Review History.
               </p>
             </div>
           )}

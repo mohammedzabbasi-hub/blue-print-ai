@@ -48,19 +48,23 @@ model SavedBrief {
 }
 
 model VideoAnalysis {
-  id             String   @id @default(cuid())
-  shop           String
-  productId      String
-  productTitle   String
-  fileName       String?
-  brief          String?
-  payloadJson    String
-  savedToLibrary Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String   @id @default(cuid())
+  shop             String
+  productId        String
+  productTitle     String
+  fileName         String?
+  brief            String?
+  payloadJson      String
+  status           String   @default("SAVED_REVIEW")
+  sourceAnalysisId String?
+  savedToLibrary   Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([shop, createdAt])
   @@index([shop, productId])
+  @@index([shop, status, createdAt])
+  @@index([shop, sourceAnalysisId])
 }
 
 model SavedCreative {

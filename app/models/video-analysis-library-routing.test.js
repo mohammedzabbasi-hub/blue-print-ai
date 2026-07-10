@@ -59,4 +59,18 @@ describe("saved review Creative Library routing", () => {
     assert.match(source, /mediaState: "private_upload"/);
     assert.match(source, /mediaPath: previewMedia\.mediaPath/);
   });
+
+  it("keeps current analysis separate from explicitly saved review history", async () => {
+    const source = await readFile(videoAnalysisRoute, "utf8");
+
+    assert.match(source, /getCurrentVideoAnalysis/);
+    assert.match(source, /saveCurrentVideoAnalysisRecord/);
+    assert.match(source, /saveCurrentVideoAnalysisAsReview/);
+    assert.match(source, /clearCurrentVideoAnalysis/);
+    assert.match(source, /Current analysis ready:/);
+    assert.match(source, /This analysis will stay here until you save it or remove it\./);
+    assert.match(source, /Remove current analysis/);
+    assert.match(source, /Reviews you explicitly saved\./);
+    assert.doesNotMatch(source, /auto_save_analyzed_videos/);
+  });
 });

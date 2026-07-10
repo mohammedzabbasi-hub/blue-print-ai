@@ -54,7 +54,6 @@ export const meta = () => {
 
 const SETTINGS_DEFAULTS = {
   analysis_depth: "standard",
-  auto_save_analyzed_videos: "true",
 };
 
 const ANALYSIS_DEPTH_OPTIONS = new Set(["standard", "deep", "fast"]);
@@ -206,9 +205,6 @@ export const action = async ({ request }) => {
   try {
     const settings = await upsertWorkspaceSettings(session.shop, {
       analysis_depth: analysisDepth,
-      auto_save_analyzed_videos: formData.has("auto_save_analyzed_videos")
-        ? "true"
-        : "false",
     });
 
     await createActivityLogRecord(session.shop, {
@@ -417,7 +413,7 @@ export default function SettingsRoute() {
           )}
 
           {activeSection === "video" && (
-            <SettingsPanel icon={Clapperboard} title="Video Analysis Preferences" description="Control how uploaded videos are processed and saved.">
+            <SettingsPanel icon={Clapperboard} title="Video Analysis Preferences" description="Control how uploaded videos are processed.">
               {actionData?.error && <SettingsAlert tone="error">{actionData.error}</SettingsAlert>}
               {actionData?.success && <SettingsAlert tone="success">{actionData.success}</SettingsAlert>}
               <Form key={`preferences-${resetUiKey}`} method="post" className="space-y-5">
@@ -430,7 +426,14 @@ export default function SettingsRoute() {
                     <option value="fast">Fast Summary</option>
                   </select>
                 </label>
-                <PreferenceToggle defaultChecked={currentSettings.auto_save_analyzed_videos === "true"} disabled={savingPreferences} label="Auto-save analyzed videos" name="auto_save_analyzed_videos" description="Save results to the Creative Library automatically." />
+                <ReadOnlySetting
+                  label="Current analysis persistence"
+                  value="Stays until saved or removed"
+                />
+                <p className="max-w-xl text-sm leading-6 text-slate-400">
+                  Reviews and Creative Library items are only created when you
+                  click their explicit save buttons in AI Review Studio.
+                </p>
                 <button type="submit" disabled={savingPreferences} className="bp-primary-cta">
                   {savingPreferences ? "Saving..." : "Save Preferences"}
                 </button>
@@ -855,40 +858,6 @@ function SettingsSelect({
         ))}
       </select>
     </label>
-  );
-}
-
-function PreferenceToggle({
-  defaultChecked,
-  description,
-  disabled,
-  label,
-  last = false,
-  name,
-}) {
-  return (
-    <div
-      className={`flex max-w-xl items-center justify-between gap-5 ${
-        last ? "" : "border-b border-slate-800 pb-4"
-      }`}
-    >
-      <span>
-        <label className="block text-sm font-black" htmlFor={name}>
-          {label}
-        </label>
-        <span className="block text-sm text-slate-400">{description}</span>
-      </span>
-
-      <input
-        id={name}
-        className="h-6 w-11 accent-cyan-500"
-        defaultChecked={defaultChecked}
-        disabled={disabled}
-        name={name}
-        type="checkbox"
-        value="true"
-      />
-    </div>
   );
 }
 
