@@ -106,12 +106,28 @@ test("campaign management is explicitly local planning and not ad-platform mutat
 test("review configuration is embedded, least-privilege, and uses one production origin", async () => {
   const config = await readFile(new URL("../../shopify.app.toml", import.meta.url), "utf8");
   assert.match(config, /embedded\s*=\s*true/);
-  assert.match(config, /scopes\s*=\s*"read_products"/);
+  const scopes = config.match(/scopes\s*=\s*"([^"]+)"/)?.[1];
+  assert.equal(scopes, "read_products");
   assert.doesNotMatch(config, /(?:read|write)_(?:customers|orders|draft_orders)|write_products/);
 
-  const origins = [...config.matchAll(/https:\/\/YOUR_PRODUCTION_APP_URL/g)];
-  assert.equal(origins.length, 2);
-  assert.match(config, /application_url\s*=\s*"https:\/\/YOUR_PRODUCTION_APP_URL"/);
-  assert.match(config, /"https:\/\/YOUR_PRODUCTION_APP_URL\/auth\/callback"/);
-  assert.doesNotMatch(config, /ngrok|trycloudflare|blueprintai-app\.onrender\.com/);
+  const applicationUrl = config.match(/application_url\s*=\s*"([^"]+)"/)?.[1];
+  assert.ok(applicationUrl, "application_url must be configured");
+
+  const productionOrigin = new URL(applicationUrl);
+  assert.equal(productionOrigin.protocol, "https:");
+  assert.equal(applicationUrl, productionOrigin.origin);
+  assert.equal(applicationUrl.endsWith("/"), false);
+  assert.doesNotMatch(
+    applicationUrl,
+    /localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[?::1\]?|ngrok|trycloudflare|tunnel|YOUR_PRODUCTION_APP_URL/i,
+  );
+
+  const redirectUrlsBlock = config.match(/redirect_urls\s*=\s*\[([\s\S]*?)\]/)?.[1];
+  assert.ok(redirectUrlsBlock, "Shopify redirect_urls must be configured");
+  const redirectUrls = [...redirectUrlsBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  assert.equal(redirectUrls.length, 1);
+  assert.equal(redirectUrls[0], `${applicationUrl}/auth/callback`);
+  assert.equal(new URL(redirectUrls[0]).origin, productionOrigin.origin);
+
+  assert.doesNotMatch(config, /YOUR_PRODUCTION_APP_URL/);
 });
