@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { withEmbeddedRouteParams } from "../utils/embedded-routing.js";
 
 test("production free workspaces keep the Shopify AppProvider boundary", async () => {
   const source = await readFile(
@@ -26,6 +27,44 @@ test("production login recovery does not ask merchants to enter a shop domain", 
   assert.match(source, /Open BluePrintAI from Shopify Admin/);
   assert.match(source, /href="https:\/\/admin\.shopify\.com"/);
   assert.match(source, /manualLoginAllowed: false/);
+});
+
+test("public homepage sends merchants to Shopify Admin instead of bare /app", async () => {
+  const source = await readFile(
+    new URL("../routes/_index/route.jsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(
+    [...source.matchAll(/withEmbeddedRouteParams\("\/app"/g)].length,
+    1,
+    "only the embedded-request loader may target /app",
+  );
+  assert.match(source, /redirect\(withEmbeddedRouteParams\("\/app", url\.search\)\)/);
+  assert.doesNotMatch(source, /(?:to|href)\s*=\s*["']\/app["']/);
+  assert.doesNotMatch(source, /Open app|Open Shopify app/);
+  assert.match(source, /href="https:\/\/admin\.shopify\.com"/);
+  assert.match(source, /Open BluePrintAI from your Shopify Admin\./);
+  assert.doesNotMatch(source, /<(?:form|Form)\b|name=["']shop["']/);
+});
+
+test("/app remains authenticated and embedded entry routing preserves Shopify context", async () => {
+  const [appSource, landingSource] = await Promise.all([
+    readFile(new URL("../routes/app.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../routes/_index/route.jsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(appSource, /await authenticate\.admin\(request\)/);
+  assert.match(landingSource, /url\.searchParams\.get\("embedded"\) === "1"/);
+  assert.match(landingSource, /url\.searchParams\.has\("shop"\)/);
+  assert.match(landingSource, /url\.searchParams\.has\("host"\)/);
+  assert.equal(
+    withEmbeddedRouteParams(
+      "/app",
+      "?shop=test.myshopify.com&host=encoded-host&embedded=1&id_token=token&ignored=value",
+    ),
+    "/app?embedded=1&host=encoded-host&id_token=token&shop=test.myshopify.com",
+  );
 });
 
 test("welcome copy explains which data paths are optional", async () => {

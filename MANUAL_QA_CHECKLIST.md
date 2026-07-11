@@ -32,7 +32,7 @@ Use this checklist inside Shopify Admin with the embedded app installed. Keep br
 
 - [ ] Abstract hero mockup replaced; no "Next ad direction", "Hook Pattern", "Creator Style", or abstract brief-output card appears.
 - [ ] New visual explains Upload -> Analyze -> Generate in a simple three-step workflow.
-- [ ] Public landing page CTA buttons still route correctly: Open app, Open Shopify app, and Contact support.
+- [ ] Public landing page links to Shopify Admin and Contact support, tells merchants to open BluePrintAI from Shopify Admin, and never links directly to bare `/app`.
 - [ ] Responsive behavior checked on desktop and narrow/mobile widths.
 - [ ] No unsupported TikTok sync, revenue, order, or ad performance claims added.
 

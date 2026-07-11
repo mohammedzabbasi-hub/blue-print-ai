@@ -1,4 +1,4 @@
-import { Link, redirect, useLocation } from "react-router";
+import { Link, redirect } from "react-router";
 import { FileVideo, ScanSearch, ClipboardList } from "lucide-react";
 import { withEmbeddedRouteParams } from "../../utils/embedded-routing";
 
@@ -41,9 +41,6 @@ const workflowSteps = [
 ];
 
 export default function LandingRoute() {
-  const location = useLocation();
-  const appRoute = withEmbeddedRouteParams("/app", location.search);
-
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#070b16] text-white">
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#070b16]/90 backdrop-blur">
@@ -85,12 +82,12 @@ export default function LandingRoute() {
           </nav>
 
           <div className="flex items-center justify-self-end">
-            <Link
-              to={appRoute}
+            <a
+              href="https://admin.shopify.com"
               className="whitespace-nowrap rounded-xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-base font-black text-slate-200 transition-colors hover:border-cyan-400 hover:bg-slate-800/70 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-4 focus-visible:ring-offset-[#070b16] sm:px-6"
             >
-              Open app
-            </Link>
+              Shopify Admin
+            </a>
           </div>
         </div>
       </header>
@@ -113,12 +110,12 @@ export default function LandingRoute() {
             </p>
 
             <div className="mt-10 flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row">
-              <Link
-                to={appRoute}
+              <a
+                href="https://admin.shopify.com"
                 className="rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-8 py-4 text-center text-lg font-black text-white shadow-xl shadow-cyan-500/20 transition hover:scale-[1.02]"
               >
-                Open Shopify app
-              </Link>
+                Open Shopify Admin
+              </a>
 
               <Link
                 to="/support"
@@ -127,6 +124,10 @@ export default function LandingRoute() {
                 Contact support
               </Link>
             </div>
+
+            <p className="mt-4 w-full max-w-xs text-sm font-bold text-slate-400 sm:max-w-none">
+              Open BluePrintAI from your Shopify Admin.
+            </p>
 
             <div className="mt-10 grid w-full max-w-xs gap-4 text-sm font-bold text-slate-400 sm:max-w-none sm:grid-cols-3">
               <p className="rounded-2xl border border-slate-800 bg-[#0b1220] p-4">
