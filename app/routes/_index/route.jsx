@@ -83,10 +83,11 @@ export default function LandingRoute() {
 
           <div className="flex items-center justify-self-end">
             <a
+              data-public-launch-cta
               href="https://admin.shopify.com"
               className="whitespace-nowrap rounded-xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-base font-black text-slate-200 transition-colors hover:border-cyan-400 hover:bg-slate-800/70 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-4 focus-visible:ring-offset-[#070b16] sm:px-6"
             >
-              Shopify Admin
+              Open Shopify Admin
             </a>
           </div>
         </div>
@@ -111,6 +112,7 @@ export default function LandingRoute() {
 
             <div className="mt-10 flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row">
               <a
+                data-public-launch-cta
                 href="https://admin.shopify.com"
                 className="rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-8 py-4 text-center text-lg font-black text-white shadow-xl shadow-cyan-500/20 transition hover:scale-[1.02]"
               >

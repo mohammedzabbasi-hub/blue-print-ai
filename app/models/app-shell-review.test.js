@@ -16,17 +16,23 @@ test("production free workspaces keep the Shopify AppProvider boundary", async (
   assert.match(source, /<AppProvider embedded apiKey=\{apiKey\}>/);
 });
 
-test("production login recovery does not ask merchants to enter a shop domain", async () => {
-  const source = await readFile(
-    new URL("../routes/auth.login/route.jsx", import.meta.url),
-    "utf8",
-  );
+test("production login recovery is readable and does not ask merchants to enter a shop domain", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../routes/auth.login/route.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../styles/blueprint.css", import.meta.url), "utf8"),
+  ]);
 
   assert.match(source, /process\.env\.NODE_ENV === "production"/);
   assert.match(source, /url\.searchParams\.has\("shop"\)/);
   assert.match(source, /Open BluePrintAI from Shopify Admin/);
   assert.match(source, /href="https:\/\/admin\.shopify\.com"/);
   assert.match(source, /manualLoginAllowed: false/);
+  assert.match(source, /<h1 className="[^"]*text-slate-50[^"]*">/);
+  assert.match(source, /<p className="[^"]*text-slate-300[^"]*">/);
+  assert.match(source, /<a[\s\S]*?className="[^"]*text-white[^"]*"[\s\S]*?href="https:\/\/admin\.shopify\.com"/);
+  assert.doesNotMatch(source, /<h1 className="[^"]*text-slate-950/);
+  assert.doesNotMatch(source, /<p className="[^"]*text-slate-600/);
+  assert.match(styles, /:root\s*\{\s*color-scheme:\s*dark;/);
 });
 
 test("public homepage sends merchants to Shopify Admin instead of bare /app", async () => {
@@ -41,9 +47,18 @@ test("public homepage sends merchants to Shopify Admin instead of bare /app", as
     "only the embedded-request loader may target /app",
   );
   assert.match(source, /redirect\(withEmbeddedRouteParams\("\/app", url\.search\)\)/);
-  assert.doesNotMatch(source, /(?:to|href)\s*=\s*["']\/app["']/);
+  assert.doesNotMatch(
+    source,
+    /href\s*=\s*["'](?:\/app|https:\/\/blueprintai-app\.onrender\.com\/app)(?:["'/?#])/,
+  );
   assert.doesNotMatch(source, /Open app|Open Shopify app/);
-  assert.match(source, /href="https:\/\/admin\.shopify\.com"/);
+
+  const launchCtas = [...source.matchAll(/<a\s+([\s\S]*?data-public-launch-cta[\s\S]*?)>/g)];
+  assert.equal(launchCtas.length, 2);
+  for (const [, attributes] of launchCtas) {
+    assert.match(attributes, /href="https:\/\/admin\.shopify\.com"/);
+  }
+
   assert.match(source, /Open BluePrintAI from your Shopify Admin\./);
   assert.doesNotMatch(source, /<(?:form|Form)\b|name=["']shop["']/);
 });

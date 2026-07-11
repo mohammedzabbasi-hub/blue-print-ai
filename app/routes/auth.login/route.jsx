@@ -44,10 +44,10 @@ export default function Auth() {
     return (
       <AppProvider embedded={false}>
         <main className="mx-auto max-w-2xl px-6 py-16 text-center">
-          <h1 className="text-3xl font-black text-slate-950">
+          <h1 className="text-3xl font-black text-slate-50">
             Open BluePrintAI from Shopify Admin
           </h1>
-          <p className="mt-4 leading-7 text-slate-600">
+          <p className="mt-4 leading-7 text-slate-300">
             BluePrintAI uses your existing Shopify sign-in. Open Shopify Admin,
             choose Apps, and select BluePrintAI. If the app is not installed,
             install it from its Shopify App Store listing first.
