@@ -2,7 +2,7 @@
 
 ## Required environment-variable names
 
-Set values in Render; never commit or paste them into screenshots/reports.
+Set values in the selected hosting provider's secret/configuration system; never commit or paste them into screenshots/reports.
 
 Core required:
 
@@ -12,7 +12,6 @@ Core required:
 - `SHOPIFY_API_SECRET`
 - `SHOPIFY_APP_URL`
 - `SCOPES=read_products`
-- `SESSION_SECRET`
 - `FILE_STORAGE_DRIVER=s3`
 - `S3_BUCKET` (or supported `MEDIA_S3_BUCKET` alias)
 - `S3_REGION` (or supported `MEDIA_S3_REGION` alias)
@@ -64,9 +63,9 @@ Must be absent or false in production:
 - `SHOPIFY_DEV_TUNNEL_URL`
 - local/tunnel-only host variables
 
-## Exact Render commands
+## Hosting commands
 
-Recommended Render native Node service:
+For a provider with separate build, pre-deploy, and start phases:
 
 - Build Command: `npm ci && npm run build`
 - Pre-Deploy Command: `npm run setup:production`
@@ -86,7 +85,7 @@ Docker deployment:
 - Build: use the committed `Dockerfile`.
 - Start: container default `npm run docker-start`.
 - `docker-start` runs production setup/migrations before `npm run start`.
-- If Render Pre-Deploy already runs `npm run setup:production`, prefer native `npm run start` afterward instead of migrating twice. Repeated `migrate deploy` is designed to be safe, but a single clear migration owner is easier to operate.
+- If a pre-deploy phase already runs `npm run setup:production`, use `npm run start` afterward instead of migrating twice. Repeated `migrate deploy` is designed to be safe, but a single clear migration owner is easier to operate.
 
 ## Current migration state
 
@@ -103,7 +102,7 @@ Local SQLite reports all 14 local migrations applied. The real production pendin
 
 ## Pre-deploy
 
-- [ ] Backup/snapshot the managed PostgreSQL database according to Render/provider procedures.
+- [ ] Backup/snapshot the managed PostgreSQL database according to provider procedures.
 - [ ] Confirm deploy targets the correct database and app origin; do not print the URL.
 - [ ] Confirm no production environment variable contains localhost, ngrok, TryCloudflare, or a placeholder origin.
 - [ ] Confirm `SHOPIFY_APP_URL` is the exact HTTPS origin without a path.
@@ -120,7 +119,7 @@ Local SQLite reports all 14 local migrations applied. The real production pendin
 - [ ] Confirm Prisma reports successful migration deployment; do not use `migrate reset`, `db push`, or edit an applied migration.
 - [ ] Start with `npm run start`.
 - [ ] Confirm `/health` returns `200`, body `ok`, and `Cache-Control: no-store`.
-- [ ] Inspect Render logs for startup/migration errors without copying secrets into tickets/screenshots.
+- [ ] Inspect hosting logs for startup/migration errors without copying secrets into tickets/screenshots.
 - [ ] Run `npx prisma migrate status --schema=prisma/production/schema.prisma` inside the production environment; confirm up to date.
 
 ## Shopify verification

@@ -74,6 +74,8 @@ test("combined settings content covers legal, privacy, support, and deletion", a
     assert.match(combinedContent, new RegExp(heading), heading);
   }
   assert.match(combinedContent, /Shopify embedded app/);
+  assert.match(combinedContent, /currently requests read_products/);
+  assert.match(combinedContent, /does not request Shopify customer or order scopes/);
   assert.match(combinedContent, /OAuth-based/);
   assert.match(combinedContent, /read-only and reporting-only/);
   assert.match(combinedContent, /Users can disconnect Google Ads at any time/);
@@ -83,6 +85,20 @@ test("combined settings content covers legal, privacy, support, and deletion", a
   assert.match(settings, /Type DELETE to confirm/);
   assert.match(settings, /deletionConfirmation !== "DELETE"/);
   assert.match(settings, /deleteWorkspaceDataFromSettingsForm\(session\.shop, formData\)/);
+  assert.match(settings, /deletionInputRef\.current\?\.focus\(\)/);
+  assert.match(settings, /event\.key === "Escape"/);
+  assert.match(settings, /event\.key !== "Tab"/);
+  assert.match(settings, /deletionTriggerRef\.current\?\.focus\(\)/);
+});
+
+test("public deletion instructions match the authenticated Settings deletion flow", () => {
+  const deletionCopy = JSON.stringify(legalPages["data-deletion"]);
+
+  assert.match(deletionCopy, /Settings/);
+  assert.match(deletionCopy, /Legal & Privacy/);
+  assert.match(deletionCopy, /Delete BluePrintAI data/);
+  assert.match(deletionCopy, /type DELETE/);
+  assert.doesNotMatch(deletionCopy, /does not currently provide a user-facing control/i);
 });
 
 test("merchant deletion does not call Shopify or Google Ads deletion APIs", async () => {

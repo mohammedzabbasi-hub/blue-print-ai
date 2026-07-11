@@ -237,7 +237,7 @@ export default function ConnectionsRoute() {
               Data connections
             </p>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">
-              Ad platform connections
+              Connections
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Manual CSV import remains available. Google Ads can connect when server setup is complete; direct connections are optional and are not required to use BluePrintAI.

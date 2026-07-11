@@ -25,7 +25,7 @@ Automated source/model tests and a production build were run. A real HTTPS deplo
 | Location | Required action |
 | --- | --- |
 | `shopify.app.toml:7` | Replace `https://YOUR_PRODUCTION_APP_URL` with the exact deployed HTTPS origin. |
-| `shopify.app.toml:43` | Replace the sentinel with `<deployed-origin>/auth/callback`. |
+| `shopify.app.toml:43` | Replace the sentinel with `https://YOUR_PRODUCTION_APP_URL/auth/callback`. |
 | Production environment | Set `SHOPIFY_APP_URL` to the identical origin, without a trailing slash. |
 | Shopify Partner/Dev Dashboard | Publish the same App URL and allowed redirect URL through the deployed app configuration/version. |
 
@@ -36,7 +36,7 @@ Shopify CLI configuration requires concrete URLs in TOML; runtime environment su
 - `NODE_ENV=production`
 - `SHOPIFY_API_KEY`
 - `SHOPIFY_API_SECRET`
-- `SHOPIFY_APP_URL=https://<real-deployed-origin>`
+- `SHOPIFY_APP_URL=https://YOUR_PRODUCTION_APP_URL`
 - `SCOPES=read_products`
 - `DATABASE_URL=postgresql://...` using managed PostgreSQL and required TLS
 - `FILE_STORAGE_DRIVER=s3`

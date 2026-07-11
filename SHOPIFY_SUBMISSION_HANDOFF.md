@@ -10,7 +10,7 @@ Every angle-bracketed value below must be replaced by the authorized human opera
 
 | Placeholder | Meaning |
 | --- | --- |
-| `<YOUR_PRODUCTION_APP_URL>` | Stable public HTTPS origin, without a trailing slash |
+| `https://YOUR_PRODUCTION_APP_URL` | Stable public HTTPS origin, without a trailing slash |
 | `<YOUR_HOSTING_PROVIDER>` | Selected production hosting platform |
 | `<YOUR_HOSTING_PROVIDER_DEPLOY_COMMAND>` | Provider-approved command for deploying the reviewed commit, if the provider uses one |
 | `<SHOPIFY_API_KEY>` | Client ID/key for the matching production Shopify app |
@@ -41,7 +41,7 @@ The wording below is preserved from `FINAL_SHOPIFY_REVIEW_AUDIT.md`. The two dem
 
 1. Replace both production-origin placeholders in `shopify.app.toml`, then publish the reviewed configuration with the existing `npm run deploy` / `shopify app deploy` workflow only after the web service is live.
 2. Set the Dashboard App URL to the same stable HTTPS production origin.
-3. Set the allowed redirection URL to exactly `<production-origin>/auth/callback`.
+3. Set the allowed redirection URL to exactly `https://YOUR_PRODUCTION_APP_URL/auth/callback`.
 4. Confirm the app is embedded and the requested/granted scope is exactly `read_products`; reinstall the review store if the grant changed.
 5. Confirm registration and signed delivery for `app/scopes_update`, `app/uninstalled`, `customers/data_request`, `customers/redact`, and `shop/redact` at the routes configured in `shopify.app.toml`.
 6. Complete listing/reviewer setup: accurate feature and pricing copy, public privacy/support URLs, test credentials or install instructions, and reviewer steps that do not promise unavailable direct ad connectors.
@@ -131,8 +131,8 @@ The seed script refuses stores other than `blueprintai-test-store.myshopify.com`
 
 ## What must be done in the Shopify Partner Dashboard
 
-- Set App URL to `<YOUR_PRODUCTION_APP_URL>` using the same HTTPS origin as `SHOPIFY_APP_URL` and `shopify.app.toml`.
-- Set the single allowed Shopify redirect URL to `<YOUR_PRODUCTION_APP_URL>/auth/callback`.
+- Set App URL to `https://YOUR_PRODUCTION_APP_URL` using the same HTTPS origin as `SHOPIFY_APP_URL` and `shopify.app.toml`.
+- Set the single allowed Shopify redirect URL to `https://YOUR_PRODUCTION_APP_URL/auth/callback`.
 - Confirm embedded mode is enabled.
 - Confirm the requested and granted scope is exactly `read_products`; reinstall the review store if needed.
 - Publish the TOML-defined webhook subscriptions and verify signed delivery for all five topics.
@@ -147,7 +147,7 @@ This table reflects `.env.example` and the production decisions described by the
 | --- | --- | --- | --- |
 | `SHOPIFY_API_KEY` | Shopify app client key | `<SHOPIFY_API_KEY>` | No |
 | `SHOPIFY_API_SECRET` | Shopify app authentication/webhook secret | `<SHOPIFY_API_SECRET>` | **Yes** |
-| `SHOPIFY_APP_URL` | Stable HTTPS production origin | `<YOUR_PRODUCTION_APP_URL>` | No |
+| `SHOPIFY_APP_URL` | Stable HTTPS production origin | `https://YOUR_PRODUCTION_APP_URL` | No |
 | `SCOPES` | Requested Shopify scopes; must be exactly `read_products` | `<READ_PRODUCTS>` | No |
 | `DATABASE_URL` | Managed PostgreSQL connection | `<DATABASE_URL>` | **Yes** |
 | `FILE_STORAGE_DRIVER` | Production media backend; must be `s3` | `<S3>` | No |

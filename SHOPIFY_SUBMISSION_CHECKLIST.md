@@ -2,14 +2,14 @@
 
 ## Install and embedded flow
 
-- [ ] Deploy the exact reviewed commit to `https://blueprintai-app.onrender.com`.
+- [ ] Deploy the exact reviewed commit to `https://YOUR_PRODUCTION_APP_URL`.
 - [ ] Fresh-install on a new development/review store.
 - [ ] Verify embedded load, App Bridge navigation, refresh, direct deep links, expired session, multiple staff users, uninstall, and reinstall.
 - [ ] Verify zero-product and populated-product onboarding; optional Google Ads can be skipped.
 
 ## URL and redirects
 
-- [x] Repository `application_url` is `https://blueprintai-app.onrender.com`.
+- [x] Repository `application_url` is `https://YOUR_PRODUCTION_APP_URL`.
 - [x] Repository redirect URLs use the same HTTPS origin.
 - [x] No committed ngrok/Cloudflare development URL is used for production.
 - [ ] Confirm Partner Dashboard values match and publish configuration.

@@ -103,8 +103,7 @@ export default function LandingRoute() {
             </div>
 
             <h1 className="mt-8 w-full max-w-xs break-words text-xl font-black leading-[1.12] tracking-tight sm:max-w-5xl sm:text-5xl md:text-7xl">
-              Plan the next TikTok-style creative with clearer evidence before
-              you make it.
+              Plan your next creative with clearer evidence before you make it.
             </h1>
 
             <p className="mt-8 w-full max-w-xs text-base leading-7 text-slate-400 sm:max-w-3xl sm:text-xl sm:leading-9">
@@ -207,7 +206,7 @@ export default function LandingRoute() {
                 "Break down hooks, formats, creator styles, pacing, and visual patterns from uploaded creative assets.",
               ],
               [
-                "Winning recommendations",
+                "Creative recommendations",
                 "Get practical recommendations for your next direction based on the shop and creative data you provide.",
               ],
               [
@@ -247,7 +246,7 @@ export default function LandingRoute() {
                 [
                   "Step 3",
                   "Plan the next test",
-                  "Use recommendations and briefs to plan the next creative. Direct TikTok Shop OAuth/API sync is planned.",
+                  "Use recommendations and briefs to plan the next creative. Optional read-only Google Ads reporting and manual CSV import provide performance context.",
                 ],
               ].map(([step, title, body]) => (
                 <section key={step}>
@@ -266,8 +265,8 @@ export default function LandingRoute() {
       <footer className="border-t border-slate-800 px-6 py-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
           <p>
-            BluePrintAI MVP. Manual import/upload today; TikTok Shop OAuth/API
-            integration planned.
+            BluePrintAI MVP. Shopify product context, manual import/upload, and
+            optional read-only Google Ads reporting.
           </p>
           <div className="flex flex-wrap gap-5 font-bold">
             <Link to="/privacy" className="hover:text-cyan-200">

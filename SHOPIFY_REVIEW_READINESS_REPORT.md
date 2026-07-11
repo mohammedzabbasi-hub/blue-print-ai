@@ -1,7 +1,7 @@
 # Shopify App Store Review Readiness Report
 
 Audit date: July 6, 2026  
-Production URL: `https://blueprintai-app.onrender.com`
+Production URL: `https://YOUR_PRODUCTION_APP_URL`
 
 ## Current status
 
@@ -28,8 +28,8 @@ Production URL: `https://blueprintai-app.onrender.com`
 
 ## Remaining manual tasks
 
-- Verify the Render deployment is healthy and uses the committed production origin.
-- Set and verify all production secrets without committing values: `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`, `SCOPES`, `DATABASE_URL`, `SESSION_SECRET`, storage credentials, and the Google Ads variables when that integration is enabled.
+- Verify the selected hosting deployment is healthy and uses the committed production origin.
+- Set and verify all production secrets without committing values: `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`, `SCOPES`, `DATABASE_URL`, storage credentials, and the Google Ads variables when that integration is enabled.
 - Confirm `support@blueprintai.app` and the privacy contact are monitored. This is an alias, not a personal Gmail address, but inbox operation cannot be proven from source.
 - Owner/legal counsel must confirm the operator identity, mailing address, governing law, retention/subprocessor statements, and policy text in `app/content/legal.js`.
 - Test a fresh install, uninstall, and reinstall against the actual review store and production PostgreSQL/S3 services.
@@ -47,11 +47,11 @@ Follow `SHOPIFY_REVIEWER_TEST_INSTRUCTIONS.md`. The essential path is Install â†
 
 ## Production URL checklist
 
-- [ ] Render origin is `https://blueprintai-app.onrender.com` with valid TLS.
+- [ ] Hosted origin is `https://YOUR_PRODUCTION_APP_URL` with valid TLS.
 - [ ] `SHOPIFY_APP_URL` exactly matches that origin without a trailing slash.
 - [ ] Shopify App URL and allowed callback URLs match `shopify.app.toml`.
 - [ ] No temporary tunnel is configured in the production app or Partner Dashboard.
-- [ ] Google callback is `https://blueprintai-app.onrender.com/auth/google-ads/callback`.
+- [ ] Google callback is `https://YOUR_PRODUCTION_APP_URL/auth/google-ads/callback`.
 
 ## Install/reinstall checklist
 

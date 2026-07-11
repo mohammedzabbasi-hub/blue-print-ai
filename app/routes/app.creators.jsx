@@ -79,7 +79,7 @@ export default function CreatorsRoute() {
             </div>
 
             <h1 className="mt-4 max-w-5xl font-display text-4xl font-semibold leading-tight tracking-tight text-foreground">
-              Compare creator account performance
+              Creators
             </h1>
 
             <p className="mt-4 max-w-4xl text-sm leading-6 text-muted-foreground">

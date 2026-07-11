@@ -15,6 +15,31 @@ test("production free workspaces keep the Shopify AppProvider boundary", async (
   assert.match(source, /<AppProvider embedded apiKey=\{apiKey\}>/);
 });
 
+test("production login recovery does not ask merchants to enter a shop domain", async () => {
+  const source = await readFile(
+    new URL("../routes/auth.login/route.jsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /process\.env\.NODE_ENV === "production"/);
+  assert.match(source, /url\.searchParams\.has\("shop"\)/);
+  assert.match(source, /Open BluePrintAI from Shopify Admin/);
+  assert.match(source, /href="https:\/\/admin\.shopify\.com"/);
+  assert.match(source, /manualLoginAllowed: false/);
+});
+
+test("welcome copy explains which data paths are optional", async () => {
+  const source = await readFile(
+    new URL("../routes/app._index.jsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /Shopify product context works without an external account/);
+  assert.match(source, /read-only Google Ads are optional/);
+  assert.match(source, /requires a video upload and an available analyzer/);
+  assert.doesNotMatch(source, /proven patterns/);
+});
+
 test("every sidebar destination has a renderable route module", async () => {
   const shell = await readFile(new URL("../routes/app.jsx", import.meta.url), "utf8");
   const expectedRoutes = [

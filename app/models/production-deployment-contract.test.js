@@ -35,6 +35,8 @@ test("Render can use a public, non-cached health check without Shopify auth", as
 
   assert.match(source, /new Response\("ok"/);
   assert.match(source, /"Cache-Control": "no-store"/);
+  assert.match(source, /"Content-Type": "text\/plain; charset=utf-8"/);
   assert.match(source, /status: 200/);
   assert.doesNotMatch(source, /authenticate|prisma|DATABASE_URL/);
+  assert.doesNotMatch(source, /export default/);
 });

@@ -373,7 +373,7 @@ export default function DataImportRoute() {
         </div>
 
         <h1 className="font-display mt-3 text-4xl font-semibold text-foreground">
-          Import performance data
+          Data Import
         </h1>
 
         <p className="mt-3 max-w-4xl text-sm leading-6 text-muted-foreground sm:text-[15px]">

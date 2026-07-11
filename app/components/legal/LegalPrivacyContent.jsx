@@ -9,7 +9,7 @@ const sections = [
   },
   {
     title: "Shopify Store Data",
-    body: "BluePrintAI uses Shopify store, catalog, order, and performance data only to provide app functionality, such as product context, workspace reporting, creative analysis, and recommendations. Data is scoped to the authenticated Shopify store.",
+    body: "BluePrintAI currently requests read_products and uses Shopify store and catalog product context to provide app functionality. It does not request Shopify customer or order scopes for this review build. App workspace records, imports, and outputs remain scoped to the authenticated Shopify store.",
   },
   {
     title: "Read-Only Advertising Data",
@@ -33,7 +33,7 @@ const sections = [
   },
 ];
 
-export default function LegalPrivacyContent({ deleting = false, onDelete }) {
+export default function LegalPrivacyContent({ deleteButtonRef, deleting = false, onDelete }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -54,6 +54,7 @@ export default function LegalPrivacyContent({ deleting = false, onDelete }) {
                   className="mt-4 rounded-xl border border-red-400/60 bg-red-500/15 px-4 py-2.5 text-sm font-black text-red-100 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={deleting}
                   onClick={onDelete}
+                  ref={deleteButtonRef}
                   type="button"
                 >
                   Delete BluePrintAI data

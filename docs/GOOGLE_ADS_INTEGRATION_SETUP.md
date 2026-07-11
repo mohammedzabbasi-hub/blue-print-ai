@@ -8,7 +8,7 @@ BluePrintAI uses Google OAuth 2.0 with the Google Ads scope and stores only an e
 2. Create a **Web application** OAuth client.
 3. Add the exact callback URL as an authorized redirect URI:
    - Local Shopify dev preview: `https://YOUR_CURRENT_DEV_TUNNEL/auth/google-ads/callback`
-   - Production: `https://blueprintai-app.onrender.com/auth/google-ads/callback`
+   - Production: `https://YOUR_PRODUCTION_APP_URL/auth/google-ads/callback`
 4. Request or locate the Google Ads API developer token in the Google Ads manager account under **API Center**.
 5. Keep every credential in the server environment or deployment secret manager. Never expose these values through Vite/client variables or commit them.
 

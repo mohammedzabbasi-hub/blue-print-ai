@@ -123,7 +123,7 @@ export const legalPages = {
       },
       {
         title: "Account Data",
-        body: "Account data may include Shopify store domain, workspace settings, authorized user context from Shopify, onboarding profile fields, plan or billing status, support requests, and app activity records.",
+        body: "Account data may include Shopify store domain, workspace settings, authorized user context from Shopify, onboarding profile fields, plan or billing status, support requests, and app activity records. The current review build requests read_products and does not request Shopify customer or order scopes.",
       },
       {
         title: "Google Ads Authorization And Data",
@@ -459,7 +459,7 @@ export const legalPages = {
       },
       {
         title: "Requesting Deletion While Installed",
-        body: `The app does not currently provide a user-facing control that deletes the entire workspace while it remains installed. To request deletion, contact ${LEGAL_PLACEHOLDERS.supportChannel} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.`,
+        body: `While the app remains installed, an authorized merchant can open Settings, choose Legal & Privacy, select Delete BluePrintAI data, and type DELETE to confirm removal of the shop-scoped workspace records and uploaded media described there. A merchant can also contact ${LEGAL_PLACEHOLDERS.supportChannel} and include the Shopify store domain needed to identify the workspace. Do not send passwords, API keys, OAuth codes, access tokens, refresh tokens, developer tokens, or private ad-account credentials.`,
       },
       {
         title: "Request Handling",

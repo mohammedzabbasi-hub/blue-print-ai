@@ -4,17 +4,17 @@ Complete this against the active production configuration and listing immediatel
 
 | Dashboard item | Required production value / verification | Done | Evidence / notes |
 | --- | --- | --- | --- |
-| App URL | Exact stable origin `https://blueprintai-app.onrender.com` only after confirming it is the live Render service and equals `SHOPIFY_APP_URL` and `shopify.app.toml` | ☐ |  |
-| Allowed redirect URLs | Exact active `shopify.app.toml` list on the same HTTPS origin: `/auth/callback`, `/auth/shopify/callback`, `/api/auth/callback`; remove stale localhost/tunnel/old-domain entries and verify every retained route | ☐ |  |
+| App URL | Exact stable origin `https://YOUR_PRODUCTION_APP_URL` only after confirming it is the live hosted service and equals `SHOPIFY_APP_URL` and `shopify.app.toml` | ☐ |  |
+| Allowed redirect URLs | Exactly `https://YOUR_PRODUCTION_APP_URL/auth/callback`; remove stale localhost, tunnel, old-domain, `/auth/shopify/callback`, and `/api/auth/callback` entries | ☐ |  |
 | Embedded app | Enabled; clean install opens inside Shopify Admin with App Bridge navigation and no framing/CSP error | ☐ |  |
 | App proxy | Not configured because the repository declares no app proxy. If Dashboard differs, stop and reconcile before submission | ☐ |  |
 | Distribution type | Select the intended public App Store distribution; confirm it matches the submission and is not a custom/single-merchant distribution by mistake | ☐ |  |
 | Pricing / free listing | **Free**; no recurring, one-time, usage, or external charge. Production uses `SHOPIFY_BILLING_REQUIRED=false` and `SHOPIFY_BILLING_BYPASS=false` | ☐ |  |
 | Contact/support email | `support@blueprintai.app`; owner-approved address for BluePrintAI Commerce; matches public Support page and reviewer instructions; test receipt/reply without exposing messages in repo screenshots | ☐ |  |
-| Privacy URL | `https://blueprintai-app.onrender.com/privacy`; public, HTTPS, current, no placeholders | ☐ |  |
-| Terms URL | `https://blueprintai-app.onrender.com/terms`; public, HTTPS, current, no placeholders | ☐ |  |
-| Support URL | `https://blueprintai-app.onrender.com/support`; public, HTTPS, matches staffed contact/process | ☐ |  |
-| Data deletion URL/process | `https://blueprintai-app.onrender.com/data-deletion`; process agrees with compliance webhooks and privacy copy | ☐ |  |
+| Privacy URL | `https://YOUR_PRODUCTION_APP_URL/privacy`; public, HTTPS, current, no placeholders | ☐ |  |
+| Terms URL | `https://YOUR_PRODUCTION_APP_URL/terms`; public, HTTPS, current, no placeholders | ☐ |  |
+| Support URL | `https://YOUR_PRODUCTION_APP_URL/support`; public, HTTPS, matches staffed contact/process | ☐ |  |
+| Data deletion URL/process | `https://YOUR_PRODUCTION_APP_URL/data-deletion`; process agrees with compliance webhooks and privacy copy | ☐ |  |
 | App icon | Final BluePrintAI icon at Shopify-required size/format; sharp at small size; no transparency/cropping/text-legibility issue; rights cleared | ☐ |  |
 | Screenshots | Upload only current production images selected from `SHOPIFY_SCREENSHOT_PLAN.md`; correct dimensions/order; no fake UI, secrets, or personal data | ☐ |  |
 | Category | Choose the narrowest truthful primary/secondary categories for creative planning/marketing analytics; confirm feature claims fit the chosen category | ☐ |  |
@@ -31,7 +31,7 @@ Complete this against the active production configuration and listing immediatel
 
 ## Final cross-check
 
-- [ ] Render deployed SHA = intended GitHub SHA = locally verified SHA.
+- [ ] Hosted deployed SHA = intended repository SHA = locally verified SHA.
 - [ ] Dashboard App URL = production `SHOPIFY_APP_URL` = `shopify.app.toml` origin.
 - [ ] Active redirects, scopes, embedded setting, and webhooks match `shopify.app.toml` exactly.
 - [ ] Listing claims match the behavior observed during the clean install and Google Ads tests.

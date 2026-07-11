@@ -17,7 +17,7 @@ Do not submit or run `shopify app deploy` until the required values below are re
 - [ ] `DEV_BYPASS_SHOPIFY_AUTH=false`
 - [ ] `SHOPIFY_BILLING_BYPASS=false`
 - [ ] `SHOPIFY_BILLING_REQUIRED=false` while the listing is free.
-- [ ] Floating Assistant Llama provider on the main BluePrintAI Render web service only: set `LLM_PROVIDER=llama`, secret `LLAMA_API_KEY`, `LLAMA_API_BASE_URL`, and `LLAMA_MODEL` when live assistant responses are required.
+- [ ] Floating Assistant Llama provider on the main BluePrintAI web service only: set `LLM_PROVIDER=llama`, secret `LLAMA_API_KEY`, `LLAMA_API_BASE_URL`, and `LLAMA_MODEL` when live assistant responses are required.
 
 ## Analyzer decision
 
@@ -30,7 +30,7 @@ Never configure example analyzer URLs or keys in production.
 
 ## Floating Assistant LLM decision
 
-Choose one truthful configuration on the main BluePrintAI Shopify web app service (`https://blueprintai-app.onrender.com`), not in frontend code and not in the separate analyzer service:
+Choose one truthful configuration on the main BluePrintAI Shopify web app service (`https://YOUR_PRODUCTION_APP_URL`), not in frontend code and not in the separate analyzer service:
 
 - [ ] Llama Assistant included in review: set `LLM_PROVIDER=llama`, real `LLAMA_API_BASE_URL`, secret `LLAMA_API_KEY`, and `LLAMA_MODEL`.
 - [ ] Llama Assistant not included or unavailable: leave `LLAMA_API_KEY` unset and verify the Assistant shows the safe fallback guidance without raw provider errors.
@@ -42,7 +42,7 @@ Never expose Llama keys through Vite variables, browser code, screenshots, or co
 Shopify CLI requires concrete URLs in `shopify.app.toml`; it does not substitute `SHOPIFY_APP_URL` into these fields.
 
 - [ ] Set `application_url` to exactly the `SHOPIFY_APP_URL` value.
-- [ ] Set the sole `redirect_urls` entry to `<SHOPIFY_APP_URL>/auth/callback`.
+- [ ] Set the sole `redirect_urls` entry to `https://YOUR_PRODUCTION_APP_URL/auth/callback`.
 - [ ] Confirm `embedded = true`.
 - [ ] Confirm access scopes are exactly `read_products`.
 - [ ] Confirm relative webhook paths for app uninstall, scope updates, customer requests/redaction, and shop redaction.

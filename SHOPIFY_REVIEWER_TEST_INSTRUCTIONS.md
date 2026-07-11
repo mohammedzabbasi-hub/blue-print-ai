@@ -1,6 +1,6 @@
 # BluePrintAI Reviewer Test Instructions
 
-Production app URL: `https://blueprintai-app.onrender.com`
+Production app URL: `https://YOUR_PRODUCTION_APP_URL`
 
 1. Install BluePrintAI on the development store.
 2. Open the embedded app in Shopify Admin and complete onboarding if prompted.

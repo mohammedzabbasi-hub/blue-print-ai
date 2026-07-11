@@ -109,7 +109,9 @@ test("review configuration is embedded, least-privilege, and uses one production
   assert.match(config, /scopes\s*=\s*"read_products"/);
   assert.doesNotMatch(config, /(?:read|write)_(?:customers|orders|draft_orders)|write_products/);
 
-  const origins = [...config.matchAll(/https:\/\/blueprintai-app\.onrender\.com/g)];
-  assert.equal(origins.length, 4);
-  assert.doesNotMatch(config, /ngrok|trycloudflare|YOUR_PRODUCTION_APP_URL/);
+  const origins = [...config.matchAll(/https:\/\/YOUR_PRODUCTION_APP_URL/g)];
+  assert.equal(origins.length, 2);
+  assert.match(config, /application_url\s*=\s*"https:\/\/YOUR_PRODUCTION_APP_URL"/);
+  assert.match(config, /"https:\/\/YOUR_PRODUCTION_APP_URL\/auth\/callback"/);
+  assert.doesNotMatch(config, /ngrok|trycloudflare|blueprintai-app\.onrender\.com/);
 });

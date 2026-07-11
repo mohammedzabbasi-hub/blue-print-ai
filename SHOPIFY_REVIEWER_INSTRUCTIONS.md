@@ -55,11 +55,11 @@ BluePrintAI is currently free. There is no paid plan, subscription charge, usage
 
 Public pages are available without logging in:
 
-- Support: `https://blueprintai-app.onrender.com/support`
-- Privacy: `https://blueprintai-app.onrender.com/privacy`
-- Terms: `https://blueprintai-app.onrender.com/terms`
-- Contact: `https://blueprintai-app.onrender.com/contact`
-- Data deletion: `https://blueprintai-app.onrender.com/data-deletion`
+- Support: `https://YOUR_PRODUCTION_APP_URL/support`
+- Privacy: `https://YOUR_PRODUCTION_APP_URL/privacy`
+- Terms: `https://YOUR_PRODUCTION_APP_URL/terms`
+- Contact: `https://YOUR_PRODUCTION_APP_URL/contact`
+- Data deletion: `https://YOUR_PRODUCTION_APP_URL/data-deletion`
 
 Embedded versions are also available from the BluePrintAI sidebar and Settings. BluePrintAI is operated by BluePrintAI Commerce, and the support contact displayed there must match the Shopify App Store listing.
 

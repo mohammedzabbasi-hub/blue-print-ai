@@ -23,7 +23,7 @@ const welcomeFeatures = [
     eyebrow: "Create",
     title: "Creative Briefs",
     description:
-      "Translate proven patterns and product context into focused briefs your team and creators can act on.",
+      "Translate available patterns and product context into focused briefs your team and creators can act on.",
   },
   {
     eyebrow: "Plan",
@@ -63,6 +63,11 @@ export default function LandingRoute() {
           </p>
           <p className="mt-3 text-sm text-slate-400">
             Your workspace is securely connected to {formatShopName(shop)}.
+          </p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+            Shopify product context works without an external account. Importing
+            performance data and connecting read-only Google Ads are optional;
+            AI Review Studio requires a video upload and an available analyzer.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">

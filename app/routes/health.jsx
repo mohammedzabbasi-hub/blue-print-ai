@@ -12,7 +12,3 @@ export const action = () =>
     headers: { Allow: "GET" },
     status: 405,
   });
-
-export default function HealthRoute() {
-  return null;
-}

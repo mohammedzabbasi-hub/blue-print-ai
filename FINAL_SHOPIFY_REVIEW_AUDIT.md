@@ -59,7 +59,7 @@ The repository passes every detected automated preflight check, and no unresolve
 
 1. Replace both production-origin placeholders in `shopify.app.toml`, then publish the reviewed configuration with the existing `npm run deploy` / `shopify app deploy` workflow only after the web service is live.
 2. Set the Dashboard App URL to the same stable HTTPS production origin.
-3. Set the allowed redirection URL to exactly `<production-origin>/auth/callback`.
+3. Set the allowed redirection URL to exactly `https://YOUR_PRODUCTION_APP_URL/auth/callback`.
 4. Confirm the app is embedded and the requested/granted scope is exactly `read_products`; reinstall the review store if the grant changed.
 5. Confirm registration and signed delivery for `app/scopes_update`, `app/uninstalled`, `customers/data_request`, `customers/redact`, and `shop/redact` at the routes configured in `shopify.app.toml`.
 6. Complete listing/reviewer setup: accurate feature and pricing copy, public privacy/support URLs, test credentials or install instructions, and reviewer steps that do not promise unavailable direct ad connectors.
