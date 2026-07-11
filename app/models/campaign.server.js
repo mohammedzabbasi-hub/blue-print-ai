@@ -86,8 +86,17 @@ export async function updateCampaign(shop, id, input) {
 
 export async function deleteCampaign(shop, id) {
   const campaign = await db.adCampaign.findFirst({ where: { id, shop } });
-  if (!campaign) throw new Error("Campaign was not found.");
-  await db.adCampaign.delete({ where: { id } });
+  if (!campaign) return null;
+
+  await db.$transaction([
+    db.adCampaignCreative.deleteMany({ where: { campaignId: id, shop } }),
+    db.creatorAttribution.updateMany({
+      where: { campaignId: id, shop },
+      data: { campaignId: null },
+    }),
+    db.adCampaign.deleteMany({ where: { id, shop } }),
+  ]);
+
   return campaign;
 }
 

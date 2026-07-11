@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { after, describe, it } from "node:test";
 
 import db from "../db.server.js";
@@ -8,11 +9,17 @@ import {
   deleteSavedCreative,
 } from "./blueprint.server.js";
 import { listCreativePerformance } from "./creative-performance.server.js";
+import {
+  deleteUploadedWorkspaceFiles,
+  getPrivateMediaObject,
+  persistUploadedVideoFile,
+} from "../utils/upload-storage.server.js";
 
 const shops = new Set();
 
 after(async () => {
   for (const shop of shops) {
+    await deleteUploadedWorkspaceFiles(shop);
     await db.adCampaignCreative.deleteMany({ where: { shop } });
     await db.creatorAttribution.deleteMany({ where: { shop } });
     await db.adCampaign.deleteMany({ where: { shop } });
@@ -24,7 +31,7 @@ after(async () => {
 });
 
 describe("Creative Library imported creative deletion", () => {
-  it("deletes duplicate saved-review identities once and remains shop-scoped", async () => {
+  it("deletes only the selected saved-review record and remains shop-scoped", async () => {
     const suffix = Date.now();
     const shop = `creative-saved-delete-${suffix}.myshopify.com`;
     const otherShop = `creative-saved-delete-other-${suffix}.myshopify.com`;
@@ -47,12 +54,12 @@ describe("Creative Library imported creative deletion", () => {
     const deleted = await deleteSavedCreative(shop, first.id);
 
     assert.equal(deleted?.id, first.id);
-    assert.equal(await db.savedCreative.count({ where: { shop } }), 0);
+    assert.equal(await db.savedCreative.count({ where: { shop } }), 1);
     assert.equal(await db.savedCreative.count({ where: { shop: otherShop } }), 1);
     assert.equal(await deleteSavedCreative(shop, first.id), null);
   });
 
-  it("deletes duplicate saved creatives by media identity once and remains shop-scoped", async () => {
+  it("keeps a different SavedCreative that shares media identity and remains shop-scoped", async () => {
     const suffix = Date.now();
     const shop = `creative-media-delete-${suffix}.myshopify.com`;
     const otherShop = `creative-media-delete-other-${suffix}.myshopify.com`;
@@ -105,7 +112,7 @@ describe("Creative Library imported creative deletion", () => {
     const deleted = await deleteSavedCreative(shop, first.id);
 
     assert.equal(deleted?.id, first.id);
-    assert.equal(await db.savedCreative.count({ where: { shop } }), 0);
+    assert.equal(await db.savedCreative.count({ where: { shop } }), 1);
     assert.equal(await db.savedCreative.count({ where: { shop: otherShop } }), 1);
   });
 
@@ -189,7 +196,7 @@ describe("Creative Library imported creative deletion", () => {
     assert.equal(await db.adCampaignCreative.count({ where: { shop } }), 0);
   });
 
-  it("removes imported video-file matches without creative ids across loader reloads", async () => {
+  it("does not group or delete filename-only matches without a stable creative identity", async () => {
     const suffix = Date.now();
     const shop = `creative-filename-delete-${suffix}.myshopify.com`;
     const otherShop = `creative-filename-delete-other-${suffix}.myshopify.com`;
@@ -255,16 +262,143 @@ describe("Creative Library imported creative deletion", () => {
     const beforeDelete = await listCreativePerformance({ shop, limit: 10 });
     assert.equal(
       beforeDelete.records.filter((record) => record.videoFilename === "TTAD5.mp4").length,
-      1,
+      2,
     );
 
     await deleteCreativePerformanceRecord(shop, first.id);
     const afterDelete = await listCreativePerformance({ shop, limit: 10 });
 
-    assert.equal(await db.creativePerformance.count({ where: { shop } }), 0);
+    assert.equal(await db.creativePerformance.count({ where: { shop } }), 1);
     assert.equal(await db.savedCreative.count({ where: { shop } }), 0);
-    assert.equal(afterDelete.records.length, 0);
+    assert.equal(afterDelete.records.length, 1);
+    assert.equal(afterDelete.records[0].videoFilename, "TTAD5.mp4");
     assert.equal(await db.creativePerformance.count({ where: { shop: otherShop } }), 1);
+  });
+
+  it("deletes grouped dated rows for one creative ID while preserving a same-named creative", async () => {
+    const suffix = Date.now();
+    const shop = `creative-group-delete-${suffix}.myshopify.com`;
+    shops.add(shop);
+    const campaign = await db.adCampaign.create({
+      data: { shop, name: "Grouped delete", normalizedName: "grouped delete" },
+    });
+    const firstSaved = await db.savedCreative.create({
+      data: {
+        shop,
+        sourceType: "creative_performance_upload_import",
+        sourceId: `upload-group-a-${suffix}`,
+        productId: "product",
+        productTitle: "Product",
+        title: "TTAD2.mp4",
+        payloadJson: JSON.stringify({ originalFilename: "TTAD2.mp4" }),
+      },
+    });
+    const secondSaved = await db.savedCreative.create({
+      data: {
+        shop,
+        sourceType: "creative_performance_upload_import",
+        sourceId: `upload-group-b-${suffix}`,
+        productId: "product",
+        productTitle: "Product",
+        title: "TTAD2.mp4",
+        payloadJson: JSON.stringify({ originalFilename: "TTAD2.mp4" }),
+      },
+    });
+    const firstDay = await db.creativePerformance.create({
+      data: {
+        shop,
+        creativeId: "ttad2-upload-a",
+        platform: "tiktok_ads",
+        sourceRecordId: firstSaved.id,
+        importKey: `ttad2-a-day-1-${suffix}`,
+        adName: "TTAD2.mp4",
+        reportingDate: new Date("2026-07-01"),
+        videoViews: 10,
+      },
+    });
+    const secondDay = await db.creativePerformance.create({
+      data: {
+        shop,
+        creativeId: "ttad2-upload-a",
+        platform: "tiktok_ads",
+        sourceRecordId: firstSaved.id,
+        importKey: `ttad2-a-day-2-${suffix}`,
+        adName: "TTAD2.mp4",
+        reportingDate: new Date("2026-07-02"),
+        videoViews: 20,
+      },
+    });
+    const otherCreative = await db.creativePerformance.create({
+      data: {
+        shop,
+        creativeId: "ttad2-upload-b",
+        platform: "tiktok_ads",
+        sourceRecordId: secondSaved.id,
+        importKey: `ttad2-b-day-1-${suffix}`,
+        adName: "TTAD2.mp4",
+        reportingDate: new Date("2026-07-01"),
+        videoViews: 30,
+      },
+    });
+    await db.adCampaignCreative.createMany({
+      data: [
+        { shop, campaignId: campaign.id, savedCreativeId: firstSaved.id },
+        { shop, campaignId: campaign.id, creativePerformanceId: firstDay.id },
+        { shop, campaignId: campaign.id, creativePerformanceId: secondDay.id },
+        { shop, campaignId: campaign.id, savedCreativeId: secondSaved.id },
+        { shop, campaignId: campaign.id, creativePerformanceId: otherCreative.id },
+      ],
+    });
+
+    const before = await listCreativePerformance({ shop });
+    assert.equal(before.records.filter((record) => record.creativeTitle === "TTAD2.mp4").length, 2);
+
+    await deleteCreativePerformanceRecord(shop, firstDay.id);
+
+    assert.equal(await db.creativePerformance.count({ where: { shop, creativeId: "ttad2-upload-a" } }), 0);
+    assert.equal(await db.creativePerformance.count({ where: { shop, creativeId: "ttad2-upload-b" } }), 1);
+    assert.equal(await db.savedCreative.count({ where: { id: firstSaved.id } }), 0);
+    assert.equal(await db.savedCreative.count({ where: { id: secondSaved.id } }), 1);
+    assert.equal(await db.adCampaignCreative.count({ where: { shop, savedCreativeId: secondSaved.id } }), 1);
+    assert.equal(await db.adCampaignCreative.count({ where: { shop, creativePerformanceId: otherCreative.id } }), 1);
+    assert.equal((await listCreativePerformance({ shop })).records.length, 1);
+  });
+
+  it("deletes private media only after the last exact database reference is removed", async () => {
+    const shop = `creative-media-reference-${Date.now()}.myshopify.com`;
+    shops.add(shop);
+    const stored = await persistUploadedVideoFile(testMp4File("TTAD2.mp4"), {
+      namespace: "creative-library",
+      shop,
+    });
+    const payloadJson = JSON.stringify({
+      mediaPath: stored.storedFileName,
+      mediaUrl: stored.mediaUrl,
+      originalFilename: "TTAD2.mp4",
+      video_url: stored.mediaUrl,
+    });
+    const first = await db.savedCreative.create({
+      data: { shop, sourceType: "manual_upload", sourceId: "ttad2-first", productId: "p", productTitle: "P", title: "TTAD2.mp4", payloadJson },
+    });
+    const second = await db.savedCreative.create({
+      data: { shop, sourceType: "manual_upload", sourceId: "ttad2-second", productId: "p", productTitle: "P", title: "TTAD2.mp4", payloadJson },
+    });
+
+    await deleteSavedCreative(shop, second.id);
+    const preserved = await getPrivateMediaObject({
+      namespace: "creative-library",
+      shop,
+      storedFileName: stored.storedFileName,
+    });
+    assert.ok(preserved.contentLength > 0);
+    assert.ok(await db.savedCreative.findUnique({ where: { id: first.id } }));
+
+    await deleteSavedCreative(shop, first.id);
+    await assert.rejects(() => getPrivateMediaObject({
+      namespace: "creative-library",
+      shop,
+      storedFileName: stored.storedFileName,
+    }), { code: "ENOENT" });
   });
 
   it("clears saved review library fallback when deleting the saved creative", async () => {
@@ -352,3 +486,19 @@ describe("Creative Library imported creative deletion", () => {
     assert.equal(afterDelete.records.length, 0);
   });
 });
+
+function testMp4File(name) {
+  const bytes = Buffer.concat([
+    Buffer.from([0, 0, 0, 24]),
+    Buffer.from("ftyp", "ascii"),
+    Buffer.from("isom0000isom", "ascii"),
+  ]);
+  return {
+    name,
+    size: bytes.length,
+    type: "video/mp4",
+    async arrayBuffer() {
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    },
+  };
+}

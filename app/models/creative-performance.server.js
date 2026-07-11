@@ -464,61 +464,76 @@ export async function listCreativePerformance({
 }
 
 function dedupePerformanceRecords(records = []) {
-  const byKey = new Map();
+  const groups = [];
 
   records.forEach((record) => {
-    const key = performanceRecordDedupeKey(record);
+    const keys = new Set(performanceRecordDedupeKeys(record));
+    const matchingIndexes = groups.flatMap((group, index) =>
+      [...keys].some((key) => group.keys.has(key)) ? [index] : [],
+    );
 
-    if (!key || !byKey.has(key)) {
-      byKey.set(key || `record:${byKey.size}`, record);
+    if (!matchingIndexes.length) {
+      groups.push({ keys, record });
       return;
     }
 
-    const existing = byKey.get(key);
-    byKey.set(key, mergeCreativePerformanceRecords(existing, record));
+    const [firstIndex, ...additionalIndexes] = matchingIndexes;
+    const target = groups[firstIndex];
+    target.record = mergeCreativePerformanceRecords(target.record, record);
+    keys.forEach((key) => target.keys.add(key));
+    additionalIndexes.forEach((index) => {
+      target.record = mergeCreativePerformanceRecords(target.record, groups[index].record);
+      groups[index].keys.forEach((key) => target.keys.add(key));
+    });
+    additionalIndexes.sort((left, right) => right - left).forEach((index) => {
+      groups.splice(index, 1);
+    });
   });
 
-  return [...byKey.values()];
+  return groups.map(({ record }) => record);
 }
 
-function performanceRecordDedupeKey(record = {}) {
+function performanceRecordDedupeKeys(record = {}) {
+  const keys = new Set();
+  const addKey = (type, value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized) keys.add(`${type}:${normalized}`);
+  };
+  const platform = record.sourcePlatform || record.platform || "unknown";
+
   if (
     record.importSource === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE ||
     record.sourceRecordType === CREATIVE_UPLOAD_IMPORT_RECORD_TYPE ||
     record.sourceType === CREATIVE_UPLOAD_IMPORT_SOURCE_TYPE
   ) {
-    if (record.mediaFingerprint) {
-      return `creative-upload:fingerprint:${String(record.mediaFingerprint).toLowerCase()}`;
-    }
-
-    const strongMediaKey =
-      record.videoUrl || record.assetUrl || record.sourceUrl || record.videoFilename || record.originalFilename;
-    if (strongMediaKey) {
-      return `creative-upload:media:${String(strongMediaKey).toLowerCase()}`;
-    }
-
-    if (record.sourceCreativeId || record.sourceRecordId) {
-      return record.sourceCreativeId || record.sourceRecordId;
-    }
-
-    const weakNameKey = record.creativeTitle || record.adName;
-    if (weakNameKey) {
-      return `creative-upload:name:${record.sourcePlatform || record.platform || ""}:${String(weakNameKey).toLowerCase()}`;
-    }
-
-    return record.importKey || record.id;
+    addKey("creative-upload-source", record.sourceCreativeId);
+    addKey("creative-upload-source", record.sourceRecordId);
   }
 
-  return (
-    record.importKey ||
-    record.sourceRecordId ||
-    record.sourceCreativeId ||
-    record.id
-  );
+  addKey("creative", record.creativeId ? `${platform}:${record.creativeId}` : "");
+  addKey("ad", record.adId ? `${platform}:${record.adId}` : "");
+  addKey("import", record.importKey);
+  addKey("source", record.sourceRecordId);
+  addKey("source", record.sourceCreativeId);
+  if (!keys.size) {
+    addKey(
+      "record",
+      `${record.storageRecordType || record.sourceRecordType || "record"}:${record.storageRecordId || record.id}`,
+    );
+  }
+  return [...keys];
 }
 
 function mergeCreativePerformanceRecords(existing = {}, incoming = {}) {
-  const preferred = hasPerformanceMetrics(existing) ? existing : incoming;
+  const preferred = hasPerformanceMetrics(existing)
+    ? existing
+    : hasPerformanceMetrics(incoming)
+      ? incoming
+      : existing.storageRecordType === "creative_performance"
+        ? existing
+        : incoming.storageRecordType === "creative_performance"
+          ? incoming
+          : incoming;
   const secondary = preferred === existing ? incoming : existing;
   const merged = { ...secondary, ...preferred };
   const shouldAggregateMetrics =

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Form, Link, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { assignCampaignRecords, getCampaign, removeCampaignAssignment, updateCampaign } from "../models/campaign.server";
+import { assignCampaignRecords, deleteCampaign, getCampaign, removeCampaignAssignment, updateCampaign } from "../models/campaign.server";
 import { CAMPAIGN_GOALS, CAMPAIGN_PLATFORMS, CAMPAIGN_STATUSES } from "../models/campaign-options";
 import { listSavedCreatives } from "../models/blueprint.server";
 import { listCreativePerformance } from "../models/creative-performance.server";
@@ -36,6 +36,14 @@ export const action = async ({ request, params }) => {
   const formData = await request.formData();
   try {
     const intent = String(formData.get("intent") || "update");
+    if (intent === "delete") {
+      const deleted = await deleteCampaign(session.shop, params.id);
+      const campaignName = deleted?.name || String(formData.get("campaignName") || "Campaign");
+      return redirect(withEmbeddedRouteParams(
+        `/app/campaigns?deleted=1&campaignName=${encodeURIComponent(campaignName)}`,
+        new URL(request.url).search,
+      ));
+    }
     if (intent === "assign") {
       const result = await assignCampaignRecords(session.shop, params.id, {
         savedCreativeIds: formData.getAll("savedCreativeId").map(String),
@@ -50,7 +58,7 @@ export const action = async ({ request, params }) => {
     await updateCampaign(session.shop, params.id, Object.fromEntries(formData));
     return { success: "Campaign settings updated." };
   } catch (error) {
-    return { error: merchantErrorMessage(error, "Could not update campaign. Try again.") };
+    return { error: merchantErrorMessage(error, "Could not save this campaign. Try again, or return to Campaign Manager and confirm it still exists.") };
   }
 };
 
@@ -66,6 +74,7 @@ export default function CampaignDetailRoute() {
   const [tab, setTab] = useState(location.hash === "#creatives" || new URLSearchParams(location.search).get("created") === "1" ? "creatives" : "overview");
   const [addOpen, setAddOpen] = useState(new URLSearchParams(location.search).get("created") === "1");
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   if (!campaign) {
     return <section className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-7 text-amber-100">
       <p className="text-xs font-black uppercase tracking-[0.16em]">Campaign unavailable</p>
@@ -111,7 +120,8 @@ export default function CampaignDetailRoute() {
     {tab === "notes" && <Notes campaign={campaign} onEdit={() => setEditOpen(true)} />}
 
     {addOpen && <PickerDialog availablePerformance={availablePerformance} availableSaved={availableSaved} onClose={() => setAddOpen(false)} submitting={submitting} />}
-    {editOpen && <EditDialog campaign={campaign} onClose={() => setEditOpen(false)} submitting={submitting} />}
+    {editOpen && <EditDialog campaign={campaign} onClose={() => setEditOpen(false)} onDelete={() => setDeleteOpen(true)} submitting={submitting} />}
+    {deleteOpen && <DeleteCampaignDialog campaign={campaign} onClose={() => setDeleteOpen(false)} submitting={submitting} />}
   </div>;
 }
 
@@ -153,7 +163,9 @@ function PickerDialog({ availablePerformance, availableSaved, onClose, submittin
   return <Dialog onClose={onClose} title="Add creatives"><p className="mt-2 text-sm text-slate-400">Choose one or more uploaded or imported creatives. Creatives already in this campaign are hidden.</p><Form className="mt-5" method="post"><input name="intent" type="hidden" value="assign" /><div className="max-h-[52vh] space-y-5 overflow-y-auto pr-1"><ChoiceList getLabel={(item) => item.title} name="savedCreativeId" records={availableSaved} title="Saved creatives" /><ChoiceList getLabel={(item) => item.creativeTitle || item.adName || item.sourceCreativeId} name="creativePerformanceId" records={availablePerformance} title="Imported performance creatives" /></div>{!count && <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">No unassigned creatives are available. Upload a creative or move one from another campaign in the Creative Library.</p>}<div className="mt-6 flex justify-end gap-3"><button className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-300" onClick={onClose} type="button">Cancel</button><button className="bp-primary-cta" disabled={submitting || !count} type="submit">{submitting ? "Adding…" : "Add selected creatives"}</button></div></Form></Dialog>;
 }
 
-function EditDialog({ campaign, onClose, submitting }) { return <Dialog onClose={onClose} title="Edit campaign"><Form className="mt-5 grid gap-4 sm:grid-cols-2" method="post"><input name="intent" type="hidden" value="update" /><Field label="Campaign name" name="name" defaultValue={campaign.name} required /><Field label="Description" name="description" defaultValue={campaign.description || ""} /><Select label="Status" name="status" values={CAMPAIGN_STATUSES} defaultValue={campaign.status} /><Select label="Objective" name="objective" values={CAMPAIGN_GOALS} defaultValue={campaign.objective} /><Select label="Platform" name="platform" values={CAMPAIGN_PLATFORMS} defaultValue={campaign.platform} /><Field label="Primary product" name="primaryProductName" defaultValue={campaign.primaryProductName || ""} /><Field label="Start date" name="startDate" type="date" defaultValue={inputDate(campaign.startDate)} /><Field label="End date" name="endDate" type="date" defaultValue={inputDate(campaign.endDate)} /><Field label="Budget" name="budget" type="number" step="0.01" min="0" defaultValue={campaign.budget ?? ""} /><Field label="Target audience" name="targetAudience" defaultValue={campaign.targetAudience || ""} /><label className="text-sm font-semibold text-slate-200 sm:col-span-2">Notes<textarea className="mt-2 min-h-28 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" defaultValue={campaign.notes || ""} name="notes" /></label><div className="flex justify-end gap-3 sm:col-span-2"><button className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-300" onClick={onClose} type="button">Cancel</button><button className="bp-primary-cta" disabled={submitting}>{submitting ? "Saving…" : "Save changes"}</button></div></Form></Dialog>; }
+function EditDialog({ campaign, onClose, onDelete, submitting }) { return <Dialog onClose={onClose} title="Edit campaign"><Form className="mt-5 grid gap-4 sm:grid-cols-2" method="post"><input name="intent" type="hidden" value="update" /><Field label="Campaign name" name="name" defaultValue={campaign.name} required /><Field label="Description" name="description" defaultValue={campaign.description || ""} /><Select label="Status" name="status" values={CAMPAIGN_STATUSES} defaultValue={campaign.status} /><Select label="Objective" name="objective" values={CAMPAIGN_GOALS} defaultValue={campaign.objective} /><Select label="Platform" name="platform" values={CAMPAIGN_PLATFORMS} defaultValue={campaign.platform} /><Field label="Primary product" name="primaryProductName" defaultValue={campaign.primaryProductName || ""} /><Field label="Start date" name="startDate" type="date" defaultValue={inputDate(campaign.startDate)} /><Field label="End date" name="endDate" type="date" defaultValue={inputDate(campaign.endDate)} /><Field label="Budget" name="budget" type="number" step="0.01" min="0" defaultValue={campaign.budget ?? ""} /><Field label="Target audience" name="targetAudience" defaultValue={campaign.targetAudience || ""} /><label className="text-sm font-semibold text-slate-200 sm:col-span-2">Notes<textarea className="mt-2 min-h-28 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" defaultValue={campaign.notes || ""} name="notes" /></label><div className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2"><button className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-bold text-red-200" onClick={onDelete} type="button">Delete campaign</button><div className="flex gap-3"><button className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-300" onClick={onClose} type="button">Cancel</button><button className="bp-primary-cta" disabled={submitting}>{submitting ? "Saving…" : "Save changes"}</button></div></div></Form></Dialog>; }
+
+function DeleteCampaignDialog({ campaign, onClose, submitting }) { return <Dialog onClose={onClose} title={`Delete “${campaign.name}” from BluePrintAI?`}><p className="mt-4 text-sm leading-6 text-slate-300">This removes the local campaign and its creative assignments. It does not delete the campaign from Google Ads or any other advertising platform. Creatives and imported performance records will be preserved. A future import containing the same external campaign may recreate the local campaign.</p><Form className="mt-6 flex justify-end gap-3" method="post"><input name="intent" type="hidden" value="delete" /><input name="campaignName" type="hidden" value={campaign.name} /><button className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-bold text-slate-300" disabled={submitting} onClick={onClose} type="button">Cancel</button><button className="rounded-xl border border-red-500/50 bg-red-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60" disabled={submitting} type="submit">{submitting ? "Deleting…" : "Delete campaign"}</button></Form></Dialog>; }
 
 function Dialog({ children, onClose, title }) { return <div aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" role="dialog"><section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1220] p-6 shadow-2xl"><div className="flex items-center justify-between gap-4"><h2 className="text-2xl font-bold text-white">{title}</h2><button aria-label={`Close ${title}`} className="rounded-lg border border-white/10 px-3 py-2 text-slate-300" onClick={onClose} type="button">✕</button></div>{children}</section></div>; }
 function ChoiceList({ getLabel, name, records, title }) { return records.length ? <div><h3 className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{title}</h3><div className="mt-2 space-y-2">{records.map((item) => <label className="flex cursor-pointer gap-3 rounded-xl border border-white/10 p-3 text-sm text-slate-200 hover:border-cyan-400/30 hover:bg-cyan-500/5" key={item.id}><input className="accent-cyan-400" name={name} type="checkbox" value={item.id} /><span>{getLabel(item) || "Untitled creative"}</span></label>)}</div></div> : null; }

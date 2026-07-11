@@ -31,15 +31,17 @@ describe("Creative Library delete UI", () => {
     assert.match(source, /setDeleteTarget\(null\)/);
   });
 
-  it("hides duplicate logical creative cards after one successful delete", async () => {
+  it("hides only the exact record after one successful delete", async () => {
     const source = await readFile(routePath, "utf8");
 
     assert.match(source, /function getCreativeDeleteTokens/);
     assert.match(source, /function creativeMatchesDeletedTokens/);
-    assert.match(source, /addDeleteToken\(tokens, "media"/);
-    assert.match(source, /addDeleteToken\(tokens, "fingerprint"/);
-    assert.match(source, /"review-file"/);
+    assert.match(source, /deletionSourceForCreative/);
+    assert.match(source, /`record:\$\{deletionSource\}:\$\{normalized\}`/);
     assert.match(source, /creativeMatchesDeletedTokens\(creative, deletedCreativeTokens\)/);
+    assert.doesNotMatch(source, /formData\.set\("mediaUrl"/);
+    assert.doesNotMatch(source, /formData\.set\("mediaFingerprint"/);
+    assert.doesNotMatch(source, /formData\.set\("sourceId"/);
   });
 
   it("does not expose the temporary delete debug flow", async () => {

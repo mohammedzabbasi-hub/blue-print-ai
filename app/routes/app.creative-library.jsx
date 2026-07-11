@@ -87,15 +87,13 @@ export const action = async ({ request }) => {
 
   if (intent === "deleteCreative" || intent === "delete") {
     const deleteRequestId = String(formData.get("deleteRequestId") || "").trim();
-    const recordId = String(
-      formData.get("recordId") || formData.get("creativeId") || "",
-    ).trim();
-    const recordType = String(formData.get("recordType") || "saved_creative").trim();
+    const recordId = String(formData.get("recordId") || "").trim();
+    const deletionSource = String(formData.get("deletionSource") || "").trim();
     if (!recordId) {
       return { error: "Choose a creative record to delete.", ok: false };
     }
 
-    if (!["creative_performance", "saved_creative", "video_analysis"].includes(recordType)) {
+    if (!["performanceCreative", "savedCreative", "savedReview"].includes(deletionSource)) {
       return {
         error: "This creative source cannot be deleted from the Creative Library.",
         ok: false,
@@ -104,9 +102,9 @@ export const action = async ({ request }) => {
 
     try {
       const deleted =
-        recordType === "video_analysis"
+        deletionSource === "savedReview"
           ? await deleteVideoAnalysisRecord(session.shop, recordId)
-          : recordType === "creative_performance"
+          : deletionSource === "performanceCreative"
             ? await deleteCreativePerformanceRecord(session.shop, recordId)
           : await deleteSavedCreative(session.shop, recordId);
 
@@ -120,14 +118,11 @@ export const action = async ({ request }) => {
 
       return {
         deleteRequestId,
+        deletedDeletionSource: deletionSource,
         deletedDisplayId: String(formData.get("displayId") || recordId),
-        deletedIdentity: String(formData.get("deleteIdentity") || ""),
-        deletedMediaFingerprint: String(formData.get("mediaFingerprint") || ""),
-        deletedMediaUrl: String(formData.get("mediaUrl") || ""),
         deletedRecordId: recordId,
-        deletedRecordType: recordType,
         ok: true,
-        success: "Creative deleted.",
+        success: "Selected creative deleted.",
       };
     } catch (error) {
       return {
@@ -658,18 +653,12 @@ export default function CreativeLibraryRoute() {
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const formData = new FormData();
-    const identity = JSON.stringify(creativeDeleteIdentity(deleteTarget));
 
     formData.set("intent", "deleteCreative");
     formData.set("deleteRequestId", deleteRequestId);
-    formData.set("deleteIdentity", identity);
+    formData.set("deletionSource", deletionSourceForCreative(deleteTarget));
     formData.set("displayId", String(deleteTarget.id || ""));
     formData.set("recordId", String(deleteTarget.recordId || ""));
-    formData.set("recordType", String(deleteTarget.recordType || ""));
-    formData.set("sourceId", String(deleteTarget.sourceCreativeId || deleteTarget.deletionKey || ""));
-    formData.set("reviewId", String(deleteTarget.reviewId || ""));
-    formData.set("mediaUrl", String(primaryCreativeMediaUrl(deleteTarget) || ""));
-    formData.set("mediaFingerprint", String(deleteTarget.mediaFingerprint || ""));
 
     setPendingDeleteTarget(deleteTarget);
     setPendingDeleteRequestId(deleteRequestId);
@@ -1241,12 +1230,12 @@ function CreativeDeleteConfirmationModal({
           className="mt-2 font-display text-2xl font-semibold text-white"
           id="delete-creative-title"
         >
-          Remove this creative?
+          Delete “{creative.title || "this creative"}”?
         </h2>
         <p className="mt-3 text-sm leading-6 text-slate-300">
-          {creative.title || "This creative"} will be removed from BluePrintAI for this
-          Shopify workspace. External ad platform data and Shopify store data will not
-          be deleted.
+          Only this Creative Library record and its own local relationships will be
+          removed from this Shopify workspace. Other creatives with the same filename
+          will remain. External ad platform data and Shopify store data will not be deleted.
         </p>
         {error && (
           <p
@@ -1271,7 +1260,7 @@ function CreativeDeleteConfirmationModal({
             disabled={deleting}
             className="rounded-lg border border-red-500/50 bg-red-950/50 px-4 py-2 text-sm font-semibold text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {deleting ? "Deleting..." : "Confirm delete"}
+            {deleting ? "Deleting..." : "Delete creative"}
           </button>
         </div>
       </section>
@@ -1389,97 +1378,25 @@ function CreativeDetailsModal({ creative, onClose, onDelete }) {
   );
 }
 
-function primaryCreativeMediaUrl(creative = {}) {
-  return (
-    creative.video_url ||
-    creative.videoUrl ||
-    creative.asset_url ||
-    creative.assetUrl ||
-    creative.source_url ||
-    creative.sourceUrl ||
-    ""
-  );
-}
-
 function normalizeDeleteTokenValue(value = "") {
   return String(value || "").trim().toLowerCase();
 }
 
-function addDeleteToken(tokens, type, value) {
-  const normalized = normalizeDeleteTokenValue(value);
-
-  if (normalized) tokens.add(`${type}:${normalized}`);
-}
-
-function addRecordDeleteToken(tokens, recordType, recordId) {
-  if (!recordId) return;
-
-  addDeleteToken(tokens, "record", `${recordType || ""}:${recordId}`);
-}
-
-function creativeDeleteIdentity(creative = {}) {
-  return {
-    id: creative.id || "",
-    recordId: creative.recordId || "",
-    recordType: creative.recordType || "",
-    sourceId: creative.sourceCreativeId || creative.deletionKey || "",
-    sourceRecordId: creative.sourceRecordId || "",
-    reviewId: creative.reviewId || "",
-    mediaUrl: primaryCreativeMediaUrl(creative),
-    mediaFingerprint: creative.mediaFingerprint || "",
-    fileName: creative.fileName || "",
-    product: creative.product || "",
-    createdFromReview:
-      creative.source_platform === "video_analysis" ||
-      creative.recordType === "video_analysis" ||
-      Boolean(creative.reviewId),
-  };
-}
-
-function parseDeleteIdentity(value = "") {
-  try {
-    return value ? JSON.parse(value) : {};
-  } catch {
-    return {};
-  }
+function deletionSourceForCreative(creative = {}) {
+  if (creative.recordType === "creative_performance") return "performanceCreative";
+  if (creative.recordType === "video_analysis") return "savedReview";
+  if (creative.recordType === "saved_creative") return "savedCreative";
+  return "";
 }
 
 function getCreativeDeleteTokens(creative = {}, response = {}) {
-  const identity = parseDeleteIdentity(response.deletedIdentity);
-  const tokens = new Set();
-
-  for (const candidate of [creative, identity]) {
-    addDeleteToken(tokens, "id", candidate.id);
-    addRecordDeleteToken(
-      tokens,
-      candidate.recordType || creative.recordType,
-      candidate.recordId,
-    );
-    addDeleteToken(tokens, "source", candidate.sourceId || candidate.sourceCreativeId);
-    addDeleteToken(tokens, "source", candidate.sourceRecordId);
-    addDeleteToken(tokens, "review", candidate.reviewId);
-    addDeleteToken(tokens, "media", candidate.mediaUrl || primaryCreativeMediaUrl(candidate));
-    addDeleteToken(tokens, "fingerprint", candidate.mediaFingerprint);
-
-    if (candidate.createdFromReview || creative.reviewId) {
-      addDeleteToken(
-        tokens,
-        "review-file",
-        `${candidate.fileName || creative.fileName}:${candidate.sourceId || candidate.reviewId || creative.reviewId}`,
-      );
-    }
-  }
-
-  addDeleteToken(tokens, "id", response.deletedDisplayId);
-  addRecordDeleteToken(
-    tokens,
-    response.deletedRecordType || creative.recordType,
-    response.deletedRecordId,
-  );
-  addDeleteToken(tokens, "media", response.deletedMediaUrl);
-  addDeleteToken(tokens, "fingerprint", response.deletedMediaFingerprint);
-
-  return [...tokens];
+  const deletionSource =
+    response.deletedDeletionSource || deletionSourceForCreative(creative);
+  const recordId = response.deletedRecordId || creative.recordId;
+  const normalized = normalizeDeleteTokenValue(recordId);
+  return deletionSource && normalized
+    ? [`record:${deletionSource}:${normalized}`]
+    : [];
 }
 
 function creativeMatchesDeletedTokens(creative, deletedTokens = []) {

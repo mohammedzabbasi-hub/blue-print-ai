@@ -10,7 +10,7 @@ import {
   useNavigation,
   useParams,
 } from "react-router";
-import { createCampaign, deleteCampaign, listCampaigns } from "../models/campaign.server";
+import { createCampaign, listCampaigns } from "../models/campaign.server";
 import { CAMPAIGN_GOALS, CAMPAIGN_PLATFORMS, CAMPAIGN_STATUSES } from "../models/campaign-options";
 import { loadShopifyRouteContext } from "../models/route-context.server";
 import { withEmbeddedRouteParams } from "../utils/embedded-routing";
@@ -20,17 +20,20 @@ export const meta = () => [{ title: "Campaign Manager | BluePrintAI" }];
 
 export const loader = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
-  return { campaigns: await listCampaigns(session.shop) };
+  const url = new URL(request.url);
+  return {
+    campaigns: await listCampaigns(session.shop),
+    deletedCampaignName:
+      url.searchParams.get("deleted") === "1"
+        ? String(url.searchParams.get("campaignName") || "Campaign")
+        : "",
+  };
 };
 
 export const action = async ({ request }) => {
   const { session } = await loadShopifyRouteContext(request);
   const formData = await request.formData();
   try {
-    if (formData.get("intent") === "delete") {
-      await deleteCampaign(session.shop, String(formData.get("campaignId") || ""));
-      return { success: "Campaign deleted. Assigned creatives remain available." };
-    }
     const campaign = await createCampaign(session.shop, Object.fromEntries(formData));
     return redirect(withEmbeddedRouteParams(`/app/campaigns/${campaign.id}?created=1`, new URL(request.url).search));
   } catch (error) {
@@ -45,7 +48,7 @@ const optionalRate = (value, suffix) => value == null ? "Not imported" : `${Numb
 
 export default function CampaignManagerRoute() {
   const params = useParams();
-  const { campaigns } = useLoaderData();
+  const { campaigns, deletedCampaignName } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const location = useLocation();
@@ -70,6 +73,7 @@ export default function CampaignManagerRoute() {
       </div>
     </section>
 
+    {deletedCampaignName && <Notice tone="success">{deletedCampaignName} was deleted from BluePrintAI. Its creatives and imported performance records were preserved.</Notice>}
     {actionData?.success && <Notice tone="success">{actionData.success}</Notice>}
 
     <nav aria-label="Campaign status" className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-[#0b1220] p-2">

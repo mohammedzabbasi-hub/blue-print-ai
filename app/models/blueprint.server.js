@@ -974,18 +974,17 @@ export async function deleteSavedCreative(shop, creativeId) {
   const deletionGroup = await resolveCreativeDeletionGroup(shop, {
     savedCreative: existing,
   });
-  const duplicateIds = deletionGroup.savedCreativeIds;
+  const savedCreativeIds = deletionGroup.savedCreativeIds;
   const mediaFiles = deletionGroup.mediaObjects;
 
-  // Saved reviews/uploads may have been written more than once with the same
-  // source or media identity. Remove the whole shop-local identity group so a
-  // duplicate card cannot make a successful delete appear to have failed.
+  // The selected SavedCreative primary key is authoritative. Related rows are
+  // included only through explicit source-record relationships.
   await db.$transaction([
     db.adCampaignCreative.deleteMany({
       where: {
         shop,
         OR: [
-          { savedCreativeId: { in: duplicateIds } },
+          { savedCreativeId: { in: savedCreativeIds } },
           ...(deletionGroup.performanceRecordIds.length
             ? [
                 {
@@ -999,7 +998,7 @@ export async function deleteSavedCreative(shop, creativeId) {
       },
     }),
     db.savedCreative.deleteMany({
-      where: { shop, id: { in: duplicateIds } },
+      where: { shop, id: { in: savedCreativeIds } },
     }),
     ...(deletionGroup.videoAnalysisIds.length
       ? [
@@ -1220,52 +1219,75 @@ async function resolveCreativeDeletionGroup(
   shop,
   { performance = null, savedCreative = null, videoAnalysis = null } = {},
 ) {
-  const allPerformances = await db.creativePerformance.findMany({ where: { shop } });
-  const allSavedCreatives = await db.savedCreative.findMany({ where: { shop } });
-  const allVideoAnalyses = await db.videoAnalysis.findMany({ where: { shop } });
-  const seeds = [
-    performance ? performanceDeletionIdentity(performance) : null,
-    savedCreative ? savedCreativeDeletionIdentity(savedCreative) : null,
-    videoAnalysis ? videoAnalysisDeletionIdentity(videoAnalysis) : null,
-  ].filter(Boolean);
-  const finalTokens = new Set(seeds.flatMap((identity) => identity.tokens));
   let matchedPerformances = [];
   let matchedSavedCreatives = [];
   let matchedVideoAnalyses = [];
-  let changed = true;
 
-  while (changed) {
-    changed = false;
-    const nextPerformances = allPerformances.filter((record) =>
-      identitiesOverlap(finalTokens, performanceDeletionIdentity(record).tokens),
+  if (performance) {
+    matchedPerformances = await db.creativePerformance.findMany({
+      where: performanceGroupWhere(shop, performance),
+    });
+    const sourceRecordIds = uniqueIds(
+      matchedPerformances.flatMap((record) => [record.id, record.sourceRecordId]),
     );
-    const nextSavedCreatives = allSavedCreatives.filter((record) =>
-      identitiesOverlap(finalTokens, savedCreativeDeletionIdentity(record).tokens),
-    );
-    const nextVideoAnalyses = allVideoAnalyses.filter((record) =>
-      identitiesOverlap(finalTokens, videoAnalysisDeletionIdentity(record).tokens),
-    );
-    const nextTokens = [
-      ...nextPerformances.flatMap((record) => performanceDeletionIdentity(record).tokens),
-      ...nextSavedCreatives.flatMap((record) => savedCreativeDeletionIdentity(record).tokens),
-      ...nextVideoAnalyses.flatMap((record) => videoAnalysisDeletionIdentity(record).tokens),
-    ];
-
-    for (const token of nextTokens) {
-      if (!finalTokens.has(token)) {
-        finalTokens.add(token);
-        changed = true;
-      }
+    matchedSavedCreatives = sourceRecordIds.length
+      ? await db.savedCreative.findMany({
+          where: {
+            shop,
+            OR: [
+              { id: { in: sourceRecordIds } },
+              { sourceId: { in: sourceRecordIds } },
+            ],
+          },
+        })
+      : [];
+  } else if (savedCreative) {
+    matchedSavedCreatives = [savedCreative];
+    const sourceRecordIds = [savedCreative.id];
+    if (savedCreative.sourceId) {
+      const otherSourceReferences = await db.savedCreative.count({
+        where: { shop, sourceId: savedCreative.sourceId, NOT: { id: savedCreative.id } },
+      });
+      if (!otherSourceReferences) sourceRecordIds.push(savedCreative.sourceId);
     }
+    matchedPerformances = await db.creativePerformance.findMany({
+      where: { shop, sourceRecordId: { in: uniqueIds(sourceRecordIds) } },
+    });
+  } else if (videoAnalysis) {
+    matchedVideoAnalyses = [videoAnalysis];
+    matchedSavedCreatives = await db.savedCreative.findMany({
+      where: { shop, sourceType: "video_analysis", sourceId: videoAnalysis.id },
+    });
+    const sourceRecordIds = uniqueIds([
+      videoAnalysis.id,
+      ...matchedSavedCreatives.flatMap((record) => [record.id, record.sourceId]),
+    ]);
+    matchedPerformances = await db.creativePerformance.findMany({
+      where: { shop, sourceRecordId: { in: sourceRecordIds } },
+    });
+  }
 
-    changed =
-      changed ||
-      nextPerformances.length !== matchedPerformances.length ||
-      nextSavedCreatives.length !== matchedSavedCreatives.length ||
-      nextVideoAnalyses.length !== matchedVideoAnalyses.length;
-    matchedPerformances = nextPerformances;
-    matchedSavedCreatives = nextSavedCreatives;
-    matchedVideoAnalyses = nextVideoAnalyses;
+  if (!matchedVideoAnalyses.length) {
+    const reviewIds = uniqueIds(
+      matchedSavedCreatives
+        .filter((record) => record.sourceType === "video_analysis")
+        .map((record) => record.sourceId),
+    );
+    if (reviewIds.length) {
+      const matchedSavedIds = new Set(matchedSavedCreatives.map(({ id }) => id));
+      const reviewReferences = await db.savedCreative.findMany({
+        where: { shop, sourceType: "video_analysis", sourceId: { in: reviewIds } },
+        select: { id: true, sourceId: true },
+      });
+      const exclusivelyMatchedReviewIds = reviewIds.filter((reviewId) =>
+        reviewReferences
+          .filter((record) => record.sourceId === reviewId)
+          .every((record) => matchedSavedIds.has(record.id)),
+      );
+      matchedVideoAnalyses = await db.videoAnalysis.findMany({
+        where: { shop, id: { in: exclusivelyMatchedReviewIds } },
+      });
+    }
   }
   const mediaObjects = [
     ...matchedPerformances.flatMap(performanceMediaObjects),
@@ -1281,97 +1303,16 @@ async function resolveCreativeDeletionGroup(
   };
 }
 
-function identitiesOverlap(leftTokens, rightTokens) {
-  const right = new Set(rightTokens);
-  return [...leftTokens].some((token) => right.has(token));
-}
-
-function performanceDeletionIdentity(record = {}) {
+function performanceGroupWhere(shop, record = {}) {
   const payload = parsePayload(record.payloadJson) || {};
   const platform = record.platform || payload.sourcePlatform || payload.platform || "";
-  const tokens = new Set();
+  const creativeId = record.creativeId || payload.creativeId || "";
+  const adId = record.adId || payload.adId || "";
 
-  addIdentityToken(tokens, "performance-id", record.id);
-  addIdentityToken(tokens, "source-record", record.sourceRecordId);
-  addIdentityToken(tokens, "creative-id", record.creativeId);
-  addIdentityToken(tokens, "ad-id", record.adId || payload.adId);
-  addIdentityToken(tokens, "import-key", record.importKey);
-  addIdentityToken(tokens, "media-fingerprint", payload.mediaFingerprint);
-  addIdentityToken(tokens, "media-url", record.videoUrl || payload.mediaUrl || payload.video_url);
-  addIdentityToken(tokens, "media-path", payload.mediaPath);
-  addIdentityToken(tokens, "filename", record.originalFilename || payload.originalFilename);
-  addIdentityToken(tokens, "filename", payload.videoFilename);
-  addIdentityToken(tokens, "creative-name", record.adName || payload.creativeName || payload.creativeTitle);
-  addCompoundIdentityToken(tokens, "platform-creative", platform, record.creativeId);
-  addCompoundIdentityToken(tokens, "platform-ad", platform, record.adId || payload.adId);
-  addCompoundIdentityToken(
-    tokens,
-    "platform-filename",
-    platform,
-    record.originalFilename || payload.originalFilename || payload.videoFilename,
-  );
-  addCompoundIdentityToken(
-    tokens,
-    "platform-name",
-    platform,
-    record.adName || payload.creativeName || payload.creativeTitle,
-  );
-
-  return { tokens: [...tokens] };
-}
-
-function savedCreativeDeletionIdentity(record = {}) {
-  const payload = record.payload || parsePayload(record.payloadJson) || {};
-  const tokens = new Set();
-
-  addIdentityToken(tokens, "saved-id", record.id);
-  addIdentityToken(tokens, "source-record", record.id);
-  addIdentityToken(tokens, "source-record", record.sourceId);
-  addIdentityToken(tokens, "review-id", record.sourceType === "video_analysis" ? record.sourceId : "");
-  addIdentityToken(tokens, "media-fingerprint", payload.mediaFingerprint);
-  addIdentityToken(tokens, "media-url", payload.mediaUrl || payload.videoUrl || payload.video_url);
-  addIdentityToken(tokens, "media-path", payload.mediaPath);
-  addIdentityToken(tokens, "filename", payload.originalFilename || payload.fileName || payload.videoFilename);
-  addIdentityToken(tokens, "creative-name", record.title || payload.creativeTitle || payload.displayTitle);
-
-  return { tokens: [...tokens] };
-}
-
-function videoAnalysisDeletionIdentity(record = {}) {
-  const payload = record.payload || parsePayload(record.payloadJson) || {};
-  const result = payload.result || payload;
-  const media = result.media || payload.media || {};
-  const metadata = result.metadata || payload.metadata || {};
-  const display = result.display || {};
-  const tokens = new Set();
-
-  addIdentityToken(tokens, "review-id", record.id);
-  addIdentityToken(tokens, "source-record", record.id);
-  addIdentityToken(tokens, "media-fingerprint", media.fingerprint || metadata.media_fingerprint);
-  addIdentityToken(tokens, "media-url", media.mediaUrl || metadata.media_url);
-  addIdentityToken(tokens, "media-path", media.mediaPath || media.storedFileName || metadata.media_path);
-  addIdentityToken(tokens, "filename", record.fileName || display.originalFilename || media.originalName);
-
-  return { tokens: [...tokens] };
-}
-
-function addIdentityToken(tokens, type, value) {
-  const normalized = normalizeIdentityValue(value);
-  if (normalized && /[a-z0-9]/.test(normalized)) tokens.add(`${type}:${normalized}`);
-}
-
-function addCompoundIdentityToken(tokens, type, namespace, value) {
-  const normalizedValue = normalizeIdentityValue(value);
-  if (!normalizedValue) return;
-
-  addIdentityToken(tokens, type, `${namespace || "unknown"}:${normalizedValue}`);
-}
-
-function normalizeIdentityValue(value = "") {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  if (creativeId) return { shop, creativeId, ...(platform ? { platform } : {}) };
+  if (adId) return { shop, adId, ...(platform ? { platform } : {}) };
+  if (record.sourceRecordId) return { shop, sourceRecordId: record.sourceRecordId };
+  return { shop, id: record.id };
 }
 
 function uniqueIds(values = []) {
@@ -1434,7 +1375,7 @@ async function deleteUnreferencedPrivateMediaObjects(shop, mediaObjects = []) {
   const candidates = uniqueMediaObjects(mediaObjects);
   if (!candidates.length) return { deletedFiles: 0 };
 
-  const remainingRecords = await Promise.all([
+  const [savedCreatives, performances, videoAnalyses] = await Promise.all([
     db.savedCreative.findMany({ where: { shop }, select: { payloadJson: true } }),
     db.creativePerformance.findMany({
       where: { shop },
@@ -1442,12 +1383,20 @@ async function deleteUnreferencedPrivateMediaObjects(shop, mediaObjects = []) {
     }),
     db.videoAnalysis.findMany({ where: { shop }, select: { payloadJson: true } }),
   ]);
-  const haystack = JSON.stringify(remainingRecords).toLowerCase();
+  const referencedKeys = new Set([
+    ...savedCreatives.flatMap(savedCreativeMediaObjects),
+    ...performances.flatMap(performanceMediaObjects),
+    ...videoAnalyses.flatMap(videoAnalysisMediaObjects),
+  ].map(mediaObjectKey));
   const unreferenced = candidates.filter(
-    ({ storedFileName }) => !haystack.includes(String(storedFileName).toLowerCase()),
+    (object) => !referencedKeys.has(mediaObjectKey(object)),
   );
 
   return deletePrivateMediaObjects(shop, unreferenced);
+}
+
+function mediaObjectKey({ namespace = "creative-library", storedFileName = "" } = {}) {
+  return `${namespace}:${storedFileName}`.toLowerCase();
 }
 
 export async function listRevenueBlueprints(shop, limit = 5) {
